@@ -1,0 +1,2 @@
+wptools>=0.4
+dateutil.parser>=2.0
