@@ -20,12 +20,13 @@ import sys
 import datetime
 import dateutil.parser
 
+
 people = {}
 
 def get_data(myname):
     if myname in people:
         return people[myname]
-    else: 
+    else:
         pdata = {}
         p = wptools.page(myname, lang='it', silent=True)
         p.wanted_labels([])
@@ -64,7 +65,7 @@ def get_data(myname):
 #             for i in claims['P166']:
 #                 print(i)
 
-        age = calculate_age(birth,death)
+        age = calculate_age(birth, death)
 
         pdata['name'] = name
         pdata['descr'] = descr
@@ -78,7 +79,8 @@ def get_data(myname):
 
         return pdata
 
-def calculate_age(birth, death = None):
+
+def calculate_age(birth, death=None):
     if death:
         today = death
     else:
@@ -93,5 +95,4 @@ with open(sys.argv[1]) as names:
         data = get_data(myname)
 
         if not data['alive']:
-            print(data['name'], data['age'], data ['alive'], data['nobel'])
-
+            print(data['name'], data['age'], data['alive'], data['nobel'])
