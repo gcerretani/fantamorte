@@ -16,6 +16,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 import wptools
+import sys
 import datetime
 import dateutil.parser
 
@@ -85,7 +86,7 @@ def calculate_age(birth, death = None):
     return today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
 
 
-with open('names.txt') as names:
+with open(sys.argv[1]) as names:
     for myname in names:
         myname = myname.strip('\n')
 
