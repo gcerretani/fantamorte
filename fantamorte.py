@@ -17,82 +17,88 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import wptools
 import sys
-import datetime
-import dateutil.parser
+from datetime import datetime, timezone
+from dateutil.parser import parse
+from dateutil.relativedelta import relativedelta
 
+class Person():
+    def __init__(self, name):
+        wp_parser = wptools.page(name, lang='it', silent=True)
+        wp_parser.wanted_labels([])
+        self._page = wp_parser.get_wikidata().data
+        self._name = self._page['label']
+        self._descr = self._page['description']
+        self._claims = self._page['claims']
+        self._birth_date = self.get_date('P569')
+        self._death_date = self.get_date('P570')
+        self._is_alive = not self.has_property('P570')
+        self._age = self.calculate_age()
+        self._nobel = self.has_property('P3188')
+        self._oscar = self.has_oscar()
 
-people = {}
+    def get_date(self, id):
+        if id not in self._claims:
+            return None
+        d = self._claims[id][0][1:]
+        try:
+            return parse(d) # may be invalid
+        except:
+            return None
 
-def get_data(myname):
-    if myname in people:
-        return people[myname]
-    else:
-        pdata = {}
-        p = wptools.page(myname, lang='it', silent=True)
-        p.wanted_labels([])
-        page = p.get_wikidata()
-#         for item in page.data:
-#             print(item , page.data[item])
+    def has_property(self, it):
+        return it in self._claims
 
-        name = page.data['label']
-        descr = page.data['description']
-        claims = page.data['claims']
-        birth = None
-        death = None
-        nobel = False
-        alive = False
+    def has_oscar(self):
+        if self.has_property('P166'):
+            for award_id in self._claims['P166']:
+                award_parser = wptools.page(wikibase=award_id, silent=True).get()
+                award_parser.wanted_labels([])
+                award_page_claims = award_parser.get_wikidata().data['claims']
+                if 'P31' in award_page_claims:
+                    return 'Q19020' in award_page_claims['P31']
+        return False
 
-        if 'P569' in claims:
-            d = claims['P569'][0][1:]
-            birth = dateutil.parser.parse(d)
+    def calculate_age(self):
+        if not self._is_alive:
+            last_day = self._death_date
         else:
-            birth = None
-            print("no birth date")
+            last_day = datetime.now(timezone.utc)
+        return relativedelta(last_day, self._birth_date).years
 
-        if 'P570' in claims:
-            d = claims['P570'][0][1:]
-            death = dateutil.parser.parse(d)
-        else:
-            alive = True
-            death = None
+    @property
+    def name(self):
+        return self._name
 
-        if 'P3188' in claims:
-            nobel = True
-        else:
-            nobel = False
+    @property
+    def is_alive(self):
+        return self._is_alive
 
-#         if 'P166' in claims:
-#             for i in claims['P166']:
-#                 print(i)
+    @property
+    def birth_date(self):
+        return self._birth_date
 
-        age = calculate_age(birth, death)
+    @property
+    def death_date(self):
+        return self._death_date
 
-        pdata['name'] = name
-        pdata['descr'] = descr
-        pdata['birth'] = birth
-        pdata['death'] = death
-        pdata['age'] = age
-        pdata['alive'] = alive
-        pdata['nobel'] = nobel
+    @property
+    def age(self):
+        return self._age
 
-        people[myname] = pdata
+    @property
+    def nobel(self):
+        return self._nobel
 
-        return pdata
-
-
-def calculate_age(birth, death=None):
-    if death:
-        today = death
-    else:
-        today = datetime.date.today()
-    return today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
+    @property
+    def oscar(self):
+        return self._oscar
+    
 
 
 with open(sys.argv[1]) as names:
-    for myname in names:
-        myname = myname.strip('\n')
+    for name in names:
+        name = name.strip('\n')
 
-        data = get_data(myname)
+        p = Person(name)
 
-        if not data['alive']:
-            print(data['name'], data['age'], data['alive'], data['nobel'])
+        print(p.name, p.age, p.birth_date, p.death_date, p.nobel, p.oscar)
