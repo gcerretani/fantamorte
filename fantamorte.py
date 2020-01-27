@@ -51,11 +51,15 @@ class Person():
     def has_oscar(self):
         if self.has_property('P166'):
             for award_id in self._claims['P166']:
-                award_parser = wptools.page(wikibase=award_id, silent=True).get()
-                award_parser.wanted_labels([])
-                award_page_claims = award_parser.get_wikidata().data['claims']
-                if 'P31' in award_page_claims:
-                    return 'Q19020' in award_page_claims['P31']
+                try:
+                    award_parser = wptools.page(wikibase=award_id, silent=True).get()
+                    award_parser.wanted_labels([])
+                    award_page_claims = award_parser.get_wikidata().data['claims']
+                    if 'P31' in award_page_claims:
+                        if 'Q19020' in award_page_claims['P31']:
+                            return True
+                except:
+                    continue
         return False
 
     def calculate_age(self):
