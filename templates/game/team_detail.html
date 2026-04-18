@@ -1,0 +1,88 @@
+{% extends 'base.html' %}
+{% block title %}{{ team.name }} — Fantamorte{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-start mb-3">
+  <div>
+    <h2>{{ team.name }}</h2>
+    <p class="text-muted mb-0">
+      Gestore: <strong>{{ team.manager.username }}</strong> &mdash;
+      Stagione: <strong>{{ team.season.year }}</strong>
+      {% if team.jolly_month %}
+        &mdash; Mese jolly: <span class="badge badge-jolly">{{ team.get_jolly_month_display }}</span>
+      {% endif %}
+    </p>
+  </div>
+  <div class="text-end">
+    <div class="display-5 fw-bold">{{ score }}</div>
+    <small class="text-muted">punti</small>
+  </div>
+</div>
+
+{% if user == team.manager or user.is_staff %}
+  <a href="{% url 'team_edit' team.pk %}" class="btn btn-outline-dark btn-sm mb-3">Modifica squadra</a>
+{% endif %}
+
+<div class="row">
+  <div class="col-md-6">
+    <h5>Rosa attiva</h5>
+    <ul class="list-group mb-4">
+      {% for member in active_members %}
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <div>
+            {% if member.is_captain %}<span class="badge badge-captain me-1">C</span>{% endif %}
+            {% if member.person.wikipedia_url_it %}
+              <a href="{{ member.person.wikipedia_url_it }}" target="_blank">{{ member.person.name_it }}</a>
+            {% else %}
+              {{ member.person.name_it }}
+            {% endif %}
+            {% if member.person.birth_date %}
+              <small class="text-muted">(n. {{ member.person.birth_date.year }})</small>
+            {% elif member.person.birth_year %}
+              <small class="text-muted">(n. {{ member.person.birth_year }})</small>
+            {% endif %}
+          </div>
+          <div>
+            {% if member.person.is_dead %}
+              <span class="badge bg-danger">&#9760; {{ member.person.death_date }}</span>
+              {% if user == team.manager and member.replaced_by is None %}
+                <a href="{% url 'substitute_member' team.pk member.pk %}" class="btn btn-warning btn-sm ms-1">Sostituisci</a>
+              {% endif %}
+            {% else %}
+              <span class="badge bg-success">Vivo/a</span>
+            {% endif %}
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <div class="col-md-6">
+    <h5>Punti guadagnati</h5>
+    {% if death_details %}
+      <table class="table table-sm table-deaths">
+        <thead><tr><th>Persona</th><th>Data</th><th>Base</th><th>Bonus</th><th>×</th><th>Tot</th></tr></thead>
+        <tbody>
+          {% for d in death_details %}
+            <tr>
+              <td>
+                <a href="{% url 'death_detail' d.death.pk %}">{{ d.death.person.name_it }}</a>
+                {% if d.is_captain %}<span class="badge badge-captain">C</span>{% endif %}
+                {% if d.jolly %}<span class="badge badge-jolly">J</span>{% endif %}
+              </td>
+              <td><small>{{ d.death.death_date }}</small></td>
+              <td>{{ d.base }}</td>
+              <td>{{ d.bonuses|length }}</td>
+              <td>×{{ d.multiplier }}</td>
+              <td><strong>{{ d.points }}</strong></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="text-muted">Nessun punto ancora.</p>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,184 @@
+{% extends 'base.html' %}
+{% block title %}{% if creating %}Nuova squadra{% else %}Modifica {{ team.name }}{% endif %} — Fantamorte{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col-md-8">
+    <h2>{% if creating %}Crea la tua squadra{% else %}Modifica: {{ team.name }}{% endif %}</h2>
+
+    {% if can_edit %}
+    <form method="post" class="mb-4">
+      {% csrf_token %}
+      <div class="row g-2 align-items-end">
+        <div class="col-md-5">
+          <label class="form-label">Nome squadra</label>
+          <input type="text" name="name" class="form-control" value="{% if team %}{{ team.name }}{% endif %}" required>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Mese jolly</label>
+          <select name="jolly_month" class="form-select">
+            <option value="">-- nessuno --</option>
+            {% for num, name in months %}
+              <option value="{{ num }}" {% if team and team.jolly_month == num %}selected{% endif %}>{{ name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-3">
+          <button type="submit" class="btn btn-dark w-100">Salva</button>
+        </div>
+      </div>
+    </form>
+    {% endif %}
+
+    {% if not creating %}
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h5 class="mb-0">Rosa ({{ members|length }} / 12)</h5>
+      {% if can_edit %}
+      <button class="btn btn-outline-success btn-sm" data-bs-toggle="collapse" data-bs-target="#addForm">+ Aggiungi</button>
+      {% endif %}
+    </div>
+
+    {% if can_edit %}
+    <div class="collapse mb-3" id="addForm">
+      <div class="card card-body">
+        <div class="mb-2">
+          <input type="text" id="searchInput" class="form-control" placeholder="Cerca su Wikipedia italiana...">
+        </div>
+        <div id="searchResults" class="list-group mb-2"></div>
+        <div class="d-flex gap-2 align-items-center">
+          <input type="hidden" id="selectedQid" name="wikidata_id">
+          <span id="selectedName" class="text-muted small flex-grow-1">Nessuna persona selezionata</span>
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" id="isCaptain" value="1">
+            <label class="form-check-label" for="isCaptain">Capitano</label>
+          </div>
+          <button id="addBtn" class="btn btn-success btn-sm" disabled>Aggiungi</button>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="name" value="{{ team.name }}">
+      <input type="hidden" name="jolly_month" value="{{ team.jolly_month }}">
+      <table class="table table-sm align-middle">
+        <thead class="table-dark">
+          <tr>
+            <th>Persona</th>
+            <th>Nascita</th>
+            <th>Stato</th>
+            {% if can_edit %}<th>Capitano</th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for member in members %}
+            {% if member.is_active %}
+            <tr {% if member.person.is_dead %}class="table-danger"{% endif %}>
+              <td>
+                {% if member.person.wikipedia_url_it %}
+                  <a href="{{ member.person.wikipedia_url_it }}" target="_blank">{{ member.person.name_it }}</a>
+                {% else %}
+                  {{ member.person.name_it }}
+                {% endif %}
+                {% if member.is_captain %}
+                  <span class="badge badge-captain">C</span>
+                {% endif %}
+              </td>
+              <td><small>{% if member.person.birth_date %}{{ member.person.birth_date.year }}{% elif member.person.birth_year %}{{ member.person.birth_year }}{% endif %}</small></td>
+              <td>
+                {% if member.person.is_dead %}
+                  <span class="text-danger">&#9760; {{ member.person.death_date }}</span>
+                  {% if can_edit %}
+                    <a href="{% url 'substitute_member' team.pk member.pk %}" class="btn btn-warning btn-sm ms-1">Sostituisci</a>
+                  {% endif %}
+                {% else %}
+                  <span class="text-success">Vivo/a</span>
+                {% endif %}
+              </td>
+              {% if can_edit %}
+              <td>
+                <input type="radio" name="captain_id" value="{{ member.pk }}" {% if member.is_captain %}checked{% endif %}>
+              </td>
+              {% endif %}
+            </tr>
+            {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if can_edit %}
+        <button type="submit" class="btn btn-outline-dark btn-sm">Salva capitano</button>
+      {% endif %}
+    </form>
+
+    {% if dead_members %}
+    <div class="alert alert-warning mt-3">
+      <strong>Attenzione:</strong> {{ dead_members|length }} membro/i deceduto/i senza sostituto.
+    </div>
+    {% endif %}
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if can_edit %}
+<script>
+const teamPk = "{{ team.pk }}";
+const csrfToken = "{{ csrf_token }}";
+let searchTimeout;
+
+document.getElementById('searchInput').addEventListener('input', function() {
+  clearTimeout(searchTimeout);
+  const q = this.value.trim();
+  if (q.length < 2) { document.getElementById('searchResults').innerHTML = ''; return; }
+  searchTimeout = setTimeout(() => {
+    fetch(`/api/search-person/?q=${encodeURIComponent(q)}`)
+      .then(r => r.json())
+      .then(data => {
+        const el = document.getElementById('searchResults');
+        el.innerHTML = '';
+        data.results.forEach(r => {
+          const a = document.createElement('a');
+          a.className = 'list-group-item list-group-item-action';
+          a.href = '#';
+          a.textContent = r.name_it + (r.description ? ' — ' + r.description : '');
+          a.dataset.qid = r.wikidata_id;
+          a.dataset.name = r.name_it;
+          a.addEventListener('click', e => {
+            e.preventDefault();
+            document.getElementById('selectedQid').value = r.wikidata_id;
+            document.getElementById('selectedName').textContent = r.name_it + ' (' + r.wikidata_id + ')';
+            document.getElementById('addBtn').disabled = false;
+            el.innerHTML = '';
+          });
+          el.appendChild(a);
+        });
+      });
+  }, 300);
+});
+
+document.getElementById('addBtn').addEventListener('click', function() {
+  const qid = document.getElementById('selectedQid').value;
+  const isCaptain = document.getElementById('isCaptain').checked ? '1' : '0';
+  if (!qid) return;
+
+  const fd = new FormData();
+  fd.append('wikidata_id', qid);
+  fd.append('is_captain', isCaptain);
+  fd.append('csrfmiddlewaretoken', csrfToken);
+
+  fetch(`/squadra/${teamPk}/aggiungi/`, {method: 'POST', body: fd})
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        location.reload();
+      } else {
+        alert(data.error || 'Errore sconosciuto');
+      }
+    })
+    .catch(() => alert('Errore di rete'));
+});
+</script>
+{% endif %}
+{% endblock %}
