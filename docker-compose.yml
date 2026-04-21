@@ -1,0 +1,38 @@
+services:
+  db:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: fantamorte
+      MARIADB_USER: fantamorte
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  web:
+    image: ghcr.io/gcerretani/fantamorte:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: mysql://fantamorte:${DB_PASSWORD}@db:3306/fantamorte
+      SECRET_KEY: ${SECRET_KEY}
+      DEBUG: ${DEBUG:-False}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost}
+      WIKIDATA_USER_AGENT: ${WIKIDATA_USER_AGENT:-Fantamorte/1.0 (admin@example.com)}
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - static_files:/app/staticfiles
+
+volumes:
+  db_data:
+  static_files:
