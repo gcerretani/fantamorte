@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+{% block title %}{{ death.person.name_it }} — Fantamorte{% endblock %}
+{% block content %}
+
+<div class="row">
+  <div class="col-md-8">
+    <h2>&#9760; {{ death.person.name_it }}</h2>
+    <p class="text-muted">
+      {% if death.person.birth_date %}Nato/a: {{ death.person.birth_date }} &mdash; {% endif %}
+      Morto/a: {{ death.death_date }}
+      {% if death.death_age %} ({{ death.death_age }} anni){% endif %}
+      &mdash; <span class="badge {% if death.is_confirmed %}bg-success{% else %}bg-warning text-dark{% endif %}">
+        {% if death.is_confirmed %}Confermato{% else %}Non confermato{% endif %}
+      </span>
+    </p>
+    {% if death.person.wikipedia_url_it %}
+      <a href="{{ death.person.wikipedia_url_it }}" target="_blank" class="btn btn-outline-secondary btn-sm mb-3">Wikipedia</a>
+    {% endif %}
+
+    <h5>Bonus applicati</h5>
+    {% if bonuses %}
+      <table class="table table-sm">
+        <thead><tr><th>Bonus</th><th>Punti</th><th>Tipo</th></tr></thead>
+        <tbody>
+          {% for b in bonuses %}
+            <tr>
+              <td>{{ b.bonus_type.name }}</td>
+              <td>+{{ b.points_awarded }}</td>
+              <td>
+                {% if b.is_auto_detected %}
+                  <span class="badge bg-info text-dark">automatico</span>
+                {% else %}
+                  <span class="badge bg-secondary">manuale</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr class="table-dark">
+            <td>Base + bonus</td>
+            <td colspan="2">50 + {% with total=0 %}{{ bonuses|length }}{% endwith %} bonus</td>
+          </tr>
+        </tfoot>
+      </table>
+    {% else %}
+      <p class="text-muted">Nessun bonus per questo decesso.</p>
+    {% endif %}
+
+    {% if death.notes %}
+      <p><strong>Note:</strong> {{ death.notes }}</p>
+    {% endif %}
+  </div>
+
+  <div class="col-md-4">
+    <h5>Squadre coinvolte</h5>
+    {% if teams_affected %}
+      <ul class="list-group">
+        {% for ta in teams_affected %}
+          <li class="list-group-item d-flex justify-content-between">
+            <a href="{% url 'team_detail' ta.team.pk %}">{{ ta.team.name }}</a>
+            <span class="badge bg-dark">+{{ ta.points }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-muted">Nessuna squadra coinvolta.</p>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

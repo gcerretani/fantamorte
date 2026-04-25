@@ -21,19 +21,20 @@ from datetime import datetime, timezone
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
 
-class Person():
+
+class Person:
     def __init__(self, name):
-        wp_parser = wptools.page(name, lang='it', silent=True)
+        wp_parser = wptools.page(name, lang="it", silent=True)
         wp_parser.wanted_labels([])
         self._page = wp_parser.get_wikidata().data
-        self._name = self._page['label']
-        self._descr = self._page['description']
-        self._claims = self._page['claims']
-        self._birth_date = self.get_date('P569')
-        self._death_date = self.get_date('P570')
-        self._is_alive = not self.has_property('P570')
+        self._name = self._page["label"]
+        self._descr = self._page["description"]
+        self._claims = self._page["claims"]
+        self._birth_date = self.get_date("P569")
+        self._death_date = self.get_date("P570")
+        self._is_alive = not self.has_property("P570")
         self._age = self.calculate_age()
-        self._nobel = self.has_property('P3188')
+        self._nobel = self.has_property("P3188")
         self._oscar = self.has_oscar()
 
     def get_date(self, id):
@@ -41,7 +42,7 @@ class Person():
             return None
         d = self._claims[id][0][1:]
         try:
-            return parse(d) # may be invalid
+            return parse(d)  # may be invalid
         except:
             return None
 
@@ -49,14 +50,14 @@ class Person():
         return it in self._claims
 
     def has_oscar(self):
-        if self.has_property('P166'):
-            for award_id in self._claims['P166']:
+        if self.has_property("P166"):
+            for award_id in self._claims["P166"]:
                 try:
                     award_parser = wptools.page(wikibase=award_id, silent=True).get()
                     award_parser.wanted_labels([])
-                    award_page_claims = award_parser.get_wikidata().data['claims']
-                    if 'P31' in award_page_claims:
-                        if 'Q19020' in award_page_claims['P31']:
+                    award_page_claims = award_parser.get_wikidata().data["claims"]
+                    if "P31" in award_page_claims:
+                        if "Q19020" in award_page_claims["P31"]:
                             return True
                 except:
                     continue
@@ -96,12 +97,11 @@ class Person():
     @property
     def oscar(self):
         return self._oscar
-    
 
 
 with open(sys.argv[1]) as names:
     for name in names:
-        name = name.strip('\n')
+        name = name.strip("\n")
 
         p = Person(name)
 

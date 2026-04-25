@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% block title %}Sostituisci {{ member.person.name_it }} — Fantamorte{% endblock %}
+{% block content %}
+
+<h2>Nomina sostituto per {{ member.person.name_it }}</h2>
+<p class="text-muted">
+  &#9760; Morto/a il {{ member.person.death_date }}
+  {% if member.is_captain %} &mdash; <span class="badge badge-captain">Capitano</span>{% endif %}
+</p>
+
+<div class="col-md-6">
+  <div class="mb-3">
+    <label class="form-label">Cerca su Wikipedia italiana</label>
+    <input type="text" id="searchInput" class="form-control" placeholder="Nome della persona...">
+    <div id="searchResults" class="list-group mt-1"></div>
+  </div>
+
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" id="selectedQid" name="wikidata_id">
+    <p id="selectedName" class="text-muted">Nessuna persona selezionata</p>
+    <button type="submit" id="submitBtn" class="btn btn-warning" disabled>Conferma sostituzione</button>
+    <a href="{% url 'team_edit' team.pk %}" class="btn btn-outline-secondary ms-2">Annulla</a>
+  </form>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let searchTimeout;
+document.getElementById('searchInput').addEventListener('input', function() {
+  clearTimeout(searchTimeout);
+  const q = this.value.trim();
+  if (q.length < 2) { document.getElementById('searchResults').innerHTML = ''; return; }
+  searchTimeout = setTimeout(() => {
+    fetch(`/api/search-person/?q=${encodeURIComponent(q)}`)
+      .then(r => r.json())
+      .then(data => {
+        const el = document.getElementById('searchResults');
+        el.innerHTML = '';
+        data.results.forEach(r => {
+          const a = document.createElement('a');
+          a.className = 'list-group-item list-group-item-action';
+          a.href = '#';
+          a.textContent = r.name_it;
+          a.addEventListener('click', e => {
+            e.preventDefault();
+            document.getElementById('selectedQid').value = r.wikidata_id;
+            document.getElementById('selectedName').textContent = r.name_it + ' (' + r.wikidata_id + ')';
+            document.getElementById('submitBtn').disabled = false;
+            el.innerHTML = '';
+          });
+          el.appendChild(a);
+        });
+      });
+  }, 300);
+});
+</script>
+{% endblock %}
