@@ -38,11 +38,17 @@ class WikipediaPerson(models.Model):
     wikidata_id = models.CharField(max_length=20, unique=True)
     name_it = models.CharField(max_length=300)
     name_en = models.CharField(max_length=300, blank=True)
+    description_it = models.CharField(max_length=500, blank=True)
     birth_date = models.DateField(null=True, blank=True)
     birth_year = models.IntegerField(null=True, blank=True)
     death_date = models.DateField(null=True, blank=True)
     death_year = models.IntegerField(null=True, blank=True)
     is_dead = models.BooleanField(default=False)
+    image_url = models.URLField(max_length=500, blank=True)
+    occupation = models.CharField(max_length=300, blank=True)
+    nationality = models.CharField(max_length=100, blank=True)
+    summary_it = models.TextField(blank=True)
+    summary_fetched_at = models.DateTimeField(null=True, blank=True)
     claims_cache = models.JSONField(default=dict, blank=True)
     last_checked = models.DateTimeField(null=True, blank=True)
     wikipedia_url_it = models.URLField(blank=True)
@@ -74,21 +80,36 @@ class BonusType(models.Model):
     DETECTION_MANUAL = 'manual'
     DETECTION_WIKIDATA = 'wikidata'
     DETECTION_AGE = 'age'
+    DETECTION_ORIGINAL = 'original'
+    DETECTION_FIRST_DEATH = 'first_death'
+    DETECTION_LAST_DEATH = 'last_death'
     DETECTION_CHOICES = [
         (DETECTION_MANUAL, 'Manuale'),
         (DETECTION_WIKIDATA, 'Proprietà Wikidata'),
         (DETECTION_AGE, 'Formula età'),
+        (DETECTION_ORIGINAL, 'Giocata originale'),
+        (DETECTION_FIRST_DEATH, 'Primo decesso della stagione'),
+        (DETECTION_LAST_DEATH, 'Ultimo decesso della stagione'),
     ]
 
     name = models.CharField(max_length=100, unique=True)
     description = models.TextField(blank=True)
-    points = models.IntegerField()
+    points = models.IntegerField(
+        help_text='Punti fissi. Ignorato se points_formula è valorizzato.'
+    )
+    points_formula = models.CharField(
+        max_length=200, blank=True,
+        help_text='Formula per punti dinamici, può usare la variabile `age` (es. "3*(60-age)").'
+    )
     detection_method = models.CharField(
         max_length=20, choices=DETECTION_CHOICES, default=DETECTION_MANUAL
     )
     wikidata_property = models.CharField(max_length=20, blank=True)
     wikidata_value = models.CharField(max_length=20, blank=True)
-    age_formula = models.CharField(max_length=100, blank=True)
+    age_formula = models.CharField(
+        max_length=100, blank=True,
+        help_text='Condizione che deve essere vera (es. "age < 60").'
+    )
     is_active = models.BooleanField(default=True)
     ordering = models.IntegerField(default=0)
 
@@ -99,6 +120,21 @@ class BonusType(models.Model):
 
     def __str__(self):
         return f'{self.name} (+{self.points})'
+
+    def compute_points(self, age=None):
+        """Restituisce i punti di questo bonus per una data età (se applicabile)."""
+        formula = (self.points_formula or '').strip()
+        if not formula:
+            return self.points
+        # eval whitelist: solo cifre, operatori e variabile age
+        allowed = set('0123456789+-*/(). agemax(),min')
+        if not all(c in allowed for c in formula):
+            return self.points
+        try:
+            value = eval(formula, {'__builtins__': {}}, {'age': age or 0, 'max': max, 'min': min})
+            return int(value)
+        except Exception:
+            return self.points
 
 
 MONTHS_IT = [
@@ -139,6 +175,10 @@ class TeamMember(models.Model):
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name='members')
     person = models.ForeignKey(WikipediaPerson, on_delete=models.PROTECT, related_name='team_members')
     is_captain = models.BooleanField(default=False)
+    is_original = models.BooleanField(
+        default=False,
+        help_text='Giocata originale: la persona è stata scelta solo da questo manager all\'inizio della stagione.'
+    )
     added_at = models.DateTimeField(auto_now_add=True)
     replaced_by = models.OneToOneField(
         'self', null=True, blank=True,

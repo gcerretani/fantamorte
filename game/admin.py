@@ -17,9 +17,10 @@ class DeathBonusInline(admin.TabularInline):
 class TeamMemberInline(admin.TabularInline):
     model = TeamMember
     extra = 0
-    fields = ('person', 'is_captain', 'replaced_by')
+    fields = ('person', 'is_captain', 'is_original', 'replaced_by')
     raw_id_fields = ('person', 'replaced_by')
     readonly_fields = ('added_at',)
+    fk_name = 'team'
 
 
 @admin.register(Season)
@@ -48,10 +49,10 @@ class SeasonAdmin(admin.ModelAdmin):
 
 @admin.register(WikipediaPerson)
 class WikidataPersonAdmin(admin.ModelAdmin):
-    list_display = ('name_it', 'wikidata_id', 'birth_date', 'death_date', 'is_dead', 'last_checked')
+    list_display = ('name_it', 'wikidata_id', 'birth_date', 'death_date', 'is_dead', 'occupation', 'last_checked')
     list_filter = ('is_dead',)
     search_fields = ('name_it', 'wikidata_id')
-    readonly_fields = ('last_checked', 'claims_cache')
+    readonly_fields = ('last_checked', 'summary_fetched_at', 'claims_cache')
     actions = ['refresh_from_wikidata']
 
     @admin.action(description='Aggiorna da Wikidata')
@@ -80,7 +81,9 @@ class WikidataPersonAdmin(admin.ModelAdmin):
 
 @admin.register(BonusType)
 class BonusTypeAdmin(admin.ModelAdmin):
-    list_display = ('name', 'points', 'detection_method', 'wikidata_property', 'wikidata_value', 'age_formula', 'is_active', 'ordering')
+    list_display = ('name', 'points', 'points_formula', 'detection_method',
+                    'wikidata_property', 'wikidata_value', 'age_formula',
+                    'is_active', 'ordering')
     list_editable = ('ordering', 'is_active', 'points')
     list_filter = ('detection_method', 'is_active')
 

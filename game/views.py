@@ -199,10 +199,14 @@ class AddPersonView(LoginRequiredMixin, View):
             defaults={
                 'name_it': entity['name_it'],
                 'name_en': entity.get('name_en', ''),
+                'description_it': entity.get('description_it', ''),
                 'birth_date': entity.get('birth_date'),
                 'birth_year': entity.get('birth_year'),
                 'death_date': entity.get('death_date'),
                 'is_dead': entity.get('death_date') is not None or entity.get('death_year') is not None,
+                'image_url': entity.get('image_url', ''),
+                'occupation': entity.get('occupation', ''),
+                'nationality': entity.get('nationality', ''),
                 'claims_cache': entity.get('claims_cache', {}),
                 'wikipedia_url_it': entity.get('wikipedia_url_it', ''),
                 'last_checked': timezone.now(),
@@ -293,10 +297,14 @@ class SubstituteMemberView(LoginRequiredMixin, View):
             defaults={
                 'name_it': entity['name_it'],
                 'name_en': entity.get('name_en', ''),
+                'description_it': entity.get('description_it', ''),
                 'birth_date': entity.get('birth_date'),
                 'birth_year': entity.get('birth_year'),
                 'death_date': entity.get('death_date'),
                 'is_dead': entity.get('death_date') is not None,
+                'image_url': entity.get('image_url', ''),
+                'occupation': entity.get('occupation', ''),
+                'nationality': entity.get('nationality', ''),
                 'claims_cache': entity.get('claims_cache', {}),
                 'wikipedia_url_it': entity.get('wikipedia_url_it', ''),
                 'last_checked': timezone.now(),
@@ -315,6 +323,76 @@ class SubstituteMemberView(LoginRequiredMixin, View):
 
         messages.success(request, f'{member.person.name_it} sostituito/a con {person.name_it}.')
         return redirect('team_edit', pk=pk)
+
+
+class PersonDetailView(DetailView):
+    """Pagina di dettaglio di una persona della rosa."""
+    model = WikipediaPerson
+    template_name = 'game/person_detail.html'
+    context_object_name = 'person'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        person = self.object
+        # Lazy fetch del summary se mancante
+        if not person.summary_it and person.wikipedia_url_it:
+            try:
+                from wikidata_api.client import WikidataClient
+                from urllib.parse import unquote
+                title = unquote(person.wikipedia_url_it.rsplit('/', 1)[-1].replace('_', ' '))
+                client = WikidataClient()
+                summary = client.get_summary(title)
+                if summary:
+                    person.summary_it = summary
+                    person.summary_fetched_at = timezone.now()
+                    person.save(update_fields=['summary_it', 'summary_fetched_at'])
+            except Exception:
+                pass
+        ctx['team_members'] = TeamMember.objects.filter(person=person).select_related('team__manager', 'team__season')
+        return ctx
+
+
+class PersonInfoView(View):
+    """Endpoint JSON per il pannello dettagli persona (open su click)."""
+
+    def get(self, request, pk):
+        person = get_object_or_404(WikipediaPerson, pk=pk)
+        # Aggiorna summary se mancante o stantio (>30 giorni)
+        try:
+            need_refresh = not person.summary_it
+            if not need_refresh and person.summary_fetched_at:
+                from datetime import timedelta
+                need_refresh = (timezone.now() - person.summary_fetched_at) > timedelta(days=30)
+            if need_refresh and person.wikipedia_url_it:
+                from wikidata_api.client import WikidataClient
+                from urllib.parse import unquote
+                title = unquote(person.wikipedia_url_it.rsplit('/', 1)[-1].replace('_', ' '))
+                client = WikidataClient()
+                summary = client.get_summary(title)
+                if summary:
+                    person.summary_it = summary
+                    person.summary_fetched_at = timezone.now()
+                    person.save(update_fields=['summary_it', 'summary_fetched_at'])
+        except Exception:
+            pass
+
+        data = {
+            'id': person.pk,
+            'wikidata_id': person.wikidata_id,
+            'name_it': person.name_it,
+            'description_it': person.description_it,
+            'birth_date': person.birth_date.isoformat() if person.birth_date else (str(person.birth_year) if person.birth_year else ''),
+            'death_date': person.death_date.isoformat() if person.death_date else '',
+            'is_dead': person.is_dead,
+            'age_at_death': person.get_age_at_death(),
+            'occupation': person.occupation,
+            'nationality': person.nationality,
+            'image_url': person.image_url,
+            'wikipedia_url_it': person.wikipedia_url_it,
+            'summary_it': person.summary_it,
+            'wikidata_url': f'https://www.wikidata.org/wiki/{person.wikidata_id}',
+        }
+        return JsonResponse(data)
 
 
 class PersonSearchView(View):

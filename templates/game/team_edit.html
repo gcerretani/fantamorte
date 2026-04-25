@@ -76,13 +76,14 @@
             {% if member.is_active %}
             <tr {% if member.person.is_dead %}class="table-danger"{% endif %}>
               <td>
-                {% if member.person.wikipedia_url_it %}
-                  <a href="{{ member.person.wikipedia_url_it }}" target="_blank">{{ member.person.name_it }}</a>
-                {% else %}
+                <a href="#" class="text-decoration-none" data-fm-person-pk="{{ member.person.pk }}">
                   {{ member.person.name_it }}
-                {% endif %}
+                </a>
                 {% if member.is_captain %}
                   <span class="badge badge-captain">C</span>
+                {% endif %}
+                {% if member.is_original %}
+                  <span class="badge bg-info" title="Giocata originale">★</span>
                 {% endif %}
               </td>
               <td><small>{% if member.person.birth_date %}{{ member.person.birth_date.year }}{% elif member.person.birth_year %}{{ member.person.birth_year }}{% endif %}</small></td>

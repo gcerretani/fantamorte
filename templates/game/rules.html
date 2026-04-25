@@ -32,12 +32,21 @@
             <td><strong>{{ bt.name }}</strong>
               {% if bt.description %}<br><small class="text-muted">{{ bt.description }}</small>{% endif %}
             </td>
-            <td class="text-end">+{{ bt.points }}</td>
+            <td class="text-end">
+              {% if bt.points_formula %}<code>{{ bt.points_formula }}</code>{% else %}+{{ bt.points }}{% endif %}
+            </td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
     {% endif %}
+
+    <h5>Moltiplicatori</h5>
+    <ul>
+      <li>×2 se a morire è il <strong>capitano</strong>.</li>
+      <li>×2 se la morte avviene nel <strong>mese jolly</strong> della squadra.</li>
+      <li>×4 se entrambi i casi (capitano nel mese jolly).</li>
+    </ul>
 
     <h5>Sostituzioni</h5>
     <p>

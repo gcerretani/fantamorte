@@ -170,6 +170,70 @@
     }
   };
 
+  // -------- Pannello dettagli persona --------
+  function escapeHtml(s) {
+    return (s || '').replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function nl2br(s) {
+    return escapeHtml(s).replace(/\n/g, '<br>');
+  }
+
+  window.fmShowPerson = async function (pk) {
+    const modalEl = document.getElementById('fmPersonModal');
+    if (!modalEl) return;
+    const label = document.getElementById('fmPersonModalLabel');
+    const body = document.getElementById('fmPersonModalBody');
+    label.textContent = 'Caricamento…';
+    body.innerHTML = '<div class="text-center text-muted py-5"><div class="spinner-border" role="status"></div></div>';
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    modal.show();
+    try {
+      const resp = await fetch(`/api/persona/${pk}/`);
+      if (!resp.ok) throw new Error('persona non trovata');
+      const p = await resp.json();
+      label.textContent = p.name_it;
+      const meta = [];
+      if (p.birth_date) meta.push(`<li><strong>Nato/a</strong>: ${escapeHtml(p.birth_date)}</li>`);
+      if (p.is_dead && p.death_date) meta.push(`<li><strong>Deceduto/a</strong>: ${escapeHtml(p.death_date)}${p.age_at_death ? ' ('+p.age_at_death+' anni)' : ''}</li>`);
+      else if (!p.is_dead) meta.push('<li><span class="badge bg-success">Vivo/a</span></li>');
+      if (p.occupation) meta.push(`<li><strong>Attività</strong>: ${escapeHtml(p.occupation)}</li>`);
+      if (p.nationality) meta.push(`<li><strong>Cittadinanza</strong>: ${escapeHtml(p.nationality)}</li>`);
+      const img = p.image_url
+        ? `<img src="${escapeHtml(p.image_url)}" alt="" class="img-fluid rounded shadow-sm">`
+        : `<div class="bg-secondary text-light text-center rounded p-4"><span style="font-size:3rem">&#128100;</span></div>`;
+      const summary = p.summary_it
+        ? `<h6 class="mt-3">Biografia</h6><p style="white-space:pre-line">${nl2br(p.summary_it)}</p>`
+        : '<p class="text-muted small">(Nessuna biografia disponibile.)</p>';
+      const links = [];
+      if (p.wikipedia_url_it) links.push(`<a href="${escapeHtml(p.wikipedia_url_it)}" target="_blank" class="btn btn-outline-dark btn-sm">Wikipedia &rarr;</a>`);
+      links.push(`<a href="${escapeHtml(p.wikidata_url)}" target="_blank" class="btn btn-outline-secondary btn-sm">Wikidata &rarr;</a>`);
+      links.push(`<a href="/persona/${p.id}/" class="btn btn-link btn-sm">Pagina completa</a>`);
+      body.innerHTML = `
+        <div class="row">
+          <div class="col-md-4">${img}</div>
+          <div class="col-md-8">
+            ${p.description_it ? `<p class="text-muted">${escapeHtml(p.description_it)}</p>` : ''}
+            <ul class="list-unstyled small mb-2">${meta.join('')}</ul>
+            <div class="mb-2">${links.join(' ')}</div>
+            ${summary}
+          </div>
+        </div>`;
+    } catch (e) {
+      body.innerHTML = '<div class="alert alert-danger">Impossibile caricare i dettagli.</div>';
+    }
+  };
+
+  // Click handler per qualsiasi elemento con data-fm-person-pk
+  document.addEventListener('click', function (e) {
+    const t = e.target.closest('[data-fm-person-pk]');
+    if (!t) return;
+    e.preventDefault();
+    window.fmShowPerson(t.dataset.fmPersonPk);
+  });
+
   // -------- Countdown sostituzioni --------
   document.addEventListener('DOMContentLoaded', function () {
     document.querySelectorAll('[data-fm-countdown]').forEach(function (el) {
