@@ -1,4 +1,5 @@
 import calendar
+from datetime import timedelta
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
@@ -9,6 +10,10 @@ class Season(models.Model):
     is_active = models.BooleanField(default=False)
     registration_opens = models.DateField()
     registration_closes = models.DateField()
+    substitution_deadline_days = models.PositiveIntegerField(
+        default=7,
+        help_text='Giorni a disposizione per sostituire un giocatore deceduto, dalla conferma del decesso.'
+    )
     notes = models.TextField(blank=True)
 
     class Meta:
@@ -152,6 +157,38 @@ class TeamMember(models.Model):
     def is_active(self):
         return self.replaced_by is None
 
+    def get_substitution_deadline(self):
+        """Restituisce la deadline (datetime) entro cui questo membro può essere sostituito.
+
+        Si basa sulla data di conferma del decesso e sulla configurazione della stagione.
+        Restituisce None se il membro non è ancora morto o non è confermato.
+        """
+        if not self.person.is_dead:
+            return None
+        death = getattr(self.person, 'death', None)
+        if not death or not death.is_confirmed or not death.confirmed_at:
+            return None
+        days = self.team.season.substitution_deadline_days or 0
+        if days <= 0:
+            return None
+        return death.confirmed_at + timedelta(days=days)
+
+    def can_be_substituted(self):
+        """True se il membro è morto, non già sostituito e la deadline non è scaduta."""
+        if not self.is_active() or not self.person.is_dead:
+            return False
+        deadline = self.get_substitution_deadline()
+        if deadline is None:
+            return True
+        return timezone.now() <= deadline
+
+    def substitution_seconds_remaining(self):
+        deadline = self.get_substitution_deadline()
+        if deadline is None:
+            return None
+        delta = deadline - timezone.now()
+        return max(int(delta.total_seconds()), 0)
+
 
 class Death(models.Model):
     SOURCE_WIKIDATA = 'wikidata'
@@ -201,3 +238,48 @@ class DeathBonus(models.Model):
 
     def __str__(self):
         return f'{self.bonus_type.name} per {self.death.person.name_it}'
+
+
+class UserProfile(models.Model):
+    """Preferenze utente: opt-in/out notifiche, tema, ecc."""
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    push_notifications_enabled = models.BooleanField(
+        default=True,
+        help_text='Ricevi notifiche push quando un decesso viene confermato.'
+    )
+    email_notifications_enabled = models.BooleanField(
+        default=True,
+        help_text='Ricevi email quando un decesso viene confermato o un tuo membro è morto.'
+    )
+    dark_mode = models.BooleanField(default=False)
+
+    class Meta:
+        verbose_name = 'Profilo utente'
+        verbose_name_plural = 'Profili utente'
+
+    def __str__(self):
+        return f'Profilo di {self.user.username}'
+
+
+class PushSubscription(models.Model):
+    """Endpoint Web Push (VAPID) registrato dal browser di un utente."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='push_subscriptions')
+    endpoint = models.URLField(max_length=500, unique=True)
+    p256dh = models.CharField(max_length=200)
+    auth = models.CharField(max_length=100)
+    user_agent = models.CharField(max_length=300, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = 'Iscrizione push'
+        verbose_name_plural = 'Iscrizioni push'
+
+    def __str__(self):
+        return f'{self.user.username} ({self.endpoint[:50]}…)'
+
+    def to_dict(self):
+        return {
+            'endpoint': self.endpoint,
+            'keys': {'p256dh': self.p256dh, 'auth': self.auth},
+        }

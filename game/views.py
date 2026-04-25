@@ -1,10 +1,19 @@
+import json
 from django.views.generic import TemplateView, DetailView, View
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.contrib import messages
 from django.utils import timezone
-from .models import Season, Team, TeamMember, WikipediaPerson, Death, DeathBonus, BonusType
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.cache import cache_control
+from django.conf import settings
+from django.urls import reverse
+from .models import (
+    Season, Team, TeamMember, WikipediaPerson, Death, DeathBonus, BonusType,
+    UserProfile, PushSubscription,
+)
 from . import scoring
 
 
@@ -243,12 +252,27 @@ class SubstituteMemberView(LoginRequiredMixin, View):
         if not member.is_active():
             messages.error(request, 'Questo membro è già stato sostituito.')
             return redirect('team_edit', pk=pk)
-        return render(request, self.template_name, {'team': team, 'member': member})
+        if not member.can_be_substituted() and not request.user.is_staff:
+            messages.error(
+                request,
+                'I tempi per la sostituzione sono scaduti '
+                f'({team.season.substitution_deadline_days} giorni).'
+            )
+            return redirect('team_edit', pk=pk)
+        return render(request, self.template_name, {
+            'team': team,
+            'member': member,
+            'deadline': member.get_substitution_deadline(),
+            'seconds_left': member.substitution_seconds_remaining(),
+        })
 
     def post(self, request, pk, member_pk):
         team = get_object_or_404(Team, pk=pk)
         member = get_object_or_404(TeamMember, pk=member_pk, team=team)
         if team.manager != request.user and not request.user.is_staff:
+            return redirect('team_edit', pk=pk)
+        if not member.can_be_substituted() and not request.user.is_staff:
+            messages.error(request, 'I tempi per la sostituzione sono scaduti.')
             return redirect('team_edit', pk=pk)
 
         wikidata_id = request.POST.get('wikidata_id', '').strip()
@@ -305,3 +329,167 @@ class PersonSearchView(View):
         except Exception:
             results = []
         return JsonResponse({'results': results})
+
+
+class DeathsTimelineView(TemplateView):
+    template_name = 'game/deaths_timeline.html'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        season = Season.objects.filter(is_active=True).first()
+        ctx['season'] = season
+        if season:
+            ctx['deaths'] = (
+                Death.objects.filter(season=season, is_confirmed=True)
+                .select_related('person')
+                .prefetch_related('bonuses__bonus_type')
+                .order_by('-death_date')
+            )
+        return ctx
+
+
+class RulesView(TemplateView):
+    template_name = 'game/rules.html'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['season'] = Season.objects.filter(is_active=True).first()
+        ctx['bonus_types'] = BonusType.objects.filter(is_active=True).order_by('ordering', 'name')
+        return ctx
+
+
+class ProfileView(LoginRequiredMixin, View):
+    template_name = 'game/profile.html'
+
+    def get(self, request):
+        profile, _ = UserProfile.objects.get_or_create(user=request.user)
+        subs = request.user.push_subscriptions.all()
+        return render(request, self.template_name, {
+            'profile': profile,
+            'push_subscriptions': subs,
+            'team': request.user.teams.first(),
+        })
+
+    def post(self, request):
+        profile, _ = UserProfile.objects.get_or_create(user=request.user)
+        profile.push_notifications_enabled = request.POST.get('push_notifications_enabled') == 'on'
+        profile.email_notifications_enabled = request.POST.get('email_notifications_enabled') == 'on'
+        profile.dark_mode = request.POST.get('dark_mode') == 'on'
+        profile.save()
+        messages.success(request, 'Preferenze aggiornate.')
+        return redirect('profile')
+
+
+# --- PWA: manifest, service worker, offline ---
+
+class ManifestView(View):
+    @method_decorator(cache_control(max_age=3600))
+    def get(self, request):
+        manifest = {
+            'name': settings.PWA_APP_NAME,
+            'short_name': settings.PWA_APP_SHORT_NAME,
+            'description': 'Il fantacalcio dei decessi: sfida i tuoi amici a pronosticare chi se ne andrà.',
+            'start_url': '/',
+            'scope': '/',
+            'display': 'standalone',
+            'orientation': 'portrait-primary',
+            'background_color': settings.PWA_APP_BACKGROUND_COLOR,
+            'theme_color': settings.PWA_APP_THEME_COLOR,
+            'lang': 'it-IT',
+            'icons': [
+                {'src': '/static/pwa/icon-192.png', 'sizes': '192x192', 'type': 'image/png', 'purpose': 'any maskable'},
+                {'src': '/static/pwa/icon-512.png', 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any maskable'},
+                {'src': '/static/pwa/icon.svg', 'sizes': 'any', 'type': 'image/svg+xml', 'purpose': 'any'},
+            ],
+            'shortcuts': [
+                {'name': 'Classifica', 'url': '/classifica/'},
+                {'name': 'La mia squadra', 'url': '/profilo/'},
+                {'name': 'Decessi', 'url': '/decessi/'},
+            ],
+            'categories': ['games', 'entertainment'],
+        }
+        return JsonResponse(manifest)
+
+
+class ServiceWorkerView(View):
+    @method_decorator(cache_control(max_age=0, no_cache=True, no_store=True, must_revalidate=True))
+    def get(self, request):
+        return render(
+            request,
+            'game/sw.js',
+            content_type='application/javascript',
+            context={
+                'cache_version': getattr(settings, 'SW_CACHE_VERSION', '1'),
+            },
+        )
+
+
+class OfflineView(TemplateView):
+    template_name = 'game/offline.html'
+
+
+# --- Push subscriptions API ---
+
+@method_decorator(csrf_exempt, name='dispatch')
+class PushSubscribeView(LoginRequiredMixin, View):
+    """Salva l'endpoint Web Push del browser corrente."""
+
+    def post(self, request):
+        try:
+            data = json.loads(request.body.decode('utf-8'))
+        except (ValueError, UnicodeDecodeError):
+            return JsonResponse({'error': 'JSON non valido'}, status=400)
+
+        endpoint = data.get('endpoint', '').strip()
+        keys = data.get('keys') or {}
+        p256dh = (keys.get('p256dh') or '').strip()
+        auth = (keys.get('auth') or '').strip()
+        if not endpoint or not p256dh or not auth:
+            return JsonResponse({'error': 'Sottoscrizione incompleta'}, status=400)
+
+        sub, created = PushSubscription.objects.update_or_create(
+            endpoint=endpoint,
+            defaults={
+                'user': request.user,
+                'p256dh': p256dh,
+                'auth': auth,
+                'user_agent': request.META.get('HTTP_USER_AGENT', '')[:300],
+            },
+        )
+        return JsonResponse({'success': True, 'created': created, 'id': sub.pk})
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class PushUnsubscribeView(LoginRequiredMixin, View):
+    def post(self, request):
+        try:
+            data = json.loads(request.body.decode('utf-8'))
+        except (ValueError, UnicodeDecodeError):
+            return JsonResponse({'error': 'JSON non valido'}, status=400)
+        endpoint = data.get('endpoint', '').strip()
+        deleted, _ = PushSubscription.objects.filter(
+            user=request.user, endpoint=endpoint
+        ).delete()
+        return JsonResponse({'success': True, 'deleted': deleted})
+
+
+class PushTestView(LoginRequiredMixin, View):
+    """Invia una notifica di test all'utente corrente."""
+
+    def post(self, request):
+        from .push import send_push
+        subs = request.user.push_subscriptions.all()
+        if not subs.exists():
+            return JsonResponse({'error': 'Nessuna iscrizione attiva'}, status=400)
+        sent = 0
+        for sub in subs:
+            ok = send_push(sub, {
+                'type': 'test',
+                'title': '☠ Fantamorte — test',
+                'body': 'Le notifiche funzionano correttamente.',
+                'url': reverse('home'),
+                'tag': 'test',
+            })
+            if ok:
+                sent += 1
+        return JsonResponse({'success': True, 'sent': sent, 'total': subs.count()})

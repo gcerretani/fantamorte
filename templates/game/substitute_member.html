@@ -3,10 +3,19 @@
 {% block content %}
 
 <h2>Nomina sostituto per {{ member.person.name_it }}</h2>
-<p class="text-muted">
+<p class="text-muted mb-1">
   &#9760; Morto/a il {{ member.person.death_date }}
   {% if member.is_captain %} &mdash; <span class="badge badge-captain">Capitano</span>{% endif %}
 </p>
+
+{% if deadline %}
+  <div class="alert alert-warning d-flex justify-content-between align-items-center">
+    <div>
+      <strong>Tempo a disposizione</strong>: scadenza {{ deadline|date:"d/m/Y H:i" }}
+    </div>
+    <div class="fm-countdown" data-fm-countdown="{{ deadline|date:'U' }}">…</div>
+  </div>
+{% endif %}
 
 <div class="col-md-6">
   <div class="mb-3">
@@ -43,7 +52,7 @@ document.getElementById('searchInput').addEventListener('input', function() {
           const a = document.createElement('a');
           a.className = 'list-group-item list-group-item-action';
           a.href = '#';
-          a.textContent = r.name_it;
+          a.textContent = r.name_it + (r.description ? ' — ' + r.description : '');
           a.addEventListener('click', e => {
             e.preventDefault();
             document.getElementById('selectedQid').value = r.wikidata_id;

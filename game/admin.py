@@ -1,7 +1,10 @@
 from django.contrib import admin
 from django.utils import timezone
 from django.contrib import messages
-from .models import Season, WikipediaPerson, BonusType, Team, TeamMember, Death, DeathBonus
+from .models import (
+    Season, WikipediaPerson, BonusType, Team, TeamMember,
+    Death, DeathBonus, UserProfile, PushSubscription,
+)
 from . import scoring
 
 
@@ -21,8 +24,12 @@ class TeamMemberInline(admin.TabularInline):
 
 @admin.register(Season)
 class SeasonAdmin(admin.ModelAdmin):
-    list_display = ('year', 'is_active', 'registration_opens', 'registration_closes', 'death_count')
+    list_display = (
+        'year', 'is_active', 'registration_opens', 'registration_closes',
+        'substitution_deadline_days', 'death_count',
+    )
     list_filter = ('is_active',)
+    list_editable = ('substitution_deadline_days',)
     actions = ['set_active']
 
     def death_count(self, obj):
@@ -155,3 +162,21 @@ class DeathBonusAdmin(admin.ModelAdmin):
     list_display = ('death', 'bonus_type', 'points_awarded', 'is_auto_detected')
     list_filter = ('bonus_type', 'is_auto_detected')
     search_fields = ('death__person__name_it',)
+
+
+@admin.register(UserProfile)
+class UserProfileAdmin(admin.ModelAdmin):
+    list_display = ('user', 'push_notifications_enabled', 'email_notifications_enabled', 'dark_mode')
+    list_filter = ('push_notifications_enabled', 'email_notifications_enabled')
+    search_fields = ('user__username', 'user__email')
+
+
+@admin.register(PushSubscription)
+class PushSubscriptionAdmin(admin.ModelAdmin):
+    list_display = ('user', 'endpoint_short', 'user_agent', 'created_at', 'last_used_at')
+    search_fields = ('user__username', 'endpoint')
+    readonly_fields = ('created_at', 'last_used_at')
+
+    def endpoint_short(self, obj):
+        return obj.endpoint[:60] + '…' if len(obj.endpoint) > 60 else obj.endpoint
+    endpoint_short.short_description = 'Endpoint'

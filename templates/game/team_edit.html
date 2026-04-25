@@ -89,9 +89,16 @@
               <td>
                 {% if member.person.is_dead %}
                   <span class="text-danger">&#9760; {{ member.person.death_date }}</span>
-                  {% if can_edit %}
-                    <a href="{% url 'substitute_member' team.pk member.pk %}" class="btn btn-warning btn-sm ms-1">Sostituisci</a>
-                  {% endif %}
+                  {% with deadline=member.get_substitution_deadline %}
+                    {% if deadline %}
+                      <br><small class="text-muted">scade <span class="fm-countdown" data-fm-countdown="{{ deadline|date:'U' }}">…</span></small>
+                    {% endif %}
+                    {% if can_edit and member.can_be_substituted %}
+                      <a href="{% url 'substitute_member' team.pk member.pk %}" class="btn btn-warning btn-sm ms-1">Sostituisci</a>
+                    {% elif can_edit and deadline %}
+                      <span class="badge bg-secondary ms-1" title="Tempi scaduti">scaduto</span>
+                    {% endif %}
+                  {% endwith %}
                 {% else %}
                   <span class="text-success">Vivo/a</span>
                 {% endif %}

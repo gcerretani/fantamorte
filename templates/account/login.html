@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% load socialaccount %}
+{% block title %}Accedi — Fantamorte{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-5">
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+        <h2 class="card-title mb-4 text-center">&#9760; Accedi</h2>
+
+        {% get_providers as socialaccount_providers %}
+        {% if socialaccount_providers %}
+          <div class="d-grid gap-2 mb-3">
+            {% for provider in socialaccount_providers %}
+              <a class="btn btn-outline-dark"
+                 href="{% provider_login_url provider.id process='login' %}">
+                Continua con {{ provider.name }}
+              </a>
+            {% endfor %}
+          </div>
+          <div class="text-center text-muted small mb-3">— oppure —</div>
+        {% endif %}
+
+        <form method="post" action="{% url 'account_login' %}">
+          {% csrf_token %}
+          {% for field in form %}
+            <div class="mb-3">
+              <label class="form-label">{{ field.label }}</label>
+              {{ field }}
+              {% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+            </div>
+          {% endfor %}
+          {% if form.non_field_errors %}
+            <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+          {% endif %}
+          {% if redirect_field_value %}
+            <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}">
+          {% endif %}
+          <button type="submit" class="btn btn-dark w-100">Accedi</button>
+        </form>
+
+        <hr>
+        <p class="text-center small mb-1">
+          Non hai un account?
+          <a href="{% url 'account_signup' %}">Registrati</a>
+        </p>
+        <p class="text-center small mb-0">
+          <a href="{% url 'account_reset_password' %}">Hai dimenticato la password?</a>
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.querySelectorAll('form input').forEach(i => i.classList.add('form-control'));
+</script>
+{% endblock %}
