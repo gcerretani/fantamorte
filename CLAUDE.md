@@ -40,13 +40,16 @@ fantamorte/
 │   ├── signals.py           # Hook su Death.is_confirmed → push
 │   ├── middleware.py        # LoginRequiredEverywhereMiddleware
 │   ├── context_processors.py
-│   ├── management/commands/ # check_deaths, mark_originals, ecc.
+│   ├── tests.py             # Test di scoring (suite completa ~470 righe)
+│   ├── management/commands/ # check_deaths, mark_originals, award_first_last_death, generate_vapid_keys
 │   └── migrations/
 ├── wikidata_api/            # Client SPARQL/Wikipedia (puro utility, niente modelli)
+│   ├── client.py            # WikidataClient: search, entity, summary, SPARQL, bonus detection
+│   └── sparql.py            # Template query SPARQL (DEATH_CHECK_QUERY, ecc.)
 ├── templates/
 │   ├── base.html            # Layout, navbar offcanvas, modal persona, dark mode
 │   ├── account/             # Override allauth (login/signup) con stile Bootstrap
-│   └── game/                # Tutti i template della app
+│   └── game/                # Tutti i template della app (+ sw.js renderizzato)
 ├── static/
 │   ├── css/fantamorte.css   # Tema custom + dark mode + componenti
 │   ├── js/fantamorte.js     # SW reg, push, install prompt, modal persona, countdown
@@ -54,6 +57,7 @@ fantamorte/
 ├── requirements.txt
 ├── Dockerfile
 ├── docker-compose.yml
+├── entrypoint.sh            # Migrations + gunicorn
 └── .env.example             # Tutti i parametri runtime
 ```
 
@@ -79,19 +83,35 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
   `substitution_deadline_days`, `visibility` (public/private), `invite_code`.
 - **`LeagueMembership.role`** ∈ `owner|admin|member`.
 - **`Team`** ha FK a `League` (vincolo unique `(manager, league)` →
-  un utente ha **una squadra per lega**). Mantiene un FK opzionale a `Season`
-  solo per retro-compatibilità.
+  un utente ha **una squadra per lega**). Ha anche `jolly_month` (mese del
+  jolly, intero 1-12) e `is_locked` (squadra bloccata: nessuna modifica).
+  Mantiene un FK opzionale a `Season` solo per retro-compatibilità.
 - **`TeamMember.is_original`** flag che abilita il bonus "giocata originale".
-  Calcolato a inizio stagione dal command `mark_originals`.
-- **`WikipediaPerson`** ha cache di Wikidata (claims_cache) + biografia
+  Calcolato a inizio stagione dal command `mark_originals`. Il campo
+  `replaced_by` crea una catena per tracciare le sostituzioni (solo
+  l'ultimo membro senza `replaced_by` è attivo).
+- **`WikipediaPerson`** ha cache di Wikidata (`claims_cache` JSON) + biografia
   Wikipedia (`summary_it` con `summary_fetched_at` per scadenza 30 giorni).
+  Il flag `data_frozen=True` esclude la persona dai check automatici
+  (utile se i dati Wikidata sono errati/incompleti); ignorato solo con
+  `check_deaths --force`.
 - **`BonusType`** può avere `points` fissi oppure `points_formula` dinamica
-  (es. `3*(60-age)`); il `detection_method` può essere
+  (es. `3*(60-age)`); l'eval è whitelistato (`age`, `max`, `min` + operatori
+  aritmetici). Il `detection_method` può essere
   `manual|wikidata|age|original|first_death|last_death`.
 - **`Death`** ha `is_confirmed` (flag che fa scattare i punti e il push).
+  La transizione `False → True` viene tracciata da `_was_confirmed` nel
+  pre-save signal.
 - **`Season`** è ancora usata da `Death` come "indice per anno"
-  (richiesto da `check_deaths` per il filtro SPARQL). **Non** dettare
+  (richiesto da `check_deaths` per il filtro SPARQL). **Non** detta
   più le regole di gioco — quelle stanno in `League`.
+- **`SiteSettings`** è un singleton (via Django admin) per configurazione
+  globale, ad es. `wikidata_check_interval_hours`.
+- **`UserProfile`** tiene le preferenze per-utente: `push_enabled`,
+  `email_notifications`, `dark_mode`. Creato automaticamente al signup
+  via signal.
+- **`PushSubscription`** registra endpoint VAPID per-utente con
+  `last_used_at` e `auth`/`p256dh` keys.
 
 ## Auth e privacy
 
@@ -113,6 +133,8 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
 - **Manifest** servito da `/manifest.webmanifest` (rendering JSON, view in `views.py`).
 - **Service worker** servito da `/sw.js` (template Django, niente static).
   Cache offline: network-first per HTML, cache-first per asset; gestisce push.
+  Il `cache_version` nel nome della cache è parametrico nel template Django
+  per evitare stale assets.
 - **VAPID**: chiavi in env (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`,
   `VAPID_CLAIM_EMAIL`). Genera con `python manage.py generate_vapid_keys`.
   Senza VAPID, i tentativi di push sono no-op (non crashano).
@@ -120,7 +142,7 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
   `is_confirmed=False → True`, `game.push.broadcast_death_notification`
   manda a tutti i `LeagueMembership` delle leghe il cui range contiene
   `death.death_date`. Notifica "urgent" se la persona è nella squadra
-  dell'utente.
+  dell'utente. Le sottoscrizioni 404/410 vengono cancellate automaticamente.
 
 ## Scoring (regole di calcolo)
 
@@ -132,42 +154,63 @@ Implementato in `game/scoring.py`. La **League** è la sorgente di verità:
 3. Se `member.is_original`, somma anche i bonus con
    `detection_method='original'` attivi nella lega.
 4. Moltiplicatore = `captain_multiplier` (se capitano) × `jolly_multiplier`
-   (se mese jolly) — moltiplicano tra loro.
+   (se mese jolly) — moltiplicano tra loro (es. entrambi attivi = 4×).
 5. Le morti considerate sono solo quelle con `is_confirmed=True` e
    `start_date ≤ death_date ≤ end_date` della lega.
 
-API: `compute_team_total_score(team)`, `compute_team_death_details(team)`,
-`compute_team_points_for_death(team, death)`, `compute_league_rankings(league)`.
+API pubblica:
+- `compute_team_total_score(team)` → int
+- `compute_team_death_details(team)` → lista di dict con base, bonuses, multipliers
+- `compute_team_points_for_death(team, death)` → int
+- `compute_league_rankings(league)` → lista di dict ordinata per punteggio desc
+
+## Wikidata API client
+
+In `wikidata_api/client.py`. Nessun modello Django — è utility pura.
+
+- `search_by_italian_name(name)`: cerca su Wikipedia italiana → risolve QID Wikidata
+- `get_entity(qid)`: fetch completo (labels, claims, immagine Commons, occupazione, nazionalità, URL Wikipedia)
+- `get_summary(wiki_title)`: intro da Wikipedia italiana (cacheata 30 giorni)
+- `check_deaths_batch(qids, year)`: query SPARQL batch per morti in un dato anno
+- `detect_bonuses(qid, claims_cache, bonus_types)`: verifica proprietà Wikidata per i bonus
+- `detect_age_bonus(age, bonus_type)`: valuta formula età con whitelist
+
+Config in `settings.py`: `WIKIDATA_USER_AGENT` (default `'Fantamorte/1.0'`),
+`WIKIDATA_REQUEST_DELAY` (0.5 s di rate limit tra richieste).
 
 ## URL principali (mappa)
 
 ```
-/                           home (dashboard utente)
-/leghe/                     lista leghe pubbliche
-/leghe/nuova/               crea lega
-/leghe/<slug>/              detail (top 3 + recent deaths + regole + iscrizione)
-/leghe/<slug>/admin/        pannello admin (regole, bonus, membri, invito)
-/leghe/<slug>/classifica/   classifica completa
-/leghe/<slug>/decessi/      timeline decessi
+/                               home (dashboard utente)
+/leghe/                         lista leghe pubbliche
+/leghe/nuova/                   crea lega
+/leghe/<slug>/                  detail (top 3 + recent deaths + regole + iscrizione)
+/leghe/<slug>/admin/            pannello admin (regole, bonus, membri, invito)
+/leghe/<slug>/classifica/       classifica completa
+/leghe/<slug>/decessi/          timeline decessi
+/leghe/<slug>/giocatori/        refresh Wikidata giocatori della lega (admin)
 /leghe/<slug>/squadra/nuova/    crea la mia squadra in questa lega
 
-/squadra/<pk>/              dettaglio squadra
-/squadra/<pk>/modifica/     edit squadra (rosa, capitano, jolly)
-/squadra/<pk>/aggiungi/     POST AJAX: aggiunge persona (Wikidata)
+/squadra/<pk>/                  dettaglio squadra
+/squadra/<pk>/modifica/         edit squadra (rosa, capitano, jolly)
+/squadra/<pk>/aggiungi/         POST AJAX: aggiunge persona (Wikidata)
 /squadra/<pk>/sostituisci/<member_pk>/    flusso sostituzione
 
-/persona/<pk>/              pagina dettaglio (con bio Wikipedia)
-/api/persona/<pk>/          JSON per il modal "click sul nome"
-/api/search-person/         autocomplete Wikidata
+/persona/<pk>/                  pagina dettaglio (con bio Wikipedia)
+/morte/<pk>/                    dettaglio decesso con bonus e squadre coinvolte
+/api/persona/<pk>/              JSON per il modal "click sul nome"
+/api/search-person/             autocomplete Wikidata
+/api/leghe/<slug>/wikidata-diff/    JSON POST: diff campi Wikidata vs DB (admin)
+/api/leghe/<slug>/wikidata-apply/   JSON POST: applica campi selezionati (admin)
 
-/profilo/                   preferenze utente (push/email/dark mode)
-/regolamento/               regolamento generico
+/profilo/                       preferenze utente (push/email/dark mode)
+/regolamento/                   regolamento generico
 
 /api/push/{subscribe,unsubscribe,test}/
 
 /manifest.webmanifest, /sw.js, /offline/    PWA
-/accounts/...               allauth (login, signup, password reset, social)
-/admin/                     Django admin
+/accounts/...                   allauth (login, signup, password reset, social)
+/admin/                         Django admin
 ```
 
 ## Frontend conventions
@@ -198,6 +241,33 @@ API: `compute_team_total_score(team)`, `compute_team_death_details(team)`,
 - Le push sono best-effort: il signal cattura ogni eccezione e logga.
 - Per il dark mode: il valore `data-theme` viene applicato inline da
   `base.html` prima del rendering per evitare il flash.
+- Le view AJAX restituiscono JSON con `status: "ok"|"error"` e codici HTTP
+  appropriati (400/403/404).
+
+## Test
+
+La suite di test in `game/tests.py` (~470 righe) copre il calcolo del
+punteggio in modo esaustivo:
+
+- `ScoringBaseTestCase`: fixture con lega, stagione, squadra e 3 personaggi
+  storici (Berlusconi, Giovanni Paolo II, Fellini)
+- `PuntiBaseTest`: punti base, persona non in rosa, morti non confermate
+- `BonusFissoTest`: bonus fissi, override lega, override formula
+- `BonusFormulaTest`: formule età dinamiche (es. `2*(90-age)`)
+- `MoltiplicatoriTest`: capitano, mese jolly, combinazioni, override lega
+- `BonusOriginaleTest`: flag `is_original`
+- `FiltriDateLeagaTest`: filtro `start_date`/`end_date` con condizioni di
+  bordo
+- `TotaleEDeathDetailsTest`: aggregati e struttura dei dettagli
+- `RankingTest`: ordinamento classifica, pareggi
+
+**Aree non ancora coperte dai test**: view (integrazione), Wikidata client
+(API esterna), signal handler, push notifications, admin actions.
+
+Esegui i test con:
+```bash
+python manage.py test game
+```
 
 ## Comandi utili
 
@@ -218,6 +288,7 @@ python manage.py runserver
 # Cron / job periodici (per ogni lega in corso)
 python manage.py check_deaths              # rileva morti via Wikidata
 python manage.py check_deaths --dry-run    # senza scrivere
+python manage.py check_deaths --force      # ignora data_frozen sulle persone
 python manage.py mark_originals            # a inizio stagione di una lega
 python manage.py award_first_last_death --league <slug> --first   # primo decesso
 python manage.py award_first_last_death --league <slug> --last    # fine stagione
@@ -238,13 +309,15 @@ docker compose exec web python manage.py migrate
    `PUBLIC_PATHS`/`PUBLIC_PREFIXES` (`game/middleware.py`).
 5. Template → `templates/game/<page>.html`. Estendi `base.html`.
 6. Static → `static/css|js|...`. Da CDN solo Bootstrap.
+7. Test → `game/tests.py`. Aggiungi casi di test per la logica di punteggio
+   o qualsiasi logica di business non banale.
 
 ## Aree migliorabili / TODO suggeriti
 
-- Test automatici (i `tests.py` sono vuoti)
 - Inviti via email per leghe private (oggi solo codice condiviso)
 - Email reminder X giorni prima della scadenza sostituzione
 - Statistiche cross-lega (storico per utente, leaderboard "all-time")
+- Test di integrazione per le view e per il client Wikidata
 - Possibile rimozione completa di `Season` (richiede di rivedere
   `check_deaths` e `Death.season`); valutare quando ci sarà tempo
 - Indici DB su `Death.death_date`, `Team.league`, `LeagueMembership.user`
