@@ -32,7 +32,7 @@
 
     {% if not creating %}
     <div class="d-flex justify-content-between align-items-center mb-2">
-      <h5 class="mb-0">Rosa ({{ members|length }} / 12)</h5>
+      <h5 class="mb-0">Rosa ({{ members|length }} / {{ max_captains|add:max_non_captains|default:12 }})</h5>
       {% if can_edit %}
       <button class="btn btn-outline-success btn-sm" data-bs-toggle="collapse" data-bs-target="#addForm">+ Aggiungi</button>
       {% endif %}
