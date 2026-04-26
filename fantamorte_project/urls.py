@@ -5,11 +5,9 @@ from game import views as game_views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    # Auth: manteniamo le viste built-in per compatibilità (login/logout/password)
-    path('accounts/', include('django.contrib.auth.urls')),
-    # OAuth e signup self-service via django-allauth
+    # Auth: login/logout/signup/password reset/social via django-allauth
     path('accounts/', include('allauth.urls')),
-    # PWA: manifest e service worker servito dalla root per scope corretto
+    # PWA: manifest e service worker serviti dalla root per scope corretto
     path('manifest.webmanifest', game_views.ManifestView.as_view(), name='manifest'),
     path('sw.js', game_views.ServiceWorkerView.as_view(), name='service_worker'),
     path('offline/', game_views.OfflineView.as_view(), name='offline'),

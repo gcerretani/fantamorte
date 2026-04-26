@@ -130,9 +130,11 @@ class BonusTypeAdmin(admin.ModelAdmin):
 
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
-    list_display = ('name', 'manager', 'season', 'jolly_month', 'member_count', 'team_score', 'is_locked')
-    list_filter = ('season', 'is_locked')
-    search_fields = ('name', 'manager__username')
+    list_display = ('name', 'manager', 'league', 'jolly_month', 'member_count', 'team_score', 'is_locked')
+    list_filter = ('league', 'is_locked')
+    search_fields = ('name', 'manager__username', 'league__name')
+    autocomplete_fields = ('league',)
+    raw_id_fields = ('manager',)
     inlines = [TeamMemberInline]
     readonly_fields = ('team_score',)
 

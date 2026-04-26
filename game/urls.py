@@ -15,10 +15,7 @@ urlpatterns = [
     path('leghe/<slug:slug>/decessi/', views.LeagueDeathsView.as_view(), name='league_deaths'),
     path('leghe/<slug:slug>/squadra/nuova/', views.TeamCreateView.as_view(), name='team_create'),
 
-    # Generiche (richiedono login dal middleware)
-    path('classifica/', views.RankingsView.as_view(), name='rankings'),
-    path('classifica/<int:year>/', views.RankingsView.as_view(), name='rankings_year'),
-    path('decessi/', views.DeathsTimelineView.as_view(), name='deaths_timeline'),
+    # Pagine generiche
     path('regolamento/', views.RulesView.as_view(), name='rules'),
     path('profilo/', views.ProfileView.as_view(), name='profile'),
 

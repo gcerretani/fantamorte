@@ -155,12 +155,3 @@ def compute_league_rankings(league):
         rankings.append({'team': team, 'score': score, 'deaths': items})
     rankings.sort(key=lambda x: -x['score'])
     return rankings
-
-
-# Compat: alcune view ancora chiamano compute_season_rankings; usiamo la prima lega "Stagione X" come fallback.
-def compute_season_rankings(season):
-    from .models import League
-    league = League.objects.filter(slug=f'stagione-{season.year}').first()
-    if league is None:
-        return []
-    return compute_league_rankings(league)

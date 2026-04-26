@@ -3,9 +3,8 @@ import secrets
 from django.views.generic import TemplateView, DetailView, View
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import JsonResponse, HttpResponse, HttpResponseForbidden
+from django.http import JsonResponse, HttpResponseForbidden
 from django.contrib import messages
-from django.contrib.auth.models import User
 from django.utils import timezone
 from django.utils.text import slugify
 from django.utils.decorators import method_decorator
@@ -13,9 +12,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.cache import cache_control
 from django.conf import settings
 from django.urls import reverse
-from django.db.models import Q
 from .models import (
-    Season, Team, TeamMember, WikipediaPerson, Death, DeathBonus, BonusType,
+    Team, TeamMember, WikipediaPerson, Death, BonusType,
     UserProfile, PushSubscription, League, LeagueMembership, LeagueBonus,
 )
 from . import scoring
@@ -352,16 +350,7 @@ class LeagueDeathsView(LoginRequiredMixin, View):
         return render(request, 'game/league_deaths.html', {'league': league, 'deaths': deaths})
 
 
-# ---------------- Aggiornate per league ----------------
-
-class RankingsView(LoginRequiredMixin, TemplateView):
-    """Classifica generica: redirect alla lega più attiva del'utente."""
-    template_name = 'game/rankings.html'
-
-    def get(self, request, *args, **kwargs):
-        # Reindirizza all'elenco leghe: la classifica esiste per lega.
-        return redirect('league_list')
-
+# ---------------- Squadre ----------------
 
 class TeamDetailView(DetailView):
     model = Team
@@ -742,29 +731,11 @@ class PersonSearchView(View):
         return JsonResponse({'results': results})
 
 
-class DeathsTimelineView(TemplateView):
-    template_name = 'game/deaths_timeline.html'
-
-    def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)
-        season = Season.objects.filter(is_active=True).first()
-        ctx['season'] = season
-        if season:
-            ctx['deaths'] = (
-                Death.objects.filter(season=season, is_confirmed=True)
-                .select_related('person')
-                .prefetch_related('bonuses__bonus_type')
-                .order_by('-death_date')
-            )
-        return ctx
-
-
 class RulesView(TemplateView):
     template_name = 'game/rules.html'
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx['season'] = Season.objects.filter(is_active=True).first()
         ctx['bonus_types'] = BonusType.objects.filter(is_active=True).order_by('ordering', 'name')
         return ctx
 
