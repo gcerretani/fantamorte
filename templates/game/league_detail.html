@@ -1,0 +1,100 @@
+{% extends 'base.html' %}
+{% block title %}{{ league.name }} — Fantamorte{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+  <div>
+    <h2 class="mb-1">{{ league.name }}</h2>
+    <small class="text-muted">
+      {{ league.start_date|date:"d/m/Y" }} → {{ league.end_date|date:"d/m/Y" }}
+      &middot; owner: <strong>{{ league.owner.username }}</strong>
+      &middot; {{ league.memberships.count }} iscritti
+      &middot; <span class="badge {% if league.visibility == 'public' %}bg-success{% else %}bg-secondary{% endif %}">{{ league.get_visibility_display }}</span>
+    </small>
+    {% if league.description %}<p class="mt-2 mb-0">{{ league.description }}</p>{% endif %}
+  </div>
+  <div>
+    {% if is_admin %}
+      <a href="{% url 'league_admin' league.slug %}" class="btn btn-outline-dark btn-sm">Gestisci</a>
+    {% endif %}
+    {% if is_member %}
+      {% if my_team %}
+        <a href="{% url 'team_edit' my_team.pk %}" class="btn btn-warning btn-sm">La mia squadra</a>
+      {% elif league.is_registration_open %}
+        <a href="{% url 'team_create' league.slug %}" class="btn btn-success btn-sm">Crea squadra</a>
+      {% endif %}
+      {% if not is_owner %}
+      <form method="post" action="{% url 'league_leave' league.slug %}" class="d-inline" onsubmit="return confirm('Sicuro di voler abbandonare la lega?');">
+        {% csrf_token %}
+        <button class="btn btn-outline-danger btn-sm">Esci</button>
+      </form>
+      {% endif %}
+    {% else %}
+      <form method="post" action="{% url 'league_join' league.slug %}" class="d-inline">
+        {% csrf_token %}
+        {% if league.visibility == 'private' %}
+          <input type="text" name="invite_code" placeholder="Codice invito" class="form-control form-control-sm d-inline-block" style="width:160px">
+        {% endif %}
+        <button class="btn btn-success btn-sm">Iscriviti</button>
+      </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-lg-7">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h4 class="mb-0">Classifica</h4>
+      <a href="{% url 'league_rankings' league.slug %}" class="btn btn-link btn-sm">Tutta la classifica &rarr;</a>
+    </div>
+    {% if rankings %}
+      <div class="list-group mb-4">
+        {% for entry in top_rankings %}
+          <a href="{% url 'team_detail' entry.team.pk %}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+            <div>
+              {% if forloop.counter == 1 %}<span class="me-2">&#127942;</span>{% elif forloop.counter == 2 %}<span class="me-2">&#129352;</span>{% else %}<span class="me-2">&#129353;</span>{% endif %}
+              <strong>{{ entry.team.name }}</strong>
+              <small class="text-muted ms-2">{{ entry.team.manager.username }}</small>
+            </div>
+            <span class="badge bg-dark fs-6">{{ entry.score }} pt</span>
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-muted">Nessuna squadra registrata.</p>
+    {% endif %}
+  </div>
+
+  <div class="col-lg-5">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h4 class="mb-0">Ultimi decessi</h4>
+      <a href="{% url 'league_deaths' league.slug %}" class="btn btn-link btn-sm">Tutti &rarr;</a>
+    </div>
+    {% if recent_deaths %}
+      <ul class="list-group">
+        {% for death in recent_deaths %}
+          <li class="list-group-item d-flex justify-content-between">
+            <div>
+              <a href="#" data-fm-person-pk="{{ death.person.pk }}">{{ death.person.name_it }}</a>
+              {% if death.death_age %}<small class="text-muted">({{ death.death_age }})</small>{% endif %}
+            </div>
+            <small class="text-muted">{{ death.death_date|date:"d/m/Y" }}</small>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-muted">Nessun decesso ancora.</p>
+    {% endif %}
+
+    <h5 class="mt-4">Regole della lega</h5>
+    <ul class="list-unstyled small">
+      <li>Composizione: <strong>{{ league.max_captains }} capitano + {{ league.max_non_captains }} morituri</strong></li>
+      <li>Punti base: <strong>{{ league.base_points }}</strong></li>
+      <li>Capitano: ×{{ league.captain_multiplier }}
+        {% if league.jolly_enabled %}— Jolly: ×{{ league.jolly_multiplier }}{% endif %}</li>
+      <li>Sostituzione: <strong>{{ league.substitution_deadline_days }} giorni</strong> dalla conferma</li>
+    </ul>
+  </div>
+</div>
+
+{% endblock %}

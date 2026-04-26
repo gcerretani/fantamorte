@@ -31,11 +31,10 @@
         <li class="list-group-item d-flex justify-content-between align-items-center">
           <div>
             {% if member.is_captain %}<span class="badge badge-captain me-1">C</span>{% endif %}
-            {% if member.person.wikipedia_url_it %}
-              <a href="{{ member.person.wikipedia_url_it }}" target="_blank">{{ member.person.name_it }}</a>
-            {% else %}
+            {% if member.is_original %}<span class="badge bg-info me-1" title="Giocata originale">★</span>{% endif %}
+            <a href="#" class="text-decoration-none" data-fm-person-pk="{{ member.person.pk }}">
               {{ member.person.name_it }}
-            {% endif %}
+            </a>
             {% if member.person.birth_date %}
               <small class="text-muted">(n. {{ member.person.birth_date.year }})</small>
             {% elif member.person.birth_year %}

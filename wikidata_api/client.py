@@ -71,10 +71,12 @@ class WikidataClient:
         data = self._get(self.ENTITY_URL.format(wikidata_id))
         entity = data.get('entities', {}).get(wikidata_id, {})
         labels = entity.get('labels', {})
+        descriptions = entity.get('descriptions', {})
         claims = entity.get('claims', {})
 
         name_it = labels.get('it', {}).get('value') or labels.get('en', {}).get('value', wikidata_id)
         name_en = labels.get('en', {}).get('value', '')
+        description_it = descriptions.get('it', {}).get('value') or descriptions.get('en', {}).get('value', '')
 
         birth_date, birth_year = self._parse_date_claim(claims.get('P569', []))
         death_date, death_year = self._parse_date_claim(claims.get('P570', []))
@@ -83,16 +85,94 @@ class WikidataClient:
         wiki_title = sitelinks.get('itwiki', {}).get('title', '')
         wikipedia_url = f'https://it.wikipedia.org/wiki/{wiki_title.replace(" ", "_")}' if wiki_title else ''
 
+        image_url = self._build_commons_image_url(claims.get('P18', []))
+        occupation = self._labels_for_entity_claims(claims.get('P106', []), limit=4)
+        nationality = self._labels_for_entity_claims(claims.get('P27', []), limit=2)
+
         return {
             'name_it': name_it,
             'name_en': name_en,
+            'description_it': description_it,
             'birth_date': birth_date,
             'birth_year': birth_year,
             'death_date': death_date,
             'death_year': death_year,
             'wikipedia_url_it': wikipedia_url,
+            'wiki_title_it': wiki_title,
+            'image_url': image_url,
+            'occupation': occupation,
+            'nationality': nationality,
             'claims_cache': {k: v for k, v in claims.items()},
         }
+
+    def get_summary(self, wiki_title):
+        """Restituisce l'estratto introduttivo della pagina Wikipedia italiana."""
+        if not wiki_title:
+            return ''
+        data = self._get(self.IT_WIKI_API, {
+            'action': 'query',
+            'titles': wiki_title,
+            'prop': 'extracts',
+            'exintro': 1,
+            'explaintext': 1,
+            'redirects': 1,
+            'format': 'json',
+        })
+        pages = data.get('query', {}).get('pages', {})
+        for page in pages.values():
+            extract = page.get('extract')
+            if extract:
+                return extract.strip()
+        return ''
+
+    def _build_commons_image_url(self, claim_list):
+        if not claim_list:
+            return ''
+        snak = claim_list[0].get('mainsnak', {})
+        if snak.get('snaktype') != 'value':
+            return ''
+        filename = snak.get('datavalue', {}).get('value')
+        if not filename:
+            return ''
+        # Special:FilePath ridireziona all'immagine reale, gestendo redirect e dimensioni.
+        from urllib.parse import quote
+        return f'https://commons.wikimedia.org/wiki/Special:FilePath/{quote(filename)}?width=400'
+
+    def _labels_for_entity_claims(self, claim_list, limit=4, lang='it'):
+        """Risolve le label italiane delle entità referenziate da una lista di claims."""
+        qids = []
+        for claim in claim_list[:limit]:
+            snak = claim.get('mainsnak', {})
+            if snak.get('snaktype') != 'value':
+                continue
+            dv = snak.get('datavalue', {})
+            if dv.get('type') != 'wikibase-entityid':
+                continue
+            qid = dv.get('value', {}).get('id')
+            if qid:
+                qids.append(qid)
+        if not qids:
+            return ''
+        try:
+            params = {
+                'action': 'wbgetentities',
+                'ids': '|'.join(qids),
+                'props': 'labels',
+                'languages': f'{lang}|en',
+                'format': 'json',
+            }
+            data = self._get('https://www.wikidata.org/w/api.php', params)
+            entities = data.get('entities', {})
+            labels = []
+            for qid in qids:
+                ent = entities.get(qid, {})
+                lbls = ent.get('labels', {})
+                lbl = (lbls.get(lang) or lbls.get('en') or {}).get('value')
+                if lbl:
+                    labels.append(lbl)
+            return ', '.join(labels)
+        except Exception:
+            return ''
 
     def _parse_date_claim(self, claim_list):
         if not claim_list:

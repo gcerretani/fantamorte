@@ -1,8 +1,50 @@
 from django.contrib import admin
 from django.utils import timezone
 from django.contrib import messages
-from .models import Season, WikipediaPerson, BonusType, Team, TeamMember, Death, DeathBonus
+from .models import (
+    Season, WikipediaPerson, BonusType, Team, TeamMember,
+    Death, DeathBonus, UserProfile, PushSubscription,
+    League, LeagueMembership, LeagueBonus,
+)
 from . import scoring
+
+
+class LeagueMembershipInline(admin.TabularInline):
+    model = LeagueMembership
+    extra = 0
+    fields = ('user', 'role', 'joined_at')
+    readonly_fields = ('joined_at',)
+
+
+class LeagueBonusInline(admin.TabularInline):
+    model = LeagueBonus
+    extra = 0
+    fields = ('bonus_type', 'is_active', 'override_points', 'override_formula')
+    autocomplete_fields = ('bonus_type',)
+
+
+@admin.register(League)
+class LeagueAdmin(admin.ModelAdmin):
+    list_display = ('name', 'owner', 'visibility', 'start_date', 'end_date',
+                    'max_non_captains', 'substitution_deadline_days', 'is_locked')
+    list_filter = ('visibility', 'is_locked')
+    search_fields = ('name', 'slug', 'owner__username')
+    prepopulated_fields = {'slug': ('name',)}
+    inlines = [LeagueMembershipInline, LeagueBonusInline]
+
+
+@admin.register(LeagueMembership)
+class LeagueMembershipAdmin(admin.ModelAdmin):
+    list_display = ('user', 'league', 'role', 'joined_at')
+    list_filter = ('role',)
+    search_fields = ('user__username', 'league__name')
+
+
+@admin.register(LeagueBonus)
+class LeagueBonusAdmin(admin.ModelAdmin):
+    list_display = ('league', 'bonus_type', 'is_active', 'override_points', 'override_formula')
+    list_filter = ('is_active', 'league')
+    search_fields = ('league__name', 'bonus_type__name')
 
 
 class DeathBonusInline(admin.TabularInline):
@@ -14,15 +56,20 @@ class DeathBonusInline(admin.TabularInline):
 class TeamMemberInline(admin.TabularInline):
     model = TeamMember
     extra = 0
-    fields = ('person', 'is_captain', 'replaced_by')
+    fields = ('person', 'is_captain', 'is_original', 'replaced_by')
     raw_id_fields = ('person', 'replaced_by')
     readonly_fields = ('added_at',)
+    fk_name = 'team'
 
 
 @admin.register(Season)
 class SeasonAdmin(admin.ModelAdmin):
-    list_display = ('year', 'is_active', 'registration_opens', 'registration_closes', 'death_count')
+    list_display = (
+        'year', 'is_active', 'registration_opens', 'registration_closes',
+        'substitution_deadline_days', 'death_count',
+    )
     list_filter = ('is_active',)
+    list_editable = ('substitution_deadline_days',)
     actions = ['set_active']
 
     def death_count(self, obj):
@@ -41,10 +88,10 @@ class SeasonAdmin(admin.ModelAdmin):
 
 @admin.register(WikipediaPerson)
 class WikidataPersonAdmin(admin.ModelAdmin):
-    list_display = ('name_it', 'wikidata_id', 'birth_date', 'death_date', 'is_dead', 'last_checked')
+    list_display = ('name_it', 'wikidata_id', 'birth_date', 'death_date', 'is_dead', 'occupation', 'last_checked')
     list_filter = ('is_dead',)
     search_fields = ('name_it', 'wikidata_id')
-    readonly_fields = ('last_checked', 'claims_cache')
+    readonly_fields = ('last_checked', 'summary_fetched_at', 'claims_cache')
     actions = ['refresh_from_wikidata']
 
     @admin.action(description='Aggiorna da Wikidata')
@@ -73,9 +120,12 @@ class WikidataPersonAdmin(admin.ModelAdmin):
 
 @admin.register(BonusType)
 class BonusTypeAdmin(admin.ModelAdmin):
-    list_display = ('name', 'points', 'detection_method', 'wikidata_property', 'wikidata_value', 'age_formula', 'is_active', 'ordering')
+    list_display = ('name', 'points', 'points_formula', 'detection_method',
+                    'wikidata_property', 'wikidata_value', 'age_formula',
+                    'is_active', 'ordering')
     list_editable = ('ordering', 'is_active', 'points')
     list_filter = ('detection_method', 'is_active')
+    search_fields = ('name',)
 
 
 @admin.register(Team)
@@ -155,3 +205,21 @@ class DeathBonusAdmin(admin.ModelAdmin):
     list_display = ('death', 'bonus_type', 'points_awarded', 'is_auto_detected')
     list_filter = ('bonus_type', 'is_auto_detected')
     search_fields = ('death__person__name_it',)
+
+
+@admin.register(UserProfile)
+class UserProfileAdmin(admin.ModelAdmin):
+    list_display = ('user', 'push_notifications_enabled', 'email_notifications_enabled', 'dark_mode')
+    list_filter = ('push_notifications_enabled', 'email_notifications_enabled')
+    search_fields = ('user__username', 'user__email')
+
+
+@admin.register(PushSubscription)
+class PushSubscriptionAdmin(admin.ModelAdmin):
+    list_display = ('user', 'endpoint_short', 'user_agent', 'created_at', 'last_used_at')
+    search_fields = ('user__username', 'endpoint')
+    readonly_fields = ('created_at', 'last_used_at')
+
+    def endpoint_short(self, obj):
+        return obj.endpoint[:60] + '…' if len(obj.endpoint) > 60 else obj.endpoint
+    endpoint_short.short_description = 'Endpoint'

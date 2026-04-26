@@ -1,0 +1,81 @@
+{% extends 'base.html' %}
+{% block title %}Nuova lega — Fantamorte{% endblock %}
+{% block content %}
+
+<h2 class="mb-4">Crea una nuova lega</h2>
+
+<form method="post" class="row g-3">
+  {% csrf_token %}
+  <div class="col-md-8">
+    <label class="form-label">Nome della lega *</label>
+    <input type="text" name="name" class="form-control" value="{{ data.name|default:'' }}" required>
+  </div>
+  <div class="col-md-4">
+    <label class="form-label">Visibilità</label>
+    <select name="visibility" class="form-select">
+      <option value="public">Pubblica</option>
+      <option value="private">Privata (codice invito)</option>
+    </select>
+  </div>
+  <div class="col-12">
+    <label class="form-label">Descrizione</label>
+    <textarea name="description" class="form-control" rows="3">{{ data.description|default:'' }}</textarea>
+  </div>
+
+  <hr class="mt-4">
+  <h5>Calendario</h5>
+  <div class="col-md-3">
+    <label class="form-label">Inizio gioco *</label>
+    <input type="date" name="start_date" class="form-control" required>
+  </div>
+  <div class="col-md-3">
+    <label class="form-label">Fine gioco *</label>
+    <input type="date" name="end_date" class="form-control" required>
+  </div>
+  <div class="col-md-3">
+    <label class="form-label">Apertura iscrizioni *</label>
+    <input type="date" name="registration_opens" class="form-control" required>
+  </div>
+  <div class="col-md-3">
+    <label class="form-label">Chiusura iscrizioni *</label>
+    <input type="date" name="registration_closes" class="form-control" required>
+  </div>
+
+  <hr class="mt-4">
+  <h5>Regole</h5>
+  <div class="col-md-3">
+    <label class="form-label">N° morituri (non capitano)</label>
+    <input type="number" name="max_non_captains" class="form-control" value="11" min="1" max="50">
+  </div>
+  <div class="col-md-3">
+    <label class="form-label">N° capitani</label>
+    <input type="number" name="max_captains" class="form-control" value="1" min="0" max="3">
+  </div>
+  <div class="col-md-3">
+    <label class="form-label">Punti base / decesso</label>
+    <input type="number" name="base_points" class="form-control" value="50" min="0">
+  </div>
+  <div class="col-md-3">
+    <label class="form-label">Giorni per sostituzione</label>
+    <input type="number" name="substitution_deadline_days" class="form-control" value="7" min="0" max="365">
+  </div>
+  <div class="col-md-3">
+    <label class="form-label">Moltiplicatore capitano</label>
+    <input type="number" name="captain_multiplier" class="form-control" value="2" min="1" max="10">
+  </div>
+  <div class="col-md-3">
+    <label class="form-label">Moltiplicatore mese jolly</label>
+    <input type="number" name="jolly_multiplier" class="form-control" value="2" min="1" max="10">
+  </div>
+  <div class="col-md-3 form-check ms-3 mt-4">
+    <input class="form-check-input" type="checkbox" name="jolly_enabled" id="jolly_enabled" checked>
+    <label class="form-check-label" for="jolly_enabled">Mese jolly abilitato</label>
+  </div>
+
+  <div class="col-12 mt-4">
+    <button type="submit" class="btn btn-success">Crea la lega</button>
+    <a href="{% url 'league_list' %}" class="btn btn-outline-secondary">Annulla</a>
+  </div>
+</form>
+
+{% endblock %}

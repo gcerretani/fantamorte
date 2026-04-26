@@ -1,0 +1,118 @@
+/* Fantamorte — stile custom + dark mode */
+
+:root {
+  --fm-bg: #f8f9fa;
+  --fm-text: #212529;
+  --fm-card-bg: #ffffff;
+  --fm-muted: #6c757d;
+  --fm-border: #dee2e6;
+  --fm-navbar-bg: #212529;
+  --fm-link: #0d6efd;
+  --fm-danger: #dc3545;
+  --fm-success: #198754;
+  --fm-warning: #ffc107;
+}
+
+[data-theme="dark"] {
+  --fm-bg: #121417;
+  --fm-text: #e9ecef;
+  --fm-card-bg: #1c1f23;
+  --fm-muted: #adb5bd;
+  --fm-border: #2c3035;
+  --fm-navbar-bg: #0a0c0f;
+  --fm-link: #4ea8ff;
+  --fm-danger: #ff6b6b;
+  --fm-success: #51cf66;
+  --fm-warning: #ffd43b;
+}
+
+[data-theme="dark"] body { background-color: var(--fm-bg) !important; color: var(--fm-text); }
+[data-theme="dark"] .card,
+[data-theme="dark"] .list-group-item,
+[data-theme="dark"] .table { background-color: var(--fm-card-bg); color: var(--fm-text); border-color: var(--fm-border); }
+[data-theme="dark"] .table { --bs-table-bg: var(--fm-card-bg); --bs-table-color: var(--fm-text); }
+[data-theme="dark"] .table-hover > tbody > tr:hover > * { background-color: rgba(255,255,255,0.04); color: var(--fm-text); }
+[data-theme="dark"] .text-muted { color: var(--fm-muted) !important; }
+[data-theme="dark"] .border-top, [data-theme="dark"] .border, [data-theme="dark"] .border-bottom { border-color: var(--fm-border) !important; }
+[data-theme="dark"] .form-control, [data-theme="dark"] .form-select {
+  background-color: var(--fm-card-bg); color: var(--fm-text); border-color: var(--fm-border);
+}
+[data-theme="dark"] .form-control:focus, [data-theme="dark"] .form-select:focus {
+  background-color: var(--fm-card-bg); color: var(--fm-text);
+}
+[data-theme="dark"] .alert-info { background-color: #143a4a; color: #cdebff; border-color: #1a4a60; }
+[data-theme="dark"] .alert-success { background-color: #143b25; color: #cdf5d8; border-color: #1c5532; }
+[data-theme="dark"] .alert-warning { background-color: #4a3a14; color: #ffe9a8; border-color: #604c1a; }
+[data-theme="dark"] .alert-danger { background-color: #4a1a1f; color: #ffc9cc; border-color: #6b262d; }
+[data-theme="dark"] .btn-outline-dark { color: var(--fm-text); border-color: var(--fm-text); }
+[data-theme="dark"] .btn-outline-dark:hover { background-color: var(--fm-text); color: var(--fm-bg); }
+[data-theme="dark"] .navbar.bg-dark { background-color: var(--fm-navbar-bg) !important; }
+[data-theme="dark"] a { color: var(--fm-link); }
+[data-theme="dark"] .table-danger > * { background-color: rgba(220,53,69,0.18) !important; color: var(--fm-text) !important; }
+
+/* Componenti custom */
+
+.skull { font-size: 1.2em; }
+.badge-jolly { background-color: #6f42c1; }
+.badge-captain { background-color: #fd7e14; }
+.table-deaths td { vertical-align: middle; }
+
+/* Floating Action Button per sostituzioni urgenti su mobile */
+.fm-fab {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 1030;
+  border-radius: 999px;
+  padding: 0.75rem 1.25rem;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+  font-weight: 600;
+}
+
+/* Toast container */
+.fm-toast-container {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 1080;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* Timeline decessi */
+.fm-timeline { position: relative; padding-left: 1.5rem; border-left: 3px solid var(--fm-border); }
+.fm-timeline-item { position: relative; margin-bottom: 1.25rem; }
+.fm-timeline-item::before {
+  content: "";
+  position: absolute;
+  left: -1.85rem;
+  top: 0.4rem;
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 50%;
+  background: var(--fm-danger);
+  box-shadow: 0 0 0 3px var(--fm-bg);
+}
+
+/* Countdown */
+.fm-countdown {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+.fm-countdown.urgent { color: var(--fm-danger); }
+
+/* Mobile: aumenta target tap */
+@media (max-width: 576px) {
+  .btn-sm { padding: 0.4rem 0.7rem; }
+  .table { font-size: 0.92rem; }
+  h1, .h1 { font-size: 1.6rem; }
+  h2, .h2 { font-size: 1.35rem; }
+  .display-5 { font-size: 2.2rem; }
+}
+
+/* Riduci salto navbar offcanvas */
+body { padding-top: 0.5rem; }
+
+/* Install button */
+#fmInstallBtn { display: none; }

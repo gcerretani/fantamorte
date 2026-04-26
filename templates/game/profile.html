@@ -1,0 +1,78 @@
+{% extends 'base.html' %}
+{% block title %}Profilo — Fantamorte{% endblock %}
+{% block content %}
+
+<h2>Profilo di {{ user.username }}</h2>
+<p class="text-muted">{{ user.email|default:'(email non impostata)' }}</p>
+
+<div class="row g-4">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">Preferenze</h5>
+        <form method="post">
+          {% csrf_token %}
+          <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" id="pushPref" name="push_notifications_enabled"
+              {% if profile.push_notifications_enabled %}checked{% endif %}>
+            <label class="form-check-label" for="pushPref">Notifiche push sui decessi</label>
+          </div>
+          <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" id="emailPref" name="email_notifications_enabled"
+              {% if profile.email_notifications_enabled %}checked{% endif %}>
+            <label class="form-check-label" for="emailPref">Notifiche email sui decessi</label>
+          </div>
+          <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" id="darkPref" name="dark_mode"
+              {% if profile.dark_mode %}checked{% endif %}>
+            <label class="form-check-label" for="darkPref">Tema scuro come predefinito</label>
+          </div>
+          <button class="btn btn-dark" type="submit">Salva</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">Notifiche push su questo dispositivo</h5>
+        <p class="text-muted small">
+          Ricevi una notifica quando un personaggio decede. Funziona anche con app installata.
+        </p>
+        <div class="d-flex gap-2 flex-wrap">
+          <button id="enablePushBtn" class="btn btn-success btn-sm" onclick="fmEnablePush()">Attiva</button>
+          <button class="btn btn-outline-secondary btn-sm" onclick="fmDisablePush()">Disattiva</button>
+          <button class="btn btn-outline-dark btn-sm" onclick="fmTestPush()">Invia test</button>
+        </div>
+        {% if not VAPID_PUBLIC_KEY %}
+          <div class="alert alert-warning mt-3 mb-0 small">
+            Il server non ha ancora una chiave VAPID configurata. L'amministratore deve generarla.
+          </div>
+        {% endif %}
+        {% if push_subscriptions %}
+          <hr>
+          <p class="small mb-1"><strong>{{ push_subscriptions|length }}</strong> dispositivo/i registrato/i:</p>
+          <ul class="small text-muted mb-0">
+            {% for s in push_subscriptions %}
+              <li>{{ s.user_agent|truncatechars:60|default:'(unknown)' }} &mdash; {{ s.created_at|date:"d/m/Y" }}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {% if team %}
+  <div class="col-12">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">La tua squadra</h5>
+        <p><a href="{% url 'team_edit' team.pk %}" class="btn btn-outline-dark btn-sm">{{ team.name }} &rarr;</a></p>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}

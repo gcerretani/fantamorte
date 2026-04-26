@@ -76,22 +76,30 @@
             {% if member.is_active %}
             <tr {% if member.person.is_dead %}class="table-danger"{% endif %}>
               <td>
-                {% if member.person.wikipedia_url_it %}
-                  <a href="{{ member.person.wikipedia_url_it }}" target="_blank">{{ member.person.name_it }}</a>
-                {% else %}
+                <a href="#" class="text-decoration-none" data-fm-person-pk="{{ member.person.pk }}">
                   {{ member.person.name_it }}
-                {% endif %}
+                </a>
                 {% if member.is_captain %}
                   <span class="badge badge-captain">C</span>
+                {% endif %}
+                {% if member.is_original %}
+                  <span class="badge bg-info" title="Giocata originale">★</span>
                 {% endif %}
               </td>
               <td><small>{% if member.person.birth_date %}{{ member.person.birth_date.year }}{% elif member.person.birth_year %}{{ member.person.birth_year }}{% endif %}</small></td>
               <td>
                 {% if member.person.is_dead %}
                   <span class="text-danger">&#9760; {{ member.person.death_date }}</span>
-                  {% if can_edit %}
-                    <a href="{% url 'substitute_member' team.pk member.pk %}" class="btn btn-warning btn-sm ms-1">Sostituisci</a>
-                  {% endif %}
+                  {% with deadline=member.get_substitution_deadline %}
+                    {% if deadline %}
+                      <br><small class="text-muted">scade <span class="fm-countdown" data-fm-countdown="{{ deadline|date:'U' }}">…</span></small>
+                    {% endif %}
+                    {% if can_edit and member.can_be_substituted %}
+                      <a href="{% url 'substitute_member' team.pk member.pk %}" class="btn btn-warning btn-sm ms-1">Sostituisci</a>
+                    {% elif can_edit and deadline %}
+                      <span class="badge bg-secondary ms-1" title="Tempi scaduti">scaduto</span>
+                    {% endif %}
+                  {% endwith %}
                 {% else %}
                   <span class="text-success">Vivo/a</span>
                 {% endif %}

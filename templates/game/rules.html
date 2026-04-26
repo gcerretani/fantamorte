@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block title %}Regolamento — Fantamorte{% endblock %}
+{% block content %}
+
+<h2>Regolamento Fantamorte</h2>
+
+<div class="row">
+  <div class="col-lg-8">
+    <h5>L'idea del gioco</h5>
+    <p>
+      Ogni giocatore (manager) compone una squadra di personaggi pubblici. Quando uno di
+      questi personaggi muore durante la stagione, la squadra accumula punti.
+    </p>
+
+    <h5>Composizione della squadra</h5>
+    <ul>
+      <li><strong>1 capitano</strong> (raddoppia i punti).</li>
+      <li><strong>11 morituri</strong> non capitano.</li>
+      <li>Un <strong>mese jolly</strong> opzionale: i decessi avvenuti in quel mese raddoppiano (cumulabile col capitano).</li>
+    </ul>
+
+    <h5>Punti</h5>
+    <p>Ogni decesso assegna {{ 50 }} punti base, più gli eventuali bonus elencati sotto.
+    Il totale viene poi moltiplicato per il moltiplicatore (capitano e/o jolly).</p>
+
+    {% if bonus_types %}
+    <table class="table table-sm">
+      <thead><tr><th>Bonus</th><th class="text-end">Punti</th></tr></thead>
+      <tbody>
+        {% for bt in bonus_types %}
+          <tr>
+            <td><strong>{{ bt.name }}</strong>
+              {% if bt.description %}<br><small class="text-muted">{{ bt.description }}</small>{% endif %}
+            </td>
+            <td class="text-end">
+              {% if bt.points_formula %}<code>{{ bt.points_formula }}</code>{% else %}+{{ bt.points }}{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    <h5>Moltiplicatori</h5>
+    <ul>
+      <li>×2 se a morire è il <strong>capitano</strong>.</li>
+      <li>×2 se la morte avviene nel <strong>mese jolly</strong> della squadra.</li>
+      <li>×4 se entrambi i casi (capitano nel mese jolly).</li>
+    </ul>
+
+    <h5>Sostituzioni</h5>
+    <p>
+      Quando un membro della tua squadra muore, hai
+      {% if season %}<strong>{{ season.substitution_deadline_days }} giorni</strong>{% else %}<strong>7 giorni</strong>{% endif %}
+      di tempo per nominare un sostituto, a partire dalla conferma del decesso da parte degli amministratori.
+      I punti del decesso restano comunque assegnati.
+    </p>
+
+    <h5>Notifiche</h5>
+    <p>
+      Puoi attivare le notifiche push dal tuo <a href="{% url 'profile' %}">profilo</a>: riceverai un avviso
+      ogni volta che un decesso viene confermato. Se la persona era nella tua squadra, la notifica avrà priorità più alta.
+    </p>
+
+    <h5>Fonti</h5>
+    <p>I dati provengono da <a href="https://www.wikidata.org" target="_blank">Wikidata</a> e Wikipedia italiana.</p>
+  </div>
+</div>
+
+{% endblock %}
