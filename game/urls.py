@@ -11,6 +11,7 @@ urlpatterns = [
     path('leghe/<slug:slug>/iscriviti/', views.LeagueJoinView.as_view(), name='league_join'),
     path('leghe/<slug:slug>/abbandona/', views.LeagueLeaveView.as_view(), name='league_leave'),
     path('leghe/<slug:slug>/admin/', views.LeagueAdminView.as_view(), name='league_admin'),
+    path('leghe/<slug:slug>/admin/aggiorna-morituri/', views.PersonUpdatesView.as_view(), name='league_person_updates'),
     path('leghe/<slug:slug>/classifica/', views.LeagueRankingsView.as_view(), name='league_rankings'),
     path('leghe/<slug:slug>/decessi/', views.LeagueDeathsView.as_view(), name='league_deaths'),
     path('leghe/<slug:slug>/squadra/nuova/', views.TeamCreateView.as_view(), name='team_create'),

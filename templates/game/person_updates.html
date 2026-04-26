@@ -1,0 +1,163 @@
+{% extends 'base.html' %}
+{% block title %}Aggiorna dati Wikidata — {{ league.name }}{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="mb-0">Dati Wikidata — {{ league.name }}</h2>
+  <a href="{% url 'league_admin' league.slug %}" class="btn btn-outline-secondary btn-sm">&larr; Pannello admin</a>
+</div>
+
+{% if mode == 'list' %}
+
+  {% if many_warning %}
+  <div class="alert alert-warning">
+    Ci sono più di 50 concorrenti: il controllo completo potrebbe richiedere qualche minuto.
+  </div>
+  {% endif %}
+
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="check">
+
+    <table class="table table-sm align-middle">
+      <thead>
+        <tr>
+          <th><input type="checkbox" id="selectAll"></th>
+          <th>Concorrente</th>
+          <th>Wikidata ID</th>
+          <th>Stato</th>
+          <th>Ultimo controllo</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in persons %}
+        <tr>
+          <td><input type="checkbox" name="person_pks" value="{{ p.pk }}" class="person-check"></td>
+          <td>
+            <a href="{% url 'person_detail' p.pk %}">{{ p.name_it }}</a>
+          </td>
+          <td><small class="text-muted">{{ p.wikidata_id }}</small></td>
+          <td>
+            {% if p.is_dead %}
+              <span class="badge bg-dark">Deceduto</span>
+            {% else %}
+              <span class="badge bg-success">Vivente</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if p.last_checked %}
+              <small>{{ p.last_checked|date:"d/m/Y H:i" }}</small>
+            {% else %}
+              <small class="text-muted">mai</small>
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="text-muted">Nessun concorrente attivo in questa lega.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="d-flex gap-2 mt-2">
+      <button type="submit" class="btn btn-dark btn-sm">Controlla selezionati</button>
+      <button type="submit" name="check_all" value="1" class="btn btn-outline-dark btn-sm">Controlla tutti</button>
+    </div>
+  </form>
+
+  <script>
+    document.getElementById('selectAll').addEventListener('change', function () {
+      document.querySelectorAll('.person-check').forEach(c => c.checked = this.checked);
+    });
+  </script>
+
+{% elif mode == 'diff' %}
+
+  <p class="text-muted">Spunta i campi da importare nel database locale, poi conferma.</p>
+
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="apply">
+
+    {% for r in results %}
+    <div class="card mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>{{ r.person.name_it }}</strong>
+        <small class="text-muted">{{ r.person.wikidata_id }}</small>
+      </div>
+      <div class="card-body p-0">
+        {% if r.error %}
+          <div class="p-3 text-danger">Errore durante il recupero: {{ r.error }}</div>
+        {% elif not r.changes %}
+          <div class="p-3 text-muted">Nessuna modifica rilevata.</div>
+        {% else %}
+          <input type="hidden" name="fresh_json_{{ r.person.pk }}" value="{{ r.fresh_json }}">
+          <table class="table table-sm mb-0">
+            <thead>
+              <tr><th>Applica</th><th>Campo</th><th>Valore attuale</th><th>Valore Wikidata</th></tr>
+            </thead>
+            <tbody>
+              {% for c in r.changes %}
+              <tr {% if c.field == 'death_date' or c.field == 'is_dead' %}class="table-warning"{% endif %}>
+                <td>
+                  <input type="checkbox" name="apply_{{ r.person.pk }}_{{ c.field }}"
+                         value="1" {% if not c.claims_only %}checked{% endif %}>
+                </td>
+                <td><strong>{{ c.label }}</strong></td>
+                <td>
+                  <span class="text-muted">
+                    {% if c.old %}{{ c.old }}{% else %}<em>vuoto</em>{% endif %}
+                  </span>
+                </td>
+                <td>
+                  {% if c.claims_only %}
+                    <span class="badge bg-secondary">modificato</span>
+                    <small class="text-muted ms-1">(se spunti, aggiorna i claims in cache)</small>
+                  {% else %}
+                    {% if c.new %}{{ c.new }}{% else %}<em>vuoto</em>{% endif %}
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+      </div>
+    </div>
+    {% empty %}
+    <p class="text-muted">Nessun risultato.</p>
+    {% endfor %}
+
+    {% if results %}
+    <div class="d-flex gap-2 mt-2">
+      <button type="submit" class="btn btn-dark">Applica modifiche selezionate</button>
+      <a href="{% url 'league_person_updates' league.slug %}" class="btn btn-outline-secondary">Annulla</a>
+    </div>
+    {% endif %}
+  </form>
+
+{% elif mode == 'result' %}
+
+  {% if applied %}
+  <div class="alert alert-success">Modifiche applicate correttamente.</div>
+  <table class="table table-sm">
+    <thead><tr><th>Concorrente</th><th>Campi aggiornati</th></tr></thead>
+    <tbody>
+      {% for entry in applied %}
+      <tr>
+        <td>{{ entry.person.name_it }}</td>
+        <td>{{ entry.fields|join:", " }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="alert alert-info">Nessuna modifica applicata.</div>
+  {% endif %}
+
+  <a href="{% url 'league_person_updates' league.slug %}" class="btn btn-outline-dark btn-sm mt-2">
+    Torna alla lista concorrenti
+  </a>
+
+{% endif %}
+
+{% endblock %}

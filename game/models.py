@@ -472,6 +472,35 @@ class LeagueBonus(models.Model):
         return self.bonus_type.points
 
 
+class SiteConfiguration(models.Model):
+    """Configurazione globale del sito (singleton, pk=1)."""
+    wikidata_refresh_interval_hours = models.PositiveIntegerField(
+        default=24,
+        verbose_name="Intervallo aggiornamento Wikidata (ore)",
+        help_text=(
+            "Ore minime tra un controllo automatico Wikidata e il successivo "
+            "per ciascun concorrente vivente. Il cron può girare più spesso: "
+            "il sistema salterà le persone controllate di recente."
+        ),
+    )
+
+    class Meta:
+        verbose_name = "Configurazione sito"
+        verbose_name_plural = "Configurazione sito"
+
+    def __str__(self):
+        return "Configurazione sito"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get_solo(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+
 class PushSubscription(models.Model):
     """Endpoint Web Push (VAPID) registrato dal browser di un utente."""
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='push_subscriptions')

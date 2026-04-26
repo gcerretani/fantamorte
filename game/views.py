@@ -15,6 +15,7 @@ from django.urls import reverse
 from .models import (
     Team, TeamMember, WikipediaPerson, Death, BonusType,
     UserProfile, PushSubscription, League, LeagueMembership, LeagueBonus,
+    SiteConfiguration,
 )
 from . import scoring
 
@@ -508,31 +509,34 @@ class AddPersonView(LoginRequiredMixin, View):
         if not wikidata_id:
             return JsonResponse({'error': 'wikidata_id mancante'}, status=400)
 
-        from wikidata_api.client import WikidataClient
-        client = WikidataClient()
-        try:
-            entity = client.get_entity(wikidata_id)
-        except Exception as e:
-            return JsonResponse({'error': f'Errore Wikidata: {e}'}, status=500)
+        # Usa la cache DB se il concorrente è già presente; altrimenti recupera da Wikidata
+        person = WikipediaPerson.objects.filter(wikidata_id=wikidata_id).first()
+        if not person:
+            from wikidata_api.client import WikidataClient
+            client = WikidataClient()
+            try:
+                entity = client.get_entity(wikidata_id)
+            except Exception as e:
+                return JsonResponse({'error': f'Errore Wikidata: {e}'}, status=500)
 
-        person, _ = WikipediaPerson.objects.update_or_create(
-            wikidata_id=wikidata_id,
-            defaults={
-                'name_it': entity['name_it'],
-                'name_en': entity.get('name_en', ''),
-                'description_it': entity.get('description_it', ''),
-                'birth_date': entity.get('birth_date'),
-                'birth_year': entity.get('birth_year'),
-                'death_date': entity.get('death_date'),
-                'is_dead': entity.get('death_date') is not None or entity.get('death_year') is not None,
-                'image_url': entity.get('image_url', ''),
-                'occupation': entity.get('occupation', ''),
-                'nationality': entity.get('nationality', ''),
-                'claims_cache': entity.get('claims_cache', {}),
-                'wikipedia_url_it': entity.get('wikipedia_url_it', ''),
-                'last_checked': timezone.now(),
-            }
-        )
+            person, _ = WikipediaPerson.objects.update_or_create(
+                wikidata_id=wikidata_id,
+                defaults={
+                    'name_it': entity['name_it'],
+                    'name_en': entity.get('name_en', ''),
+                    'description_it': entity.get('description_it', ''),
+                    'birth_date': entity.get('birth_date'),
+                    'birth_year': entity.get('birth_year'),
+                    'death_date': entity.get('death_date'),
+                    'is_dead': entity.get('death_date') is not None or entity.get('death_year') is not None,
+                    'image_url': entity.get('image_url', ''),
+                    'occupation': entity.get('occupation', ''),
+                    'nationality': entity.get('nationality', ''),
+                    'claims_cache': entity.get('claims_cache', {}),
+                    'wikipedia_url_it': entity.get('wikipedia_url_it', ''),
+                    'last_checked': timezone.now(),
+                }
+            )
 
         if person.is_dead:
             return JsonResponse({'error': f'{person.name_it} è già morto/a e non può essere aggiunto.'}, status=400)
@@ -875,3 +879,195 @@ class PushTestView(LoginRequiredMixin, View):
             if ok:
                 sent += 1
         return JsonResponse({'success': True, 'sent': sent, 'total': subs.count()})
+
+
+# ---------------------------------------------------------------------------
+# Aggiornamento dati Wikidata concorrenti (diff / apply)
+# ---------------------------------------------------------------------------
+
+_PERSON_TRACKED_FIELDS = [
+    'name_it', 'name_en', 'description_it',
+    'birth_date', 'birth_year',
+    'death_date', 'death_year', 'is_dead',
+    'image_url', 'occupation', 'nationality',
+    'wikipedia_url_it',
+]
+
+_FIELD_LABELS = {
+    'name_it': 'Nome (it)',
+    'name_en': 'Nome (en)',
+    'description_it': 'Descrizione',
+    'birth_date': 'Data di nascita',
+    'birth_year': 'Anno di nascita',
+    'death_date': 'Data di morte',
+    'death_year': 'Anno di morte',
+    'is_dead': 'Deceduto',
+    'image_url': 'Immagine URL',
+    'occupation': 'Professione',
+    'nationality': 'Nazionalità',
+    'wikipedia_url_it': 'Wikipedia (it)',
+}
+
+
+def _compute_person_diff(person, entity):
+    """Restituisce una lista di dict {field, label, old, new} per i campi cambiati."""
+    changes = []
+    for field in _PERSON_TRACKED_FIELDS:
+        old_val = getattr(person, field)
+        # is_dead è derivato nell'entity dal presence di death_date/death_year
+        if field == 'is_dead':
+            new_val = (
+                entity.get('death_date') is not None
+                or entity.get('death_year') is not None
+            )
+        else:
+            new_val = entity.get(field)
+        if str(old_val) != str(new_val):
+            changes.append({
+                'field': field,
+                'label': _FIELD_LABELS.get(field, field),
+                'old': old_val,
+                'new': new_val,
+            })
+    if person.claims_cache != entity.get('claims_cache', {}):
+        changes.append({
+            'field': 'claims_cache',
+            'label': 'Claims Wikidata',
+            'old': '(vedi Wikidata)',
+            'new': '(aggiornato)',
+            'claims_only': True,
+        })
+    return changes
+
+
+class PersonUpdatesView(LoginRequiredMixin, View):
+    """Pannello per il confronto e l'applicazione degli aggiornamenti Wikidata."""
+
+    template_name = 'game/person_updates.html'
+
+    def _get_league_and_check_admin(self, request, slug):
+        league = get_object_or_404(League, slug=slug)
+        if not league.is_admin(request.user):
+            raise PermissionError
+        return league
+
+    def _active_persons(self, league):
+        return WikipediaPerson.objects.filter(
+            team_members__team__league=league,
+            team_members__replaced_by__isnull=True,
+        ).distinct().order_by('name_it')
+
+    def get(self, request, slug):
+        try:
+            league = self._get_league_and_check_admin(request, slug)
+        except PermissionError:
+            return HttpResponseForbidden()
+        persons = self._active_persons(league)
+        return render(request, self.template_name, {
+            'league': league,
+            'persons': persons,
+            'mode': 'list',
+            'many_warning': persons.count() > 50,
+        })
+
+    def post(self, request, slug):
+        try:
+            league = self._get_league_and_check_admin(request, slug)
+        except PermissionError:
+            return HttpResponseForbidden()
+
+        action = request.POST.get('action')
+
+        if action == 'check':
+            return self._handle_check(request, league)
+        if action == 'apply':
+            return self._handle_apply(request, league)
+
+        return redirect('league_admin', slug=slug)
+
+    def _handle_check(self, request, league):
+        from wikidata_api.client import WikidataClient
+        client = WikidataClient()
+
+        all_persons = self._active_persons(league)
+        if request.POST.get('check_all'):
+            persons_to_check = list(all_persons)
+        else:
+            pks = request.POST.getlist('person_pks')
+            persons_to_check = list(all_persons.filter(pk__in=pks))
+
+        results = []
+        for person in persons_to_check:
+            try:
+                entity = client.get_entity(person.wikidata_id)
+            except Exception as e:
+                results.append({
+                    'person': person,
+                    'error': str(e),
+                    'changes': [],
+                    'fresh_json': '',
+                })
+                continue
+            changes = _compute_person_diff(person, entity)
+            # Serializza solo i campi tracciati + claims_cache per l'apply
+            fresh_data = {f: entity.get(f) for f in _PERSON_TRACKED_FIELDS}
+            fresh_data['is_dead'] = (
+                entity.get('death_date') is not None
+                or entity.get('death_year') is not None
+            )
+            fresh_data['claims_cache'] = entity.get('claims_cache', {})
+            results.append({
+                'person': person,
+                'error': None,
+                'changes': changes,
+                'fresh_json': json.dumps(fresh_data, default=str),
+            })
+
+        return render(request, self.template_name, {
+            'league': league,
+            'results': results,
+            'mode': 'diff',
+        })
+
+    def _handle_apply(self, request, league):
+        all_persons = self._active_persons(league)
+        applied = []
+
+        # Trova tutti i person_pk nascosti nel form
+        person_pks = {
+            key.split('_')[1]
+            for key in request.POST
+            if key.startswith('fresh_json_')
+        }
+
+        for pk in person_pks:
+            raw = request.POST.get(f'fresh_json_{pk}', '')
+            if not raw:
+                continue
+            try:
+                fresh_data = json.loads(raw)
+            except ValueError:
+                continue
+
+            try:
+                person = all_persons.get(pk=pk)
+            except WikipediaPerson.DoesNotExist:
+                continue
+
+            updated_fields = []
+            for field in _PERSON_TRACKED_FIELDS + ['claims_cache']:
+                if request.POST.get(f'apply_{pk}_{field}'):
+                    new_val = fresh_data.get(field)
+                    setattr(person, field, new_val)
+                    updated_fields.append(_FIELD_LABELS.get(field, field))
+
+            if updated_fields:
+                person.last_checked = timezone.now()
+                person.save()
+                applied.append({'person': person, 'fields': updated_fields})
+
+        return render(request, self.template_name, {
+            'league': league,
+            'applied': applied,
+            'mode': 'result',
+        })

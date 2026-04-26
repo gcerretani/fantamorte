@@ -4,7 +4,7 @@ from django.contrib import messages
 from .models import (
     Season, WikipediaPerson, BonusType, Team, TeamMember,
     Death, DeathBonus, UserProfile, PushSubscription,
-    League, LeagueMembership, LeagueBonus,
+    League, LeagueMembership, LeagueBonus, SiteConfiguration,
 )
 from . import scoring
 
@@ -225,3 +225,14 @@ class PushSubscriptionAdmin(admin.ModelAdmin):
     def endpoint_short(self, obj):
         return obj.endpoint[:60] + '…' if len(obj.endpoint) > 60 else obj.endpoint
     endpoint_short.short_description = 'Endpoint'
+
+
+@admin.register(SiteConfiguration)
+class SiteConfigurationAdmin(admin.ModelAdmin):
+    fields = ('wikidata_refresh_interval_hours',)
+
+    def has_add_permission(self, request):
+        return not SiteConfiguration.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False

@@ -2,7 +2,12 @@
 {% block title %}Gestione {{ league.name }}{% endblock %}
 {% block content %}
 
-<h2 class="mb-1">Gestione: {{ league.name }}</h2>
+<div class="d-flex justify-content-between align-items-start mb-1">
+  <h2 class="mb-0">Gestione: {{ league.name }}</h2>
+  <a href="{% url 'league_person_updates' league.slug %}" class="btn btn-outline-secondary btn-sm">
+    Dati Wikidata concorrenti &rarr;
+  </a>
+</div>
 <p class="text-muted">Solo admin/owner possono modificare queste impostazioni.</p>
 
 <ul class="nav nav-tabs mb-3" id="adminTabs">

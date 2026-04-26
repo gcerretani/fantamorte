@@ -4,13 +4,14 @@ Una lega è "in corso" quando `start_date <= oggi <= end_date`. Per ogni
 anno coperto da almeno una lega in corso, vengono controllate le
 persone che fanno parte di quelle leghe (TeamMember attivi, non sostituiti).
 """
-from datetime import date as date_cls
+from datetime import date as date_cls, timedelta
 from django.core.management.base import BaseCommand
 from django.db.models import Q
 from django.utils import timezone
 
 from game.models import (
-    BonusType, Death, DeathBonus, League, Season, WikipediaPerson,
+    BonusType, Death, DeathBonus, League, Season, SiteConfiguration,
+    WikipediaPerson,
 )
 from wikidata_api.client import WikidataClient
 
@@ -59,6 +60,14 @@ class Command(BaseCommand):
             team_members__replaced_by__isnull=True,
             is_dead=False,
         ).distinct()
+
+        # Salta le persone controllate di recente (rispetta il TTL configurato)
+        config = SiteConfiguration.get_solo()
+        cutoff = timezone.now() - timedelta(hours=config.wikidata_refresh_interval_hours)
+        active_persons = active_persons.filter(
+            Q(last_checked__isnull=True) | Q(last_checked__lt=cutoff)
+        )
+
         wikidata_ids = list(active_persons.values_list('wikidata_id', flat=True))
         self.stdout.write(f'Persone da controllare: {len(wikidata_ids)}')
         if not wikidata_ids:
