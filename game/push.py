@@ -10,7 +10,7 @@ from django.conf import settings
 from django.urls import reverse
 from django.utils import timezone
 
-from .models import Death, PushSubscription, Team
+from .models import Death, PushSubscription, Team, League, LeagueMembership
 
 logger = logging.getLogger(__name__)
 
@@ -53,12 +53,14 @@ def send_push(subscription: PushSubscription, payload: dict) -> bool:
 
 
 def broadcast_death_notification(death: Death) -> int:
-    """Notifica tutti i subscriber attivi (con preferenza push attiva) di un decesso.
+    """Notifica gli iscritti alle leghe in cui il decesso cade nel periodo di gioco.
 
-    Ritorna il numero di notifiche inviate con successo.
+    Per ogni utente iscritto a una lega "interessata" dal decesso, manda una
+    notifica push (se ha abilitato l'opzione). Se l'utente ha quella persona
+    nella propria squadra di una di quelle leghe, la notifica è "urgent".
+    Ritorna il numero totale di notifiche consegnate.
     """
     person = death.person
-    season = death.season
     payload_base = {
         'type': 'death',
         'title': f'☠ {person.name_it}',
@@ -68,19 +70,36 @@ def broadcast_death_notification(death: Death) -> int:
         'death_id': death.pk,
     }
 
-    user_ids = set(
-        Team.objects.filter(season=season).values_list('manager_id', flat=True)
-    )
-    qs = PushSubscription.objects.filter(
+    # Leghe il cui range contiene la data del decesso
+    leagues = list(League.objects.filter(
+        start_date__lte=death.death_date, end_date__gte=death.death_date,
+    ))
+    if not leagues:
+        # Fallback: stagione legacy
+        if death.season_id:
+            user_ids = set(
+                Team.objects.filter(season_id=death.season_id).values_list('manager_id', flat=True)
+            )
+        else:
+            user_ids = set()
+    else:
+        user_ids = set(
+            LeagueMembership.objects.filter(league__in=leagues).values_list('user_id', flat=True)
+        )
+
+    if not user_ids:
+        return 0
+
+    subs = PushSubscription.objects.filter(
         user_id__in=user_ids,
         user__profile__push_notifications_enabled=True,
     ).select_related('user')
 
     sent = 0
-    for sub in qs:
-        # Se l'utente è nella squadra ed ha il giocatore in rosa, lo segnaliamo
+    for sub in subs:
         affected = Team.objects.filter(
-            manager=sub.user, season=season, members__person=person, members__replaced_by=None
+            manager=sub.user, members__person=person, members__replaced_by=None,
+            league__in=leagues,
         ).exists()
         payload = dict(payload_base)
         if affected:
@@ -98,7 +117,10 @@ def _build_body(death: Death) -> str:
     parts = [f'È deceduto/a il {date_str}.']
     if death.death_age:
         parts.append(f'Età: {death.death_age} anni.')
-    days = death.season.substitution_deadline_days
-    if days:
-        parts.append(f'Hai {days} giorni per sostituire il giocatore.')
+    leagues = League.objects.filter(start_date__lte=dd, end_date__gte=dd) if hasattr(dd, 'year') else []
+    league = leagues.first() if leagues else None
+    if league:
+        parts.append(f'Hai {league.substitution_deadline_days} giorni per sostituirlo (lega {league.name}).')
+    elif death.season_id:
+        parts.append(f'Hai {death.season.substitution_deadline_days} giorni per sostituire il giocatore.')
     return ' '.join(parts)

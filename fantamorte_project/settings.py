@@ -40,6 +40,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     # allauth richiede questo middleware
     'allauth.account.middleware.AccountMiddleware',
+    'game.middleware.LoginRequiredEverywhereMiddleware',
 ]
 
 AUTHENTICATION_BACKENDS = [

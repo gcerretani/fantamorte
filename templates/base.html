@@ -42,17 +42,10 @@
       </div>
       <div class="offcanvas-body">
         <ul class="navbar-nav me-auto">
-          <li class="nav-item"><a class="nav-link" href="{% url 'rankings' %}">Classifica</a></li>
-          <li class="nav-item"><a class="nav-link" href="{% url 'deaths_timeline' %}">Decessi</a></li>
-          <li class="nav-item"><a class="nav-link" href="{% url 'rules' %}">Regolamento</a></li>
           {% if user.is_authenticated %}
-            {% with team=user.teams.first %}
-              {% if team %}
-                <li class="nav-item"><a class="nav-link" href="{% url 'team_edit' team.pk %}">La mia squadra</a></li>
-              {% else %}
-                <li class="nav-item"><a class="nav-link" href="{% url 'team_create' %}">Crea squadra</a></li>
-              {% endif %}
-            {% endwith %}
+            <li class="nav-item"><a class="nav-link" href="{% url 'home' %}">Dashboard</a></li>
+            <li class="nav-item"><a class="nav-link" href="{% url 'league_list' %}">Leghe</a></li>
+            <li class="nav-item"><a class="nav-link" href="{% url 'rules' %}">Regolamento</a></li>
             <li class="nav-item"><a class="nav-link" href="{% url 'profile' %}">Profilo</a></li>
           {% endif %}
           {% if user.is_staff %}

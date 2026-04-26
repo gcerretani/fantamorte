@@ -4,8 +4,47 @@ from django.contrib import messages
 from .models import (
     Season, WikipediaPerson, BonusType, Team, TeamMember,
     Death, DeathBonus, UserProfile, PushSubscription,
+    League, LeagueMembership, LeagueBonus,
 )
 from . import scoring
+
+
+class LeagueMembershipInline(admin.TabularInline):
+    model = LeagueMembership
+    extra = 0
+    fields = ('user', 'role', 'joined_at')
+    readonly_fields = ('joined_at',)
+
+
+class LeagueBonusInline(admin.TabularInline):
+    model = LeagueBonus
+    extra = 0
+    fields = ('bonus_type', 'is_active', 'override_points', 'override_formula')
+    autocomplete_fields = ('bonus_type',)
+
+
+@admin.register(League)
+class LeagueAdmin(admin.ModelAdmin):
+    list_display = ('name', 'owner', 'visibility', 'start_date', 'end_date',
+                    'max_non_captains', 'substitution_deadline_days', 'is_locked')
+    list_filter = ('visibility', 'is_locked')
+    search_fields = ('name', 'slug', 'owner__username')
+    prepopulated_fields = {'slug': ('name',)}
+    inlines = [LeagueMembershipInline, LeagueBonusInline]
+
+
+@admin.register(LeagueMembership)
+class LeagueMembershipAdmin(admin.ModelAdmin):
+    list_display = ('user', 'league', 'role', 'joined_at')
+    list_filter = ('role',)
+    search_fields = ('user__username', 'league__name')
+
+
+@admin.register(LeagueBonus)
+class LeagueBonusAdmin(admin.ModelAdmin):
+    list_display = ('league', 'bonus_type', 'is_active', 'override_points', 'override_formula')
+    list_filter = ('is_active', 'league')
+    search_fields = ('league__name', 'bonus_type__name')
 
 
 class DeathBonusInline(admin.TabularInline):
@@ -86,6 +125,7 @@ class BonusTypeAdmin(admin.ModelAdmin):
                     'is_active', 'ordering')
     list_editable = ('ordering', 'is_active', 'points')
     list_filter = ('detection_method', 'is_active')
+    search_fields = ('name',)
 
 
 @admin.register(Team)

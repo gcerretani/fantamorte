@@ -1,54 +1,366 @@
 import json
+import secrets
 from django.views.generic import TemplateView, DetailView, View
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import JsonResponse, HttpResponse
+from django.http import JsonResponse, HttpResponse, HttpResponseForbidden
 from django.contrib import messages
+from django.contrib.auth.models import User
 from django.utils import timezone
+from django.utils.text import slugify
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.cache import cache_control
 from django.conf import settings
 from django.urls import reverse
+from django.db.models import Q
 from .models import (
     Season, Team, TeamMember, WikipediaPerson, Death, DeathBonus, BonusType,
-    UserProfile, PushSubscription,
+    UserProfile, PushSubscription, League, LeagueMembership, LeagueBonus,
 )
 from . import scoring
 
 
-class HomeView(TemplateView):
+# ---------------- Dashboard utente ----------------
+
+class HomeView(LoginRequiredMixin, TemplateView):
     template_name = 'game/home.html'
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        season = Season.objects.filter(is_active=True).first()
-        ctx['season'] = season
-        if season:
-            ctx['rankings'] = scoring.compute_season_rankings(season)[:3]
-            ctx['recent_deaths'] = (
-                Death.objects.filter(season=season, is_confirmed=True)
-                .select_related('person')
-                .order_by('-death_date')[:5]
-            )
+        user = self.request.user
+        my_memberships = (
+            LeagueMembership.objects.filter(user=user)
+            .select_related('league')
+            .order_by('-league__start_date')
+        )
+        my_leagues = []
+        for m in my_memberships:
+            team = Team.objects.filter(manager=user, league=m.league).first()
+            my_leagues.append({'league': m.league, 'role': m.role, 'team': team})
+        ctx['my_leagues'] = my_leagues
+        # Suggerimenti: leghe pubbliche di cui non sono membro
+        member_ids = [m.league_id for m in my_memberships]
+        ctx['suggested_leagues'] = (
+            League.objects.filter(visibility=League.VISIBILITY_PUBLIC)
+            .exclude(pk__in=member_ids)
+            .order_by('-start_date')[:5]
+        )
         return ctx
 
 
-class RankingsView(TemplateView):
-    template_name = 'game/rankings.html'
+# ---------------- League views ----------------
+
+class LeagueListView(LoginRequiredMixin, TemplateView):
+    template_name = 'game/league_list.html'
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        year = kwargs.get('year')
-        if year:
-            season = get_object_or_404(Season, year=year)
-        else:
-            season = Season.objects.filter(is_active=True).first()
-        ctx['season'] = season
-        ctx['all_seasons'] = Season.objects.all()
-        if season:
-            ctx['rankings'] = scoring.compute_season_rankings(season)
+        user = self.request.user
+        public = League.objects.filter(visibility=League.VISIBILITY_PUBLIC)
+        joined_ids = set(LeagueMembership.objects.filter(user=user).values_list('league_id', flat=True))
+        ctx['public_leagues'] = public
+        ctx['my_league_ids'] = joined_ids
         return ctx
+
+
+class LeagueCreateView(LoginRequiredMixin, View):
+    template_name = 'game/league_form.html'
+
+    def get(self, request):
+        return render(request, self.template_name, {'creating': True})
+
+    def post(self, request):
+        name = request.POST.get('name', '').strip()
+        if not name:
+            messages.error(request, 'Il nome è obbligatorio.')
+            return render(request, self.template_name, {'creating': True, 'data': request.POST})
+        if League.objects.filter(name__iexact=name).exists():
+            messages.error(request, 'Esiste già una lega con questo nome.')
+            return render(request, self.template_name, {'creating': True, 'data': request.POST})
+
+        slug = _unique_slug(name)
+        try:
+            league = League.objects.create(
+                name=name,
+                slug=slug,
+                description=request.POST.get('description', '').strip(),
+                owner=request.user,
+                visibility=request.POST.get('visibility', League.VISIBILITY_PUBLIC),
+                invite_code=secrets.token_urlsafe(8) if request.POST.get('visibility') == League.VISIBILITY_PRIVATE else '',
+                start_date=request.POST.get('start_date') or timezone.now().date(),
+                end_date=request.POST.get('end_date') or timezone.now().date(),
+                registration_opens=request.POST.get('registration_opens') or timezone.now().date(),
+                registration_closes=request.POST.get('registration_closes') or timezone.now().date(),
+                base_points=int(request.POST.get('base_points') or 50),
+                captain_multiplier=int(request.POST.get('captain_multiplier') or 2),
+                jolly_multiplier=int(request.POST.get('jolly_multiplier') or 2),
+                jolly_enabled=request.POST.get('jolly_enabled') == 'on',
+                max_captains=int(request.POST.get('max_captains') or 1),
+                max_non_captains=int(request.POST.get('max_non_captains') or 11),
+                substitution_deadline_days=int(request.POST.get('substitution_deadline_days') or 7),
+            )
+        except (ValueError, TypeError) as e:
+            messages.error(request, f'Dati non validi: {e}')
+            return render(request, self.template_name, {'creating': True, 'data': request.POST})
+
+        # Iscrizione owner + bonus default attivati
+        LeagueMembership.objects.create(league=league, user=request.user, role=LeagueMembership.ROLE_OWNER)
+        for bt in BonusType.objects.filter(is_active=True):
+            LeagueBonus.objects.create(league=league, bonus_type=bt, is_active=True)
+
+        messages.success(request, f'Lega "{league.name}" creata!')
+        return redirect('league_detail', slug=league.slug)
+
+
+def _unique_slug(name):
+    base = slugify(name) or 'lega'
+    slug = base
+    i = 2
+    while League.objects.filter(slug=slug).exists():
+        slug = f'{base}-{i}'
+        i += 1
+    return slug
+
+
+class LeagueDetailView(LoginRequiredMixin, View):
+    template_name = 'game/league_detail.html'
+
+    def get(self, request, slug):
+        league = get_object_or_404(League, slug=slug)
+        if not league.can_user_view(request.user):
+            messages.error(request, 'Lega privata: serve un invito.')
+            return redirect('league_list')
+
+        my_team = Team.objects.filter(manager=request.user, league=league).first()
+        rankings = scoring.compute_league_rankings(league)
+        recent_deaths = (
+            Death.objects.filter(
+                is_confirmed=True,
+                death_date__gte=league.start_date,
+                death_date__lte=league.end_date,
+            )
+            .select_related('person')
+            .order_by('-death_date')[:10]
+        )
+        return render(request, self.template_name, {
+            'league': league,
+            'my_team': my_team,
+            'rankings': rankings,
+            'top_rankings': rankings[:3],
+            'recent_deaths': recent_deaths,
+            'is_member': league.is_member(request.user),
+            'is_admin': league.is_admin(request.user),
+            'is_owner': league.is_owner(request.user),
+            'memberships': league.memberships.select_related('user'),
+        })
+
+
+class LeagueJoinView(LoginRequiredMixin, View):
+    def post(self, request, slug):
+        league = get_object_or_404(League, slug=slug)
+        if league.is_member(request.user):
+            messages.info(request, 'Sei già iscritto a questa lega.')
+            return redirect('league_detail', slug=slug)
+        if league.visibility == League.VISIBILITY_PRIVATE:
+            code = request.POST.get('invite_code', '').strip()
+            if code != league.invite_code:
+                messages.error(request, 'Codice invito non valido.')
+                return redirect('league_detail', slug=slug)
+        LeagueMembership.objects.create(
+            league=league, user=request.user, role=LeagueMembership.ROLE_MEMBER,
+        )
+        messages.success(request, f'Iscritto a "{league.name}". Ora crea la tua squadra!')
+        return redirect('league_detail', slug=slug)
+
+
+class LeagueLeaveView(LoginRequiredMixin, View):
+    def post(self, request, slug):
+        league = get_object_or_404(League, slug=slug)
+        if league.is_owner(request.user):
+            messages.error(request, 'Il proprietario non può lasciare la lega. Trasferisci prima la proprietà.')
+            return redirect('league_detail', slug=slug)
+        LeagueMembership.objects.filter(league=league, user=request.user).delete()
+        Team.objects.filter(league=league, manager=request.user).delete()
+        messages.success(request, f'Hai lasciato la lega "{league.name}".')
+        return redirect('home')
+
+
+class LeagueAdminView(LoginRequiredMixin, View):
+    """Pannello di amministrazione di una lega: regole, bonus, membri, admin."""
+    template_name = 'game/league_admin.html'
+
+    def get(self, request, slug):
+        league = get_object_or_404(League, slug=slug)
+        if not league.is_admin(request.user):
+            return HttpResponseForbidden('Permesso negato.')
+        return render(request, self.template_name, {
+            'league': league,
+            'memberships': league.memberships.select_related('user').order_by('role', 'user__username'),
+            'league_bonuses': league.league_bonuses.select_related('bonus_type').order_by('bonus_type__ordering'),
+            'all_bonus_types': BonusType.objects.all().order_by('ordering'),
+            'is_owner': league.is_owner(request.user),
+        })
+
+    def post(self, request, slug):
+        league = get_object_or_404(League, slug=slug)
+        if not league.is_admin(request.user):
+            return HttpResponseForbidden('Permesso negato.')
+        action = request.POST.get('action', '')
+
+        if action == 'update_rules':
+            league.name = request.POST.get('name', league.name).strip() or league.name
+            league.description = request.POST.get('description', league.description)
+            league.visibility = request.POST.get('visibility', league.visibility)
+            league.start_date = request.POST.get('start_date') or league.start_date
+            league.end_date = request.POST.get('end_date') or league.end_date
+            league.registration_opens = request.POST.get('registration_opens') or league.registration_opens
+            league.registration_closes = request.POST.get('registration_closes') or league.registration_closes
+            try:
+                league.base_points = int(request.POST.get('base_points') or league.base_points)
+                league.captain_multiplier = int(request.POST.get('captain_multiplier') or league.captain_multiplier)
+                league.jolly_multiplier = int(request.POST.get('jolly_multiplier') or league.jolly_multiplier)
+                league.max_captains = int(request.POST.get('max_captains') or league.max_captains)
+                league.max_non_captains = int(request.POST.get('max_non_captains') or league.max_non_captains)
+                league.substitution_deadline_days = int(request.POST.get('substitution_deadline_days') or league.substitution_deadline_days)
+            except (ValueError, TypeError):
+                messages.error(request, 'Valori numerici non validi.')
+                return redirect('league_admin', slug=slug)
+            league.jolly_enabled = request.POST.get('jolly_enabled') == 'on'
+            league.is_locked = request.POST.get('is_locked') == 'on'
+            league.save()
+            messages.success(request, 'Regole aggiornate.')
+
+        elif action == 'rotate_invite':
+            league.invite_code = secrets.token_urlsafe(8)
+            league.save(update_fields=['invite_code'])
+            messages.success(request, 'Nuovo codice invito generato.')
+
+        elif action == 'set_bonus':
+            for lb in league.league_bonuses.all():
+                key = f'bonus_active_{lb.pk}'
+                pts_key = f'bonus_points_{lb.pk}'
+                lb.is_active = request.POST.get(key) == 'on'
+                pts = request.POST.get(pts_key, '').strip()
+                lb.override_points = int(pts) if pts else None
+                lb.save()
+            # Eventuali nuovi bonus type
+            for bt_id in request.POST.getlist('add_bonus'):
+                try:
+                    bt = BonusType.objects.get(pk=int(bt_id))
+                except (BonusType.DoesNotExist, ValueError, TypeError):
+                    continue
+                LeagueBonus.objects.get_or_create(league=league, bonus_type=bt, defaults={'is_active': True})
+            messages.success(request, 'Bonus aggiornati.')
+
+        elif action == 'promote_admin':
+            if not league.is_owner(request.user):
+                messages.error(request, 'Solo il proprietario può nominare admin.')
+                return redirect('league_admin', slug=slug)
+            try:
+                m = league.memberships.get(pk=int(request.POST.get('membership_id')))
+            except (LeagueMembership.DoesNotExist, ValueError, TypeError):
+                messages.error(request, 'Iscrizione non trovata.')
+                return redirect('league_admin', slug=slug)
+            if m.role == LeagueMembership.ROLE_OWNER:
+                messages.error(request, 'Non puoi modificare il proprietario.')
+            else:
+                m.role = LeagueMembership.ROLE_ADMIN
+                m.save()
+                messages.success(request, f'{m.user.username} ora è admin.')
+
+        elif action == 'demote_admin':
+            if not league.is_owner(request.user):
+                messages.error(request, 'Solo il proprietario può rimuovere admin.')
+                return redirect('league_admin', slug=slug)
+            try:
+                m = league.memberships.get(pk=int(request.POST.get('membership_id')))
+            except (LeagueMembership.DoesNotExist, ValueError, TypeError):
+                messages.error(request, 'Iscrizione non trovata.')
+                return redirect('league_admin', slug=slug)
+            if m.role == LeagueMembership.ROLE_OWNER:
+                messages.error(request, 'Non puoi modificare il proprietario.')
+            else:
+                m.role = LeagueMembership.ROLE_MEMBER
+                m.save()
+                messages.success(request, f'{m.user.username} è tornato membro.')
+
+        elif action == 'remove_member':
+            try:
+                m = league.memberships.get(pk=int(request.POST.get('membership_id')))
+            except (LeagueMembership.DoesNotExist, ValueError, TypeError):
+                messages.error(request, 'Iscrizione non trovata.')
+                return redirect('league_admin', slug=slug)
+            if m.role == LeagueMembership.ROLE_OWNER:
+                messages.error(request, 'Non puoi rimuovere il proprietario.')
+            else:
+                Team.objects.filter(league=league, manager=m.user).delete()
+                m.delete()
+                messages.success(request, 'Membro rimosso.')
+
+        elif action == 'transfer_ownership':
+            if not league.is_owner(request.user):
+                messages.error(request, 'Solo il proprietario può trasferire la proprietà.')
+                return redirect('league_admin', slug=slug)
+            try:
+                m = league.memberships.get(pk=int(request.POST.get('membership_id')))
+            except (LeagueMembership.DoesNotExist, ValueError, TypeError):
+                messages.error(request, 'Iscrizione non trovata.')
+                return redirect('league_admin', slug=slug)
+            old_owner_membership = league.memberships.get(user=request.user)
+            old_owner_membership.role = LeagueMembership.ROLE_ADMIN
+            old_owner_membership.save()
+            m.role = LeagueMembership.ROLE_OWNER
+            m.save()
+            league.owner = m.user
+            league.save(update_fields=['owner'])
+            messages.success(request, f'Proprietà trasferita a {m.user.username}.')
+
+        return redirect('league_admin', slug=slug)
+
+
+class LeagueRankingsView(LoginRequiredMixin, View):
+    """Classifica completa di una lega (pagina dedicata)."""
+
+    def get(self, request, slug):
+        league = get_object_or_404(League, slug=slug)
+        if not league.can_user_view(request.user):
+            return redirect('league_list')
+        return render(request, 'game/league_rankings.html', {
+            'league': league,
+            'rankings': scoring.compute_league_rankings(league),
+        })
+
+
+class LeagueDeathsView(LoginRequiredMixin, View):
+    """Cronologia decessi di una lega."""
+
+    def get(self, request, slug):
+        league = get_object_or_404(League, slug=slug)
+        if not league.can_user_view(request.user):
+            return redirect('league_list')
+        deaths = (
+            Death.objects.filter(
+                is_confirmed=True,
+                death_date__gte=league.start_date,
+                death_date__lte=league.end_date,
+            )
+            .select_related('person')
+            .prefetch_related('bonuses__bonus_type')
+            .order_by('-death_date')
+        )
+        return render(request, 'game/league_deaths.html', {'league': league, 'deaths': deaths})
+
+
+# ---------------- Aggiornate per league ----------------
+
+class RankingsView(LoginRequiredMixin, TemplateView):
+    """Classifica generica: redirect alla lega più attiva del'utente."""
+    template_name = 'game/rankings.html'
+
+    def get(self, request, *args, **kwargs):
+        # Reindirizza all'elenco leghe: la classifica esiste per lega.
+        return redirect('league_list')
 
 
 class TeamDetailView(DetailView):
@@ -83,36 +395,56 @@ class DeathDetailView(DetailView):
         return ctx
 
 
+MONTHS_LIST = [
+    (1, 'Gennaio'), (2, 'Febbraio'), (3, 'Marzo'), (4, 'Aprile'),
+    (5, 'Maggio'), (6, 'Giugno'), (7, 'Luglio'), (8, 'Agosto'),
+    (9, 'Settembre'), (10, 'Ottobre'), (11, 'Novembre'), (12, 'Dicembre'),
+]
+
+
+def _can_edit_team(team, user):
+    if user.is_staff:
+        return True
+    if team.manager_id != user.pk:
+        return False
+    if team.league_id:
+        return team.league.is_registration_open() and not team.league.is_locked
+    if team.season_id:
+        return team.season.is_registration_open()
+    return False
+
+
 class TeamCreateView(LoginRequiredMixin, View):
+    """Crea (o redirect a) la squadra dell'utente in una specifica lega."""
     template_name = 'game/team_edit.html'
 
-    def _get_season(self):
-        return Season.objects.filter(is_active=True).first()
-
-    def get(self, request):
-        season = self._get_season()
-        if not season:
-            messages.error(request, 'Nessuna stagione attiva.')
-            return redirect('home')
-        if not season.is_registration_open():
-            messages.error(request, 'Le registrazioni non sono aperte.')
-            return redirect('home')
-        existing = Team.objects.filter(manager=request.user, season=season).first()
+    def get(self, request, slug):
+        league = get_object_or_404(League, slug=slug)
+        if not league.is_member(request.user):
+            messages.error(request, 'Devi prima iscriverti alla lega.')
+            return redirect('league_detail', slug=slug)
+        if not league.is_registration_open() and not request.user.is_staff:
+            messages.error(request, 'Le registrazioni non sono aperte per questa lega.')
+            return redirect('league_detail', slug=slug)
+        existing = Team.objects.filter(manager=request.user, league=league).first()
         if existing:
             return redirect('team_edit', pk=existing.pk)
-        return render(request, self.template_name, {'season': season, 'creating': True})
+        return render(request, self.template_name, {'league': league, 'creating': True})
 
-    def post(self, request):
-        season = self._get_season()
-        if not season or not season.is_registration_open():
+    def post(self, request, slug):
+        league = get_object_or_404(League, slug=slug)
+        if not league.is_member(request.user):
+            messages.error(request, 'Devi prima iscriverti alla lega.')
+            return redirect('league_detail', slug=slug)
+        if not league.is_registration_open() and not request.user.is_staff:
             messages.error(request, 'Le registrazioni non sono aperte.')
-            return redirect('home')
+            return redirect('league_detail', slug=slug)
         name = request.POST.get('name', '').strip()
         if not name:
             messages.error(request, 'Il nome della squadra è obbligatorio.')
-            return render(request, self.template_name, {'season': season, 'creating': True})
+            return render(request, self.template_name, {'league': league, 'creating': True})
         team, created = Team.objects.get_or_create(
-            manager=request.user, season=season,
+            manager=request.user, league=league,
             defaults={'name': name}
         )
         if not created:
@@ -129,28 +461,26 @@ class TeamEditView(LoginRequiredMixin, View):
         if team.manager != request.user and not request.user.is_staff:
             messages.error(request, 'Non hai i permessi per modificare questa squadra.')
             return redirect('team_detail', pk=pk)
-        season = team.season
+        league = team.league
         members = team.members.select_related('person').order_by('-is_captain', 'person__name_it')
         dead_members = [m for m in members if m.person.is_dead and m.is_active()]
         return render(request, self.template_name, {
             'team': team,
-            'season': season,
+            'league': league,
+            'season': team.season,  # legacy
             'members': members,
             'dead_members': dead_members,
-            'months': [(i, n) for i, n in [
-                (1, 'Gennaio'), (2, 'Febbraio'), (3, 'Marzo'), (4, 'Aprile'),
-                (5, 'Maggio'), (6, 'Giugno'), (7, 'Luglio'), (8, 'Agosto'),
-                (9, 'Settembre'), (10, 'Ottobre'), (11, 'Novembre'), (12, 'Dicembre'),
-            ]],
-            'can_edit': season.is_registration_open() or request.user.is_staff,
+            'months': MONTHS_LIST,
+            'can_edit': _can_edit_team(team, request.user),
+            'max_non_captains': league.max_non_captains if league else 11,
+            'max_captains': league.max_captains if league else 1,
         })
 
     def post(self, request, pk):
         team = get_object_or_404(Team, pk=pk)
         if team.manager != request.user and not request.user.is_staff:
             return redirect('team_detail', pk=pk)
-        season = team.season
-        if not season.is_registration_open() and not request.user.is_staff:
+        if not _can_edit_team(team, request.user):
             messages.error(request, 'Non è più possibile modificare la squadra.')
             return redirect('team_edit', pk=pk)
 
@@ -160,7 +490,7 @@ class TeamEditView(LoginRequiredMixin, View):
 
         if name:
             team.name = name
-        if jolly_month:
+        if jolly_month and (not team.league or team.league.jolly_enabled):
             team.jolly_month = int(jolly_month)
         team.save()
 
@@ -177,9 +507,11 @@ class AddPersonView(LoginRequiredMixin, View):
         team = get_object_or_404(Team, pk=pk)
         if team.manager != request.user and not request.user.is_staff:
             return JsonResponse({'error': 'Permesso negato'}, status=403)
-        season = team.season
-        if not season.is_registration_open() and not request.user.is_staff:
+        if not _can_edit_team(team, request.user):
             return JsonResponse({'error': 'Registrazioni chiuse'}, status=400)
+        league = team.league
+        max_captains = league.max_captains if league else 1
+        max_non_captains = league.max_non_captains if league else 11
 
         wikidata_id = request.POST.get('wikidata_id', '').strip()
         is_captain = request.POST.get('is_captain') == '1'
@@ -225,11 +557,11 @@ class AddPersonView(LoginRequiredMixin, View):
         active_captain = team.members.filter(is_captain=True, replaced_by=None).count()
 
         if is_captain:
-            if active_captain >= 1:
-                return JsonResponse({'error': 'La squadra ha già un capitano.'}, status=400)
+            if active_captain >= max_captains:
+                return JsonResponse({'error': f'La squadra ha già {max_captains} capitano/i.'}, status=400)
         else:
-            if active_non_captain >= 11:
-                return JsonResponse({'error': 'La squadra ha già 11 morituri.'}, status=400)
+            if active_non_captain >= max_non_captains:
+                return JsonResponse({'error': f'La squadra ha già {max_non_captains} morituri.'}, status=400)
 
         member = TeamMember.objects.create(team=team, person=person, is_captain=is_captain)
         return JsonResponse({
@@ -257,10 +589,11 @@ class SubstituteMemberView(LoginRequiredMixin, View):
             messages.error(request, 'Questo membro è già stato sostituito.')
             return redirect('team_edit', pk=pk)
         if not member.can_be_substituted() and not request.user.is_staff:
+            days = (team.league.substitution_deadline_days if team.league_id else
+                    (team.season.substitution_deadline_days if team.season_id else 7))
             messages.error(
                 request,
-                'I tempi per la sostituzione sono scaduti '
-                f'({team.season.substitution_deadline_days} giorni).'
+                f'I tempi per la sostituzione sono scaduti ({days} giorni).'
             )
             return redirect('team_edit', pk=pk)
         return render(request, self.template_name, {

@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block title %}Decessi {{ league.name }}{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="mb-0">Decessi — {{ league.name }}</h2>
+  <a href="{% url 'league_detail' league.slug %}" class="btn btn-outline-dark btn-sm">&larr; Torna alla lega</a>
+</div>
+
+{% if deaths %}
+  <div class="fm-timeline mt-3">
+    {% for d in deaths %}
+      <div class="fm-timeline-item">
+        <div class="d-flex justify-content-between flex-wrap gap-2">
+          <div>
+            <h5 class="mb-1">
+              <a href="#" data-fm-person-pk="{{ d.person.pk }}">{{ d.person.name_it }}</a>
+            </h5>
+            <small class="text-muted">
+              {{ d.death_date|date:"d F Y" }}{% if d.death_age %} &middot; {{ d.death_age }} anni{% endif %}
+            </small>
+          </div>
+          <div>
+            {% for b in d.bonuses.all %}
+              <span class="badge bg-secondary">{{ b.bonus_type.name }} +{{ b.points_awarded }}</span>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="text-muted">Nessun decesso registrato in questa lega.</p>
+{% endif %}
+
+{% endblock %}

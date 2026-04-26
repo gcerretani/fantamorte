@@ -1,0 +1,200 @@
+{% extends 'base.html' %}
+{% block title %}Gestione {{ league.name }}{% endblock %}
+{% block content %}
+
+<h2 class="mb-1">Gestione: {{ league.name }}</h2>
+<p class="text-muted">Solo admin/owner possono modificare queste impostazioni.</p>
+
+<ul class="nav nav-tabs mb-3" id="adminTabs">
+  <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tabRules">Regole</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabBonus">Bonus</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabMembers">Iscritti</a></li>
+  {% if league.visibility == 'private' %}
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabInvite">Codice invito</a></li>
+  {% endif %}
+</ul>
+
+<div class="tab-content">
+
+  <!-- REGOLE -->
+  <div class="tab-pane fade show active" id="tabRules">
+    <form method="post" class="row g-3">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="update_rules">
+      <div class="col-md-8">
+        <label class="form-label">Nome</label>
+        <input type="text" name="name" class="form-control" value="{{ league.name }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Visibilità</label>
+        <select name="visibility" class="form-select">
+          <option value="public" {% if league.visibility == 'public' %}selected{% endif %}>Pubblica</option>
+          <option value="private" {% if league.visibility == 'private' %}selected{% endif %}>Privata</option>
+        </select>
+      </div>
+      <div class="col-12">
+        <label class="form-label">Descrizione</label>
+        <textarea name="description" class="form-control" rows="3">{{ league.description }}</textarea>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Inizio gioco</label>
+        <input type="date" name="start_date" class="form-control" value="{{ league.start_date|date:'Y-m-d' }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Fine gioco</label>
+        <input type="date" name="end_date" class="form-control" value="{{ league.end_date|date:'Y-m-d' }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Apertura iscrizioni</label>
+        <input type="date" name="registration_opens" class="form-control" value="{{ league.registration_opens|date:'Y-m-d' }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Chiusura iscrizioni</label>
+        <input type="date" name="registration_closes" class="form-control" value="{{ league.registration_closes|date:'Y-m-d' }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Morituri</label>
+        <input type="number" name="max_non_captains" class="form-control" value="{{ league.max_non_captains }}" min="1" max="50">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Capitani</label>
+        <input type="number" name="max_captains" class="form-control" value="{{ league.max_captains }}" min="0" max="3">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Punti base</label>
+        <input type="number" name="base_points" class="form-control" value="{{ league.base_points }}" min="0">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Giorni sostituzione</label>
+        <input type="number" name="substitution_deadline_days" class="form-control" value="{{ league.substitution_deadline_days }}" min="0" max="365">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">×Capitano</label>
+        <input type="number" name="captain_multiplier" class="form-control" value="{{ league.captain_multiplier }}" min="1" max="10">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">×Jolly</label>
+        <input type="number" name="jolly_multiplier" class="form-control" value="{{ league.jolly_multiplier }}" min="1" max="10">
+      </div>
+      <div class="col-md-3 form-check ms-3 mt-4">
+        <input class="form-check-input" type="checkbox" name="jolly_enabled" id="jolly_enabled" {% if league.jolly_enabled %}checked{% endif %}>
+        <label class="form-check-label" for="jolly_enabled">Mese jolly</label>
+      </div>
+      <div class="col-md-3 form-check ms-3 mt-4">
+        <input class="form-check-input" type="checkbox" name="is_locked" id="is_locked" {% if league.is_locked %}checked{% endif %}>
+        <label class="form-check-label" for="is_locked">Squadre bloccate</label>
+      </div>
+      <div class="col-12">
+        <button type="submit" class="btn btn-dark">Salva regole</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- BONUS -->
+  <div class="tab-pane fade" id="tabBonus">
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="set_bonus">
+      <table class="table table-sm align-middle">
+        <thead><tr><th>Attivo</th><th>Bonus</th><th>Default</th><th>Override punti</th></tr></thead>
+        <tbody>
+          {% for lb in league_bonuses %}
+            <tr>
+              <td><input type="checkbox" name="bonus_active_{{ lb.pk }}" {% if lb.is_active %}checked{% endif %}></td>
+              <td>
+                <strong>{{ lb.bonus_type.name }}</strong>
+                {% if lb.bonus_type.description %}<br><small class="text-muted">{{ lb.bonus_type.description }}</small>{% endif %}
+              </td>
+              <td>
+                {% if lb.bonus_type.points_formula %}
+                  <code>{{ lb.bonus_type.points_formula }}</code>
+                {% else %}
+                  +{{ lb.bonus_type.points }}
+                {% endif %}
+              </td>
+              <td>
+                <input type="number" name="bonus_points_{{ lb.pk }}" class="form-control form-control-sm"
+                       style="max-width:120px" placeholder="default" value="{{ lb.override_points|default_if_none:'' }}">
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <button class="btn btn-dark btn-sm">Salva bonus</button>
+    </form>
+  </div>
+
+  <!-- MEMBRI -->
+  <div class="tab-pane fade" id="tabMembers">
+    <table class="table table-sm align-middle">
+      <thead><tr><th>Utente</th><th>Ruolo</th><th>Iscritto</th><th>Azioni</th></tr></thead>
+      <tbody>
+        {% for m in memberships %}
+          <tr>
+            <td>{{ m.user.username }} <small class="text-muted">{{ m.user.email }}</small></td>
+            <td>
+              {% if m.role == 'owner' %}<span class="badge bg-warning text-dark">Owner</span>
+              {% elif m.role == 'admin' %}<span class="badge bg-info">Admin</span>
+              {% else %}<span class="badge bg-secondary">Membro</span>{% endif %}
+            </td>
+            <td><small>{{ m.joined_at|date:"d/m/Y" }}</small></td>
+            <td>
+              {% if m.role != 'owner' and is_owner %}
+                {% if m.role == 'admin' %}
+                  <form method="post" class="d-inline">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="demote_admin">
+                    <input type="hidden" name="membership_id" value="{{ m.pk }}">
+                    <button class="btn btn-outline-secondary btn-sm">Rimuovi admin</button>
+                  </form>
+                {% else %}
+                  <form method="post" class="d-inline">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="promote_admin">
+                    <input type="hidden" name="membership_id" value="{{ m.pk }}">
+                    <button class="btn btn-outline-info btn-sm">Promuovi admin</button>
+                  </form>
+                {% endif %}
+                <form method="post" class="d-inline" onsubmit="return confirm('Trasferire la proprietà a {{ m.user.username }}?');">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="transfer_ownership">
+                  <input type="hidden" name="membership_id" value="{{ m.pk }}">
+                  <button class="btn btn-outline-warning btn-sm">Trasferisci proprietà</button>
+                </form>
+                <form method="post" class="d-inline" onsubmit="return confirm('Rimuovere {{ m.user.username }} dalla lega?');">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="remove_member">
+                  <input type="hidden" name="membership_id" value="{{ m.pk }}">
+                  <button class="btn btn-outline-danger btn-sm">Rimuovi</button>
+                </form>
+              {% elif m.role != 'owner' %}
+                <form method="post" class="d-inline" onsubmit="return confirm('Rimuovere {{ m.user.username }}?');">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="remove_member">
+                  <input type="hidden" name="membership_id" value="{{ m.pk }}">
+                  <button class="btn btn-outline-danger btn-sm">Rimuovi</button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if league.visibility == 'private' %}
+  <!-- INVITE CODE -->
+  <div class="tab-pane fade" id="tabInvite">
+    <p>Codice invito attuale (condividilo con chi vuoi far entrare):</p>
+    <pre class="bg-dark text-light p-3 rounded">{{ league.invite_code }}</pre>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="rotate_invite">
+      <button class="btn btn-outline-dark btn-sm">Rigenera codice</button>
+    </form>
+  </div>
+  {% endif %}
+
+</div>
+
+{% endblock %}
