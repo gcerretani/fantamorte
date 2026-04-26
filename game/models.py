@@ -52,6 +52,10 @@ class WikipediaPerson(models.Model):
     claims_cache = models.JSONField(default=dict, blank=True)
     last_checked = models.DateTimeField(null=True, blank=True)
     wikipedia_url_it = models.URLField(blank=True)
+    data_frozen = models.BooleanField(
+        default=False,
+        help_text="Se True, escluso dai controlli automatici (solo refresh manuale).",
+    )
 
     class Meta:
         verbose_name = 'Persona Wikipedia'
@@ -494,3 +498,22 @@ class PushSubscription(models.Model):
             'endpoint': self.endpoint,
             'keys': {'p256dh': self.p256dh, 'auth': self.auth},
         }
+
+
+class SiteSettings(models.Model):
+    wikidata_check_interval_hours = models.PositiveIntegerField(
+        default=24,
+        help_text="Ore minime tra un controllo Wikidata e il successivo per ogni giocatore.",
+    )
+
+    class Meta:
+        verbose_name = "Impostazioni sito"
+        verbose_name_plural = "Impostazioni sito"
+
+    def __str__(self):
+        return "Impostazioni sito"
+
+    @classmethod
+    def get(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj

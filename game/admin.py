@@ -4,7 +4,7 @@ from django.contrib import messages
 from .models import (
     Season, WikipediaPerson, BonusType, Team, TeamMember,
     Death, DeathBonus, UserProfile, PushSubscription,
-    League, LeagueMembership, LeagueBonus,
+    League, LeagueMembership, LeagueBonus, SiteSettings,
 )
 from . import scoring
 
@@ -88,8 +88,8 @@ class SeasonAdmin(admin.ModelAdmin):
 
 @admin.register(WikipediaPerson)
 class WikidataPersonAdmin(admin.ModelAdmin):
-    list_display = ('name_it', 'wikidata_id', 'birth_date', 'death_date', 'is_dead', 'occupation', 'last_checked')
-    list_filter = ('is_dead',)
+    list_display = ('name_it', 'wikidata_id', 'birth_date', 'death_date', 'is_dead', 'data_frozen', 'occupation', 'last_checked')
+    list_filter = ('is_dead', 'data_frozen')
     search_fields = ('name_it', 'wikidata_id')
     readonly_fields = ('last_checked', 'summary_fetched_at', 'claims_cache')
     actions = ['refresh_from_wikidata']
@@ -225,3 +225,14 @@ class PushSubscriptionAdmin(admin.ModelAdmin):
     def endpoint_short(self, obj):
         return obj.endpoint[:60] + '…' if len(obj.endpoint) > 60 else obj.endpoint
     endpoint_short.short_description = 'Endpoint'
+
+
+@admin.register(SiteSettings)
+class SiteSettingsAdmin(admin.ModelAdmin):
+    fields = ('wikidata_check_interval_hours',)
+
+    def has_add_permission(self, request):
+        return not SiteSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False

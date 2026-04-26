@@ -508,31 +508,37 @@ class AddPersonView(LoginRequiredMixin, View):
         if not wikidata_id:
             return JsonResponse({'error': 'wikidata_id mancante'}, status=400)
 
+        from datetime import timedelta
         from wikidata_api.client import WikidataClient
-        client = WikidataClient()
-        try:
-            entity = client.get_entity(wikidata_id)
-        except Exception as e:
-            return JsonResponse({'error': f'Errore Wikidata: {e}'}, status=500)
-
-        person, _ = WikipediaPerson.objects.update_or_create(
-            wikidata_id=wikidata_id,
-            defaults={
-                'name_it': entity['name_it'],
-                'name_en': entity.get('name_en', ''),
-                'description_it': entity.get('description_it', ''),
-                'birth_date': entity.get('birth_date'),
-                'birth_year': entity.get('birth_year'),
-                'death_date': entity.get('death_date'),
-                'is_dead': entity.get('death_date') is not None or entity.get('death_year') is not None,
-                'image_url': entity.get('image_url', ''),
-                'occupation': entity.get('occupation', ''),
-                'nationality': entity.get('nationality', ''),
-                'claims_cache': entity.get('claims_cache', {}),
-                'wikipedia_url_it': entity.get('wikipedia_url_it', ''),
-                'last_checked': timezone.now(),
-            }
-        )
+        from game.models import SiteSettings
+        interval = SiteSettings.get().wikidata_check_interval_hours
+        threshold = timezone.now() - timedelta(hours=interval)
+        existing = WikipediaPerson.objects.filter(wikidata_id=wikidata_id).first()
+        if existing and existing.last_checked and existing.last_checked >= threshold:
+            person = existing
+        else:
+            try:
+                entity = WikidataClient().get_entity(wikidata_id)
+            except Exception as e:
+                return JsonResponse({'error': f'Errore Wikidata: {e}'}, status=500)
+            person, _ = WikipediaPerson.objects.update_or_create(
+                wikidata_id=wikidata_id,
+                defaults={
+                    'name_it': entity['name_it'],
+                    'name_en': entity.get('name_en', ''),
+                    'description_it': entity.get('description_it', ''),
+                    'birth_date': entity.get('birth_date'),
+                    'birth_year': entity.get('birth_year'),
+                    'death_date': entity.get('death_date'),
+                    'is_dead': entity.get('death_date') is not None or entity.get('death_year') is not None,
+                    'image_url': entity.get('image_url', ''),
+                    'occupation': entity.get('occupation', ''),
+                    'nationality': entity.get('nationality', ''),
+                    'claims_cache': entity.get('claims_cache', {}),
+                    'wikipedia_url_it': entity.get('wikipedia_url_it', ''),
+                    'last_checked': timezone.now(),
+                }
+            )
 
         if person.is_dead:
             return JsonResponse({'error': f'{person.name_it} è già morto/a e non può essere aggiunto.'}, status=400)
@@ -875,3 +881,189 @@ class PushTestView(LoginRequiredMixin, View):
             if ok:
                 sent += 1
         return JsonResponse({'success': True, 'sent': sent, 'total': subs.count()})
+
+
+# ---------------------------------------------------------------------------
+# Giocatori Wikidata – diff e apply (pannello admin lega)
+# ---------------------------------------------------------------------------
+
+DIFF_FIELDS = [
+    ('name_it', 'Nome italiano'),
+    ('name_en', 'Nome inglese'),
+    ('description_it', 'Descrizione'),
+    ('birth_date', 'Data di nascita'),
+    ('birth_year', 'Anno di nascita'),
+    ('death_date', 'Data di morte'),
+    ('death_year', 'Anno di morte'),
+    ('image_url', 'Immagine'),
+    ('occupation', 'Professione'),
+    ('nationality', 'Nazionalità'),
+]
+
+DEATH_FIELDS = {'death_date', 'death_year'}
+APPLYABLE_FIELDS = {f for f, _ in DIFF_FIELDS}
+
+
+def _league_persons(league):
+    """Tutti i WikipediaPerson distinti in team attivi (non sostituiti) della lega."""
+    return WikipediaPerson.objects.filter(
+        team_members__team__league=league,
+        team_members__replaced_by__isnull=True,
+    ).distinct().order_by('name_it')
+
+
+def _compute_diff(person, entity):
+    """Restituisce lista di dizionari {field, label, old, new, is_removal}."""
+    changes = []
+    for field, label in DIFF_FIELDS:
+        old_val = getattr(person, field)
+        new_val = entity.get(field)
+        if field == 'death_date' or field == 'birth_date':
+            if old_val is not None:
+                old_val = old_val.isoformat()
+        if old_val != new_val:
+            changes.append({
+                'field': field,
+                'label': label,
+                'old': str(old_val) if old_val is not None else None,
+                'new': str(new_val) if new_val is not None else None,
+                'is_removal': old_val is not None and new_val is None,
+            })
+    return changes
+
+
+class LeaguePlayersRefreshView(LoginRequiredMixin, View):
+    template_name = 'game/league_players_refresh.html'
+
+    def get(self, request, slug):
+        league = get_object_or_404(League, slug=slug)
+        if not league.is_admin(request.user):
+            return HttpResponseForbidden('Permesso negato.')
+        persons = _league_persons(league)
+        return render(request, self.template_name, {
+            'league': league,
+            'persons': persons,
+        })
+
+
+class LeagueBulkDiffView(LoginRequiredMixin, View):
+    """POST JSON → restituisce lista di diff per ogni persona della lega."""
+
+    def post(self, request, slug):
+        league = get_object_or_404(League, slug=slug)
+        if not league.is_admin(request.user):
+            return JsonResponse({'error': 'Permesso negato'}, status=403)
+
+        try:
+            body = json.loads(request.body or '{}')
+        except (ValueError, UnicodeDecodeError):
+            return JsonResponse({'error': 'JSON non valido'}, status=400)
+
+        person_pks = body.get('person_pks') or []
+        if person_pks:
+            persons = WikipediaPerson.objects.filter(
+                pk__in=person_pks,
+                team_members__team__league=league,
+                team_members__replaced_by__isnull=True,
+            ).distinct()
+        else:
+            persons = _league_persons(league)
+
+        from wikidata_api.client import WikidataClient
+        client = WikidataClient()
+        results = []
+        for person in persons:
+            try:
+                entity = client.get_entity(person.wikidata_id)
+            except Exception as e:
+                results.append({
+                    'person_pk': person.pk,
+                    'wikidata_id': person.wikidata_id,
+                    'name_it': person.name_it,
+                    'error': str(e),
+                    'changes': [],
+                })
+                continue
+            changes = _compute_diff(person, entity)
+            results.append({
+                'person_pk': person.pk,
+                'wikidata_id': person.wikidata_id,
+                'name_it': person.name_it,
+                'changes': changes,
+            })
+        return JsonResponse({'results': results})
+
+
+class LeagueBulkApplyView(LoginRequiredMixin, View):
+    """POST JSON → applica aggiornamenti selezionati alle WikipediaPerson."""
+
+    def post(self, request, slug):
+        league = get_object_or_404(League, slug=slug)
+        if not league.is_admin(request.user):
+            return JsonResponse({'error': 'Permesso negato'}, status=403)
+
+        try:
+            body = json.loads(request.body or '{}')
+        except (ValueError, UnicodeDecodeError):
+            return JsonResponse({'error': 'JSON non valido'}, status=400)
+
+        updates = body.get('updates', [])
+        if not isinstance(updates, list):
+            return JsonResponse({'error': 'updates deve essere una lista'}, status=400)
+
+        # Verifica che tutte le persone appartengano alla lega
+        valid_pks = set(
+            WikipediaPerson.objects.filter(
+                team_members__team__league=league,
+                team_members__replaced_by__isnull=True,
+            ).distinct().values_list('pk', flat=True)
+        )
+
+        applied = 0
+        errors = []
+        from datetime import date as date_cls
+
+        for upd in updates:
+            person_pk = upd.get('person_pk')
+            field = upd.get('field')
+            new_value = upd.get('new_value')
+
+            if person_pk not in valid_pks:
+                errors.append(f'Persona {person_pk} non appartiene a questa lega.')
+                continue
+            if field not in APPLYABLE_FIELDS:
+                errors.append(f'Campo non modificabile: {field}')
+                continue
+
+            try:
+                person = WikipediaPerson.objects.get(pk=person_pk)
+            except WikipediaPerson.DoesNotExist:
+                errors.append(f'Persona {person_pk} non trovata.')
+                continue
+
+            # Conversione tipi per campi data
+            if field in ('birth_date', 'death_date') and new_value:
+                try:
+                    from datetime import datetime
+                    new_value = datetime.strptime(new_value, '%Y-%m-%d').date()
+                except (ValueError, TypeError):
+                    errors.append(f'Formato data non valido per {field}: {new_value}')
+                    continue
+            elif field in ('birth_year', 'death_year') and new_value is not None:
+                try:
+                    new_value = int(new_value)
+                except (ValueError, TypeError):
+                    errors.append(f'Valore anno non valido per {field}: {new_value}')
+                    continue
+
+            setattr(person, field, new_value)
+
+            # Ricalcola is_dead se si è toccato un campo morte
+            if field in DEATH_FIELDS:
+                person.is_dead = bool(person.death_date or person.death_year)
+
+            person.last_checked = timezone.now()
+            person.save()
+            applied += 1
+
+        return JsonResponse({'applied': applied, 'errors': errors})
