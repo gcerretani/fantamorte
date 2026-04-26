@@ -2,25 +2,53 @@
 (function () {
   'use strict';
 
-  // -------- Theme (dark mode) --------
+  // -------- Theme (auto | light | dark) --------
   const html = document.documentElement;
-  const savedTheme = localStorage.getItem('fm-theme');
-  const profileDark = html.dataset.profileDark === '1';
-  const initial = savedTheme || (profileDark ? 'dark' : 'light');
-  html.setAttribute('data-theme', initial);
+  const THEME_PREFS = ['auto', 'light', 'dark'];
+  const THEME_LABELS = { auto: 'automatico', light: 'chiaro', dark: 'scuro' };
+  const THEME_ICONS = { auto: '◐', light: '☀', dark: '☾' };
+  const mql = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
 
-  window.fmToggleTheme = function () {
-    const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-    html.setAttribute('data-theme', next);
-    localStorage.setItem('fm-theme', next);
+  function readPref() {
+    const stored = localStorage.getItem('fm-theme');
+    if (THEME_PREFS.indexOf(stored) !== -1) return stored;
+    const fromProfile = html.dataset.profileTheme;
+    return THEME_PREFS.indexOf(fromProfile) !== -1 ? fromProfile : 'auto';
+  }
+  function effectiveTheme(pref) {
+    if (pref === 'auto') return (mql && mql.matches) ? 'dark' : 'light';
+    return pref;
+  }
+  function applyPref(pref, persist) {
+    html.setAttribute('data-theme', effectiveTheme(pref));
+    html.setAttribute('data-theme-pref', pref);
+    if (persist) localStorage.setItem('fm-theme', pref);
     const btn = document.getElementById('fmThemeBtn');
-    if (btn) btn.textContent = next === 'dark' ? '☀' : '☾';
+    if (btn) {
+      btn.textContent = THEME_ICONS[pref];
+      const label = 'Tema: ' + THEME_LABELS[pref] + ' (clicca per cambiare)';
+      btn.title = label;
+      btn.setAttribute('aria-label', label);
+    }
+  }
+  window.fmToggleTheme = function () {
+    const current = readPref();
+    const idx = THEME_PREFS.indexOf(current);
+    const next = THEME_PREFS[(idx + 1) % THEME_PREFS.length];
+    applyPref(next, true);
   };
+
+  applyPref(readPref(), false);
+  if (mql && mql.addEventListener) {
+    mql.addEventListener('change', function () {
+      if (readPref() === 'auto') applyPref('auto', false);
+    });
+  }
 
   document.addEventListener('DOMContentLoaded', function () {
     const btn = document.getElementById('fmThemeBtn');
     if (btn) {
-      btn.textContent = html.getAttribute('data-theme') === 'dark' ? '☀' : '☾';
+      applyPref(readPref(), false);
       btn.addEventListener('click', window.fmToggleTheme);
     }
   });

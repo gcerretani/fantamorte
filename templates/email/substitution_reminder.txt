@@ -1,0 +1,11 @@
+Ciao {{ user.username }},
+
+{{ person.name_it }} è deceduto/a e fa parte della tua squadra "{{ team.name }}"{% if league %} nella lega {{ league.name }}{% endif %}.
+
+Hai ancora {{ days_left }} giorn{% if days_left == 1 %}o{% else %}i{% endif %} per sostituirlo/a{% if deadline %} (entro {{ deadline|date:"d/m/Y H:i" }}){% endif %}.
+
+Vai alla tua squadra: {{ team_url }}
+
+—
+Stai ricevendo questa email perché hai abilitato le notifiche via email su Fantamorte.
+Per disattivarle, modifica le tue preferenze: {{ profile_url }}

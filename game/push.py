@@ -111,6 +111,38 @@ def broadcast_death_notification(death: Death) -> int:
     return sent
 
 
+def send_substitution_reminder_push(team_member, days_left: int) -> bool:
+    """Invia un reminder push a chi possiede `team_member` ricordando la deadline.
+
+    Ritorna True se almeno una subscription ha ricevuto la notifica.
+    """
+    user = team_member.team.manager
+    profile = getattr(user, 'profile', None)
+    if not profile or not profile.push_notifications_enabled:
+        return False
+
+    person = team_member.person
+    title = f'⏳ {days_left} giorn{"o" if days_left == 1 else "i"} per sostituire {person.name_it}'
+    body_parts = [f'{person.name_it} è deceduto/a e fa parte della tua squadra.']
+    if team_member.team.league_id:
+        body_parts.append(f'Lega: {team_member.team.league.name}.')
+    payload = {
+        'type': 'substitution_reminder',
+        'title': title,
+        'body': ' '.join(body_parts),
+        'url': reverse('team_edit', args=[team_member.team_id]),
+        'tag': f'sub-reminder-{team_member.pk}-{days_left}',
+        'urgent': True,
+    }
+
+    subs = PushSubscription.objects.filter(user=user)
+    sent_any = False
+    for sub in subs:
+        if send_push(sub, payload):
+            sent_any = True
+    return sent_any
+
+
 def _build_body(death: Death) -> str:
     dd = death.death_date
     date_str = dd.strftime('%d/%m/%Y') if hasattr(dd, 'strftime') else str(dd)

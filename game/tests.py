@@ -1,11 +1,13 @@
-from datetime import date
+from datetime import date, timedelta
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.core import mail
+from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from .models import (
     BonusType, Death, DeathBonus, League, LeagueBonus,
-    Season, Team, TeamMember, WikipediaPerson,
+    Season, SubstitutionReminder, Team, TeamMember, UserProfile, WikipediaPerson,
 )
 from .scoring import (
     compute_league_rankings,
@@ -467,3 +469,204 @@ class RankingTest(ScoringBaseTestCase):
         rankings = compute_league_rankings(self.league)
         scores = [r['score'] for r in rankings]
         self.assertEqual(scores, sorted(scores, reverse=True))
+
+
+class ThemePreferenceTest(TestCase):
+
+    def test_default_e_auto_per_nuovo_utente(self):
+        u = User.objects.create_user('newbie', password='x')
+        # Il signal post_save su User crea il profilo
+        self.assertEqual(u.profile.theme_preference, UserProfile.THEME_AUTO)
+
+    def test_solo_choices_valide_vengono_accettate(self):
+        u = User.objects.create_user('user1', password='x')
+        for value, _ in UserProfile.THEME_CHOICES:
+            u.profile.theme_preference = value
+            u.profile.full_clean()  # non solleva
+            u.profile.save()
+        self.assertEqual(
+            UserProfile.objects.get(pk=u.profile.pk).theme_preference, 'dark',
+        )
+
+
+@override_settings(
+    EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+    DEFAULT_FROM_EMAIL='Fantamorte <noreply@example.com>',
+)
+class DeathEmailTest(TestCase):
+
+    def setUp(self):
+        self.owner = User.objects.create_user('alice', email='alice@example.com', password='x')
+        self.bob = User.objects.create_user('bob', email='bob@example.com', password='x')
+        # bob ha disattivato le email
+        self.bob.profile.email_notifications_enabled = False
+        self.bob.profile.save()
+
+        self.league = League.objects.create(
+            name='Lega Email', slug='lega-email', owner=self.owner,
+            start_date=date(2020, 1, 1), end_date=date(2030, 12, 31),
+            registration_opens=date(2019, 12, 1), registration_closes=date(2020, 1, 31),
+        )
+        from .models import LeagueMembership
+        LeagueMembership.objects.create(league=self.league, user=self.owner, role='owner')
+        LeagueMembership.objects.create(league=self.league, user=self.bob, role='member')
+
+        self.team_alice = Team.objects.create(name='A', manager=self.owner, league=self.league)
+        self.person = WikipediaPerson.objects.create(
+            wikidata_id='Q1', name_it='Tizio Caio',
+            birth_date=date(1940, 1, 1), is_dead=False,
+        )
+        TeamMember.objects.create(team=self.team_alice, person=self.person)
+        self.season = Season.objects.create(
+            year=2025, is_active=True,
+            registration_opens=date(2024, 12, 1),
+            registration_closes=date(2025, 1, 31),
+        )
+
+    def test_email_inviata_solo_a_chi_ha_optin(self):
+        from .email import broadcast_death_email
+        self.person.is_dead = True
+        self.person.save()
+        death = Death.objects.create(
+            person=self.person, season=self.season,
+            death_date=date(2025, 6, 1),
+            death_age=85, is_confirmed=True,
+        )
+        mail.outbox.clear()  # ignora le email triggered dal signal
+        broadcast_death_email(death)
+        recipients = {addr for m in mail.outbox for addr in m.to}
+        self.assertIn('alice@example.com', recipients)
+        self.assertNotIn('bob@example.com', recipients)
+
+    def test_subject_urgent_se_persona_in_squadra(self):
+        from .email import broadcast_death_email
+        self.person.is_dead = True
+        self.person.save()
+        death = Death.objects.create(
+            person=self.person, season=self.season,
+            death_date=date(2025, 6, 1),
+            death_age=85, is_confirmed=True,
+        )
+        mail.outbox.clear()
+        broadcast_death_email(death)
+        alice_msgs = [m for m in mail.outbox if 'alice@example.com' in m.to]
+        self.assertTrue(alice_msgs)
+        self.assertIn('era nella tua squadra', alice_msgs[0].subject)
+
+    def test_signal_invia_email_quando_death_confirmed(self):
+        # Persona morta ma il Death viene creato non confermato e poi confermato:
+        # il signal scatta solo nella transizione False → True.
+        self.person.is_dead = True
+        self.person.save()
+        death = Death.objects.create(
+            person=self.person, season=self.season,
+            death_date=date(2025, 6, 1),
+            death_age=85, is_confirmed=False,
+        )
+        mail.outbox.clear()
+        death.is_confirmed = True
+        death.save()
+        recipients = {addr for m in mail.outbox for addr in m.to}
+        self.assertIn('alice@example.com', recipients)
+
+    @override_settings(DEFAULT_FROM_EMAIL='')
+    def test_no_crash_se_email_non_configurato(self):
+        from .email import broadcast_death_email
+        self.person.is_dead = True
+        self.person.save()
+        death = Death.objects.create(
+            person=self.person, season=self.season,
+            death_date=date(2025, 6, 1),
+            death_age=85, is_confirmed=True,
+        )
+        mail.outbox.clear()
+        sent = broadcast_death_email(death)
+        self.assertEqual(sent, 0)
+        self.assertEqual(mail.outbox, [])
+
+
+@override_settings(
+    EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+    DEFAULT_FROM_EMAIL='Fantamorte <noreply@example.com>',
+)
+class SubstitutionReminderTest(TestCase):
+
+    def setUp(self):
+        self.owner = User.objects.create_user('alice', email='alice@example.com', password='x')
+        today = timezone.now().date()
+        self.league = League.objects.create(
+            name='Lega Reminder', slug='lega-reminder', owner=self.owner,
+            start_date=today - timedelta(days=30),
+            end_date=today + timedelta(days=300),
+            registration_opens=today - timedelta(days=60),
+            registration_closes=today - timedelta(days=20),
+            substitution_deadline_days=7,
+        )
+        self.team = Team.objects.create(name='A', manager=self.owner, league=self.league)
+        self.person = WikipediaPerson.objects.create(
+            wikidata_id='Q42', name_it='Tizio Morto',
+            birth_date=date(1930, 1, 1), is_dead=True,
+        )
+        self.member = TeamMember.objects.create(team=self.team, person=self.person)
+        self.season = Season.objects.create(
+            year=today.year, is_active=True,
+            registration_opens=today - timedelta(days=60),
+            registration_closes=today - timedelta(days=20),
+        )
+        # Decesso con confirmed_at impostato a "5 giorni fa" → deadline a +2 giorni
+        # da oggi, quindi rientra nella soglia T-3 ma non in T-1.
+        confirmed = timezone.now() - timedelta(days=5)
+        self.death = Death.objects.create(
+            person=self.person, season=self.season,
+            death_date=confirmed.date(),
+            death_age=95, is_confirmed=True, confirmed_at=confirmed,
+        )
+
+    def _run_command(self, **kwargs):
+        from django.core.management import call_command
+        call_command('send_substitution_reminders', **kwargs)
+
+    def test_invia_solo_t_minus_3_quando_mancano_due_giorni(self):
+        mail.outbox.clear()
+        self._run_command()
+        # Deve essere stato creato un solo marker, per la soglia 3
+        markers = list(SubstitutionReminder.objects.filter(team_member=self.member))
+        self.assertEqual([m.threshold_days for m in markers], [3])
+        # E un'email è partita
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('sostituire', mail.outbox[0].subject.lower())
+
+    def test_idempotente_non_duplica_su_seconda_esecuzione(self):
+        self._run_command()
+        mail.outbox.clear()
+        self._run_command()
+        # Nessuna nuova email; il marker esistente blocca il reinvio
+        self.assertEqual(mail.outbox, [])
+        self.assertEqual(
+            SubstitutionReminder.objects.filter(team_member=self.member).count(), 1,
+        )
+
+    def test_invia_t_minus_1_quando_la_deadline_si_avvicina(self):
+        # Sposta confirmed_at a "6 giorni e 12 ore fa" → deadline tra 12h
+        self.death.confirmed_at = timezone.now() - timedelta(days=6, hours=12)
+        self.death.save()
+        SubstitutionReminder.objects.filter(team_member=self.member).delete()
+        self._run_command()
+        markers = list(SubstitutionReminder.objects.filter(team_member=self.member))
+        self.assertEqual([m.threshold_days for m in markers], [1])
+
+    def test_dry_run_non_scrive_marker(self):
+        self._run_command(dry_run=True)
+        self.assertFalse(SubstitutionReminder.objects.exists())
+        self.assertEqual(mail.outbox, [])
+
+    def test_skippa_se_membro_gia_sostituito(self):
+        replacement_person = WikipediaPerson.objects.create(
+            wikidata_id='Q43', name_it='Sostituto',
+            birth_date=date(1950, 1, 1), is_dead=False,
+        )
+        replacement = TeamMember.objects.create(team=self.team, person=replacement_person)
+        self.member.replaced_by = replacement
+        self.member.save()
+        self._run_command()
+        self.assertFalse(SubstitutionReminder.objects.exists())

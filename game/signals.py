@@ -28,15 +28,24 @@ def _track_death_confirmation_state(sender, instance, **kwargs):
 
 @receiver(post_save, sender=Death)
 def notify_on_death_confirmed(sender, instance, created, **kwargs):
-    """Quando una Death passa a is_confirmed=True, invia push a chi ha optato."""
+    """Quando una Death passa a is_confirmed=True, invia push e email a chi ha optato."""
     was_confirmed = getattr(instance, '_was_confirmed', False)
-    if instance.is_confirmed and not was_confirmed:
-        if getattr(settings, 'PUSH_NOTIFICATIONS_ASYNC', False):
-            return  # delega a un worker esterno se configurato
+    if not (instance.is_confirmed and not was_confirmed):
+        return
+
+    import logging
+    logger = logging.getLogger(__name__)
+
+    if not getattr(settings, 'PUSH_NOTIFICATIONS_ASYNC', False):
         try:
             from .push import broadcast_death_notification
             broadcast_death_notification(instance)
         except Exception:
-            # Non bloccare il salvataggio se la spedizione push fallisce
-            import logging
-            logging.getLogger(__name__).exception('Errore invio push per Death %s', instance.pk)
+            logger.exception('Errore invio push per Death %s', instance.pk)
+
+    # Email: sempre sincrone (volume basso). Errori non devono bloccare il salvataggio.
+    try:
+        from .email import broadcast_death_email
+        broadcast_death_email(instance)
+    except Exception:
+        logger.exception('Errore invio email per Death %s', instance.pk)
