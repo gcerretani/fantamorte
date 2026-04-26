@@ -211,7 +211,7 @@ class DeathBonusAdmin(admin.ModelAdmin):
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'push_notifications_enabled', 'email_notifications_enabled', 'dark_mode')
+    list_display = ('user', 'push_notifications_enabled', 'email_notifications_enabled', 'theme_preference')
     list_filter = ('push_notifications_enabled', 'email_notifications_enabled')
     search_fields = ('user__username', 'user__email')
 

@@ -292,6 +292,8 @@ python manage.py check_deaths --force      # ignora data_frozen sulle persone
 python manage.py mark_originals            # a inizio stagione di una lega
 python manage.py award_first_last_death --league <slug> --first   # primo decesso
 python manage.py award_first_last_death --league <slug> --last    # fine stagione
+python manage.py send_substitution_reminders             # reminder push/email per sostituzioni (T-3, T-1)
+python manage.py send_substitution_reminders --dry-run   # solo log, niente invio
 
 # Docker
 docker compose up -d

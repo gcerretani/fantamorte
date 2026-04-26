@@ -300,6 +300,16 @@ class DeathBonus(models.Model):
 
 class UserProfile(models.Model):
     """Preferenze utente: opt-in/out notifiche, tema, ecc."""
+
+    THEME_AUTO = 'auto'
+    THEME_LIGHT = 'light'
+    THEME_DARK = 'dark'
+    THEME_CHOICES = [
+        (THEME_AUTO, 'Automatico (segue il dispositivo)'),
+        (THEME_LIGHT, 'Chiaro'),
+        (THEME_DARK, 'Scuro'),
+    ]
+
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     push_notifications_enabled = models.BooleanField(
         default=True,
@@ -309,7 +319,12 @@ class UserProfile(models.Model):
         default=True,
         help_text='Ricevi email quando un decesso viene confermato o un tuo membro è morto.'
     )
-    dark_mode = models.BooleanField(default=False)
+    theme_preference = models.CharField(
+        max_length=8,
+        choices=THEME_CHOICES,
+        default=THEME_AUTO,
+        help_text="Tema dell'interfaccia: automatico segue il dispositivo.",
+    )
 
     class Meta:
         verbose_name = 'Profilo utente'
@@ -517,3 +532,25 @@ class SiteSettings(models.Model):
     def get(cls):
         obj, _ = cls.objects.get_or_create(pk=1)
         return obj
+
+
+class SubstitutionReminder(models.Model):
+    """Traccia i reminder di scadenza sostituzione già inviati per evitare duplicati."""
+    team_member = models.ForeignKey(
+        TeamMember, on_delete=models.CASCADE, related_name='reminders',
+    )
+    threshold_days = models.PositiveIntegerField(
+        help_text='Soglia (giorni rimanenti) per cui questo reminder è stato inviato.',
+    )
+    sent_at = models.DateTimeField(auto_now_add=True)
+    push_sent = models.BooleanField(default=False)
+    email_sent = models.BooleanField(default=False)
+
+    class Meta:
+        verbose_name = 'Reminder sostituzione'
+        verbose_name_plural = 'Reminder sostituzione'
+        unique_together = [('team_member', 'threshold_days')]
+        indexes = [models.Index(fields=['team_member', 'threshold_days'])]
+
+    def __str__(self):
+        return f'Reminder T-{self.threshold_days} per {self.team_member}'

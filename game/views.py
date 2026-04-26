@@ -762,7 +762,10 @@ class ProfileView(LoginRequiredMixin, View):
         profile, _ = UserProfile.objects.get_or_create(user=request.user)
         profile.push_notifications_enabled = request.POST.get('push_notifications_enabled') == 'on'
         profile.email_notifications_enabled = request.POST.get('email_notifications_enabled') == 'on'
-        profile.dark_mode = request.POST.get('dark_mode') == 'on'
+        theme = request.POST.get('theme_preference')
+        valid_themes = {choice[0] for choice in UserProfile.THEME_CHOICES}
+        if theme in valid_themes:
+            profile.theme_preference = theme
         profile.save()
         messages.success(request, 'Preferenze aggiornate.')
         return redirect('profile')

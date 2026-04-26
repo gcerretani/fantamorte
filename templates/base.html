@@ -1,5 +1,5 @@
 {% load static %}<!DOCTYPE html>
-<html lang="it" data-profile-dark="{% if dark_mode %}1{% else %}0{% endif %}">
+<html lang="it" data-profile-theme="{{ theme_preference|default:'auto' }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -15,11 +15,20 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="{% static 'css/fantamorte.css' %}" rel="stylesheet">
   <script>
-    // Applica subito il tema per evitare flash
+    // Applica subito il tema per evitare flash. Pref tri-state: auto|light|dark.
     (function(){
-      var t = localStorage.getItem('fm-theme') ||
-        (document.documentElement.dataset.profileDark === '1' ? 'dark' : 'light');
-      document.documentElement.setAttribute('data-theme', t);
+      var html = document.documentElement;
+      var stored = localStorage.getItem('fm-theme');
+      var pref = (stored === 'auto' || stored === 'light' || stored === 'dark')
+        ? stored
+        : (html.dataset.profileTheme || 'auto');
+      var effective = pref;
+      if (pref === 'auto') {
+        effective = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          ? 'dark' : 'light';
+      }
+      html.setAttribute('data-theme', effective);
+      html.setAttribute('data-theme-pref', pref);
     })();
     window.FM_VAPID_PUBLIC_KEY = "{{ VAPID_PUBLIC_KEY }}";
   </script>
@@ -30,7 +39,8 @@
     <a class="navbar-brand" href="{% url 'home' %}">&#9760; Fantamorte</a>
     <div class="d-flex align-items-center order-lg-last">
       <button id="fmInstallBtn" class="btn btn-outline-light btn-sm me-2" type="button" title="Installa app">&#x2913; Installa</button>
-      <button id="fmThemeBtn" class="btn btn-outline-light btn-sm me-2" type="button" title="Cambia tema">☾</button>
+      <button id="fmThemeBtn" class="btn btn-outline-light btn-sm me-2" type="button"
+        title="Cambia tema" aria-label="Cambia tema">◐</button>
       <button class="navbar-toggler" type="button" data-bs-toggle="offcanvas" data-bs-target="#navOffcanvas">
         <span class="navbar-toggler-icon"></span>
       </button>
