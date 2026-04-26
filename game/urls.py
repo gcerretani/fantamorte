@@ -11,6 +11,7 @@ urlpatterns = [
     path('leghe/<slug:slug>/iscriviti/', views.LeagueJoinView.as_view(), name='league_join'),
     path('leghe/<slug:slug>/abbandona/', views.LeagueLeaveView.as_view(), name='league_leave'),
     path('leghe/<slug:slug>/admin/', views.LeagueAdminView.as_view(), name='league_admin'),
+    path('leghe/<slug:slug>/admin/giocatori/', views.LeaguePlayersRefreshView.as_view(), name='league_players_refresh'),
     path('leghe/<slug:slug>/classifica/', views.LeagueRankingsView.as_view(), name='league_rankings'),
     path('leghe/<slug:slug>/decessi/', views.LeagueDeathsView.as_view(), name='league_deaths'),
     path('leghe/<slug:slug>/squadra/nuova/', views.TeamCreateView.as_view(), name='team_create'),
@@ -30,6 +31,10 @@ urlpatterns = [
     path('morte/<int:pk>/', views.DeathDetailView.as_view(), name='death_detail'),
     path('api/persona/<int:pk>/', views.PersonInfoView.as_view(), name='person_info'),
     path('api/search-person/', views.PersonSearchView.as_view(), name='person_search'),
+
+    # Wikidata diff/apply (per pannello admin lega)
+    path('api/leghe/<slug:slug>/wikidata-diff/', views.LeagueBulkDiffView.as_view(), name='league_wikidata_diff'),
+    path('api/leghe/<slug:slug>/wikidata-apply/', views.LeagueBulkApplyView.as_view(), name='league_wikidata_apply'),
 
     # Push
     path('api/push/subscribe/', views.PushSubscribeView.as_view(), name='push_subscribe'),

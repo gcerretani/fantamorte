@@ -4,13 +4,13 @@ Una lega è "in corso" quando `start_date <= oggi <= end_date`. Per ogni
 anno coperto da almeno una lega in corso, vengono controllate le
 persone che fanno parte di quelle leghe (TeamMember attivi, non sostituiti).
 """
-from datetime import date as date_cls
+from datetime import date as date_cls, timedelta
 from django.core.management.base import BaseCommand
 from django.db.models import Q
 from django.utils import timezone
 
 from game.models import (
-    BonusType, Death, DeathBonus, League, Season, WikipediaPerson,
+    BonusType, Death, DeathBonus, League, Season, SiteSettings, WikipediaPerson,
 )
 from wikidata_api.client import WikidataClient
 
@@ -22,6 +22,7 @@ class Command(BaseCommand):
         parser.add_argument('--dry-run', action='store_true', help='Non salvare nulla')
         parser.add_argument('--league', type=str, help='Slug di una lega specifica')
         parser.add_argument('--year', type=int, help='Forza un singolo anno per la query SPARQL')
+        parser.add_argument('--force', action='store_true', help='Ignora il filtro last_checked e data_frozen')
 
     def handle(self, *args, **options):
         dry_run = options['dry_run']
@@ -59,6 +60,14 @@ class Command(BaseCommand):
             team_members__replaced_by__isnull=True,
             is_dead=False,
         ).distinct()
+
+        if not options.get('force'):
+            interval = SiteSettings.get().wikidata_check_interval_hours
+            threshold = timezone.now() - timedelta(hours=interval)
+            active_persons = active_persons.exclude(data_frozen=True).filter(
+                Q(last_checked__isnull=True) | Q(last_checked__lt=threshold)
+            )
+
         wikidata_ids = list(active_persons.values_list('wikidata_id', flat=True))
         self.stdout.write(f'Persone da controllare: {len(wikidata_ids)}')
         if not wikidata_ids:

@@ -1,0 +1,269 @@
+{% extends 'base.html' %}
+{% block title %}Controlla giocatori – {{ league.name }}{% endblock %}
+{% block content %}
+
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{% url 'league_admin' slug=league.slug %}">Gestione {{ league.name }}</a></li>
+    <li class="breadcrumb-item active">Controlla giocatori</li>
+  </ol>
+</nav>
+
+<div class="d-flex align-items-center gap-3 mb-3">
+  <h2 class="mb-0">Giocatori della lega</h2>
+  <button id="btn-check-all" class="btn btn-primary">
+    <span id="spinner-all" class="spinner-border spinner-border-sm d-none me-1" role="status"></span>
+    Controlla tutti
+  </button>
+</div>
+<p class="text-muted small">
+  Recupera i dati aggiornati da Wikidata e mostra le differenze rispetto al database locale.
+  Puoi scegliere quali modifiche importare.
+</p>
+
+{% if persons %}
+<div class="table-responsive">
+  <table class="table table-sm table-hover align-middle">
+    <thead class="table-light">
+      <tr>
+        <th>Nome</th>
+        <th>Wikidata</th>
+        <th>Ultimo controllo</th>
+        <th>Stato</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for person in persons %}
+      <tr id="row-{{ person.pk }}">
+        <td>
+          <a href="#" data-fm-person-pk="{{ person.pk }}">{{ person.name_it }}</a>
+          {% if person.data_frozen %}
+          <span class="badge bg-secondary ms-1" title="Escluso dai controlli automatici">Frozen</span>
+          {% endif %}
+        </td>
+        <td><code class="small">{{ person.wikidata_id }}</code></td>
+        <td class="text-muted small">
+          {% if person.last_checked %}
+            {{ person.last_checked|date:"d/m/Y H:i" }}
+          {% else %}
+            <em>Mai</em>
+          {% endif %}
+        </td>
+        <td>
+          {% if person.is_dead %}
+            <span class="badge bg-dark">Morto</span>
+          {% else %}
+            <span class="badge bg-success">Vivo</span>
+          {% endif %}
+        </td>
+        <td>
+          <button class="btn btn-outline-secondary btn-sm btn-check-one"
+                  data-person-pk="{{ person.pk }}"
+                  data-person-name="{{ person.name_it }}">
+            <span class="spinner-border spinner-border-sm d-none" role="status"></span>
+            Controlla
+          </button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="text-muted">Nessun giocatore attivo in questa lega.</p>
+{% endif %}
+
+<!-- Sezione diff -->
+<div id="diff-section" class="d-none mt-4">
+  <hr>
+  <h4>Aggiornamenti disponibili</h4>
+  <p class="text-muted small">
+    Le modifiche <span class="badge bg-success">verdi</span> aggiungono dati nuovi.
+    Le modifiche <span class="badge bg-danger">rosse</span> rimuovono un valore esistente: verificale con attenzione prima di importare.
+  </p>
+
+  <div id="diff-errors" class="d-none alert alert-warning"></div>
+
+  <form id="apply-form">
+    <div id="diff-table-wrapper">
+      <!-- popolato via JS -->
+    </div>
+    <div class="mt-3 d-flex gap-2 align-items-center">
+      <button type="submit" id="btn-apply" class="btn btn-success" disabled>
+        <span id="spinner-apply" class="spinner-border spinner-border-sm d-none me-1" role="status"></span>
+        Applica selezionati
+      </button>
+      <button type="button" id="btn-select-all-changes" class="btn btn-outline-secondary btn-sm">Seleziona tutti</button>
+      <button type="button" id="btn-deselect-all-changes" class="btn btn-outline-secondary btn-sm">Deseleziona tutti</button>
+      <span id="apply-result" class="ms-2 small"></span>
+    </div>
+  </form>
+</div>
+
+<script>
+(function () {
+  const DIFF_URL  = "{% url 'league_wikidata_diff' slug=league.slug %}";
+  const APPLY_URL = "{% url 'league_wikidata_apply' slug=league.slug %}";
+  const CSRF      = "{{ csrf_token }}";
+
+  function setSpinner(btn, on) {
+    const sp = btn.querySelector('.spinner-border');
+    if (sp) sp.classList.toggle('d-none', !on);
+    btn.disabled = on;
+  }
+
+  function renderDiff(results) {
+    const wrapper = document.getElementById('diff-table-wrapper');
+    const errBox  = document.getElementById('diff-errors');
+    errBox.classList.add('d-none');
+    errBox.textContent = '';
+
+    const errors = results.filter(r => r.error);
+    if (errors.length) {
+      errBox.textContent = errors.map(r => `${r.name_it}: ${r.error}`).join('\n');
+      errBox.classList.remove('d-none');
+    }
+
+    const withChanges = results.filter(r => !r.error && r.changes.length > 0);
+    if (!withChanges.length) {
+      wrapper.innerHTML = '<p class="text-muted">Nessuna differenza trovata.</p>';
+      document.getElementById('diff-section').classList.remove('d-none');
+      updateApplyButton();
+      return;
+    }
+
+    let html = '<table class="table table-bordered table-sm align-middle">';
+    html += '<thead class="table-light"><tr><th>Giocatore</th><th>Campo</th><th>Valore attuale</th><th>Nuovo valore</th><th>Importa</th></tr></thead><tbody>';
+    withChanges.forEach(person => {
+      person.changes.forEach((ch, i) => {
+        const rowspan = i === 0 ? ` rowspan="${person.changes.length}"` : '';
+        const nameCell = i === 0 ? `<td${rowspan}><strong>${person.name_it}</strong><br><code class="small">${person.wikidata_id}</code></td>` : '';
+        const rowClass = ch.is_removal ? 'table-danger' : (ch.field === 'death_date' || ch.field === 'death_year' ? 'table-success' : '');
+        const oldDisplay = ch.old !== null ? ch.old : '<em class="text-muted">—</em>';
+        const newDisplay = ch.new !== null ? ch.new : '<em class="text-muted">—</em>';
+        const badge = ch.is_removal ? '<span class="badge bg-danger ms-1">Rimozione</span>' : '';
+        html += `<tr class="${rowClass}">
+          ${nameCell}
+          <td>${ch.label}${badge}</td>
+          <td>${oldDisplay}</td>
+          <td>${newDisplay}</td>
+          <td class="text-center">
+            <input type="checkbox" class="form-check-input diff-check"
+              data-person-pk="${person.person_pk}"
+              data-field="${ch.field}"
+              data-new-value="${ch.new !== null ? ch.new : ''}"
+              data-is-null="${ch.new === null ? '1' : '0'}"
+              ${ch.is_removal ? '' : 'checked'}>
+          </td>
+        </tr>`;
+      });
+    });
+    html += '</tbody></table>';
+    wrapper.innerHTML = html;
+    document.getElementById('diff-section').classList.remove('d-none');
+    document.querySelectorAll('.diff-check').forEach(cb => cb.addEventListener('change', updateApplyButton));
+    updateApplyButton();
+  }
+
+  function updateApplyButton() {
+    const checked = document.querySelectorAll('.diff-check:checked').length;
+    document.getElementById('btn-apply').disabled = checked === 0;
+  }
+
+  async function fetchDiff(personPks) {
+    const resp = await fetch(DIFF_URL, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+      body: JSON.stringify(personPks ? {person_pks: personPks} : {}),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return resp.json();
+  }
+
+  // Controlla tutti
+  document.getElementById('btn-check-all').addEventListener('click', async function () {
+    setSpinner(this, true);
+    try {
+      const data = await fetchDiff(null);
+      renderDiff(data.results || []);
+    } catch (e) {
+      alert('Errore durante il controllo: ' + e.message);
+    } finally {
+      setSpinner(this, false);
+    }
+  });
+
+  // Controlla singolo
+  document.querySelectorAll('.btn-check-one').forEach(btn => {
+    btn.addEventListener('click', async function () {
+      const pk = parseInt(this.dataset.personPk);
+      setSpinner(this, true);
+      try {
+        const data = await fetchDiff([pk]);
+        renderDiff(data.results || []);
+        document.getElementById('diff-section').scrollIntoView({behavior: 'smooth'});
+      } catch (e) {
+        alert('Errore durante il controllo: ' + e.message);
+      } finally {
+        setSpinner(this, false);
+      }
+    });
+  });
+
+  // Seleziona/deseleziona tutto
+  document.getElementById('btn-select-all-changes').addEventListener('click', function () {
+    document.querySelectorAll('.diff-check').forEach(cb => cb.checked = true);
+    updateApplyButton();
+  });
+  document.getElementById('btn-deselect-all-changes').addEventListener('click', function () {
+    document.querySelectorAll('.diff-check').forEach(cb => cb.checked = false);
+    updateApplyButton();
+  });
+
+  // Applica
+  document.getElementById('apply-form').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const checked = document.querySelectorAll('.diff-check:checked');
+    const updates = Array.from(checked).map(cb => ({
+      person_pk: parseInt(cb.dataset.personPk),
+      field: cb.dataset.field,
+      new_value: cb.dataset.isNull === '1' ? null : cb.dataset.newValue,
+    }));
+    const btn = document.getElementById('btn-apply');
+    const sp  = document.getElementById('spinner-apply');
+    sp.classList.remove('d-none');
+    btn.disabled = true;
+    try {
+      const resp = await fetch(APPLY_URL, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+        body: JSON.stringify({updates}),
+      });
+      const data = await resp.json();
+      const resultSpan = document.getElementById('apply-result');
+      if (resp.ok) {
+        resultSpan.className = 'ms-2 small text-success';
+        resultSpan.textContent = `${data.applied} modifiche importate.`;
+        if (data.errors && data.errors.length) {
+          resultSpan.textContent += ' Errori: ' + data.errors.join('; ');
+          resultSpan.className = 'ms-2 small text-warning';
+        }
+        // Rimuovi le righe applicate dalla tabella diff
+        checked.forEach(cb => cb.closest('tr').remove());
+        updateApplyButton();
+      } else {
+        resultSpan.className = 'ms-2 small text-danger';
+        resultSpan.textContent = 'Errore: ' + (data.error || 'sconosciuto');
+      }
+    } catch (err) {
+      document.getElementById('apply-result').textContent = 'Errore di rete: ' + err.message;
+    } finally {
+      sp.classList.add('d-none');
+      updateApplyButton();
+    }
+  });
+})();
+</script>
+
+{% endblock %}
