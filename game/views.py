@@ -1,9 +1,10 @@
+import csv
 import json
 import secrets
 from django.views.generic import TemplateView, DetailView, View
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import JsonResponse, HttpResponseForbidden
+from django.http import JsonResponse, HttpResponse, HttpResponseForbidden
 from django.contrib import messages
 from django.utils import timezone
 from django.utils.text import slugify
@@ -1070,3 +1071,184 @@ class LeagueBulkApplyView(LoginRequiredMixin, View):
             applied += 1
 
         return JsonResponse({'applied': applied, 'errors': errors})
+
+
+# ---------------- Simulatore What-If ----------------
+
+class TeamWhatIfView(LoginRequiredMixin, View):
+    """Simulatore: per una squadra dell'utente, mostra i punti che farebbe
+    ogni membro vivo se morisse oggi. Aiuta a scegliere capitano/jolly."""
+
+    template_name = 'game/team_what_if.html'
+
+    def get(self, request, pk):
+        team = get_object_or_404(Team, pk=pk)
+        if team.manager_id != request.user.id and not request.user.is_staff:
+            return HttpResponseForbidden('Non sei il proprietario di questa squadra.')
+
+        try:
+            month = int(request.GET.get('month') or timezone.now().month)
+        except (TypeError, ValueError):
+            month = timezone.now().month
+        month = max(1, min(12, month))
+
+        active_members = team.members.filter(replaced_by__isnull=True).select_related('person')
+        rows = []
+        for m in active_members:
+            person = m.person
+            if person.death_age is not None:
+                age = person.death_age
+            elif person.birth_date:
+                today = timezone.now().date()
+                age = today.year - person.birth_date.year - (
+                    (today.month, today.day) < (person.birth_date.month, person.birth_date.day)
+                )
+            else:
+                age = 80  # fallback ragionevole se mancano dati
+            points = scoring.simulate_team_points_for_person(team, person, age, death_month=month)
+            rows.append({
+                'member': m,
+                'person': person,
+                'simulated_age': age,
+                'points_now': points,
+                'is_jolly_month': team.jolly_month == month,
+            })
+        rows.sort(key=lambda r: -r['points_now'])
+
+        return render(request, self.template_name, {
+            'team': team,
+            'rows': rows,
+            'month': month,
+            'months': [
+                (1, 'gennaio'), (2, 'febbraio'), (3, 'marzo'), (4, 'aprile'),
+                (5, 'maggio'), (6, 'giugno'), (7, 'luglio'), (8, 'agosto'),
+                (9, 'settembre'), (10, 'ottobre'), (11, 'novembre'), (12, 'dicembre'),
+            ],
+        })
+
+
+# ---------------- Feed iCal della lega ----------------
+
+def _ical_escape(text):
+    return (text or '').replace('\\', '\\\\').replace(',', '\\,').replace(';', '\\;').replace('\n', '\\n')
+
+
+def _ical_dt(d):
+    return d.strftime('%Y%m%d')
+
+
+class LeagueCalendarView(LoginRequiredMixin, View):
+    """Esporta gli eventi-chiave della lega come feed iCalendar (RFC 5545).
+
+    Eventi: apertura/chiusura iscrizioni, inizio/fine stagione, e per ogni
+    membro morto non ancora sostituito una scadenza di sostituzione.
+    """
+
+    def get(self, request, slug):
+        league = get_object_or_404(League, slug=slug)
+        if not league.can_user_view(request.user):
+            return HttpResponseForbidden('Non hai accesso a questa lega.')
+
+        lines = [
+            'BEGIN:VCALENDAR',
+            'VERSION:2.0',
+            'PRODID:-//Fantamorte//IT',
+            f'X-WR-CALNAME:Fantamorte — {_ical_escape(league.name)}',
+        ]
+
+        def add_event(uid, summary, dtstart, dtend=None):
+            lines.append('BEGIN:VEVENT')
+            lines.append(f'UID:{uid}@fantamorte')
+            lines.append(f'DTSTAMP:{timezone.now().strftime("%Y%m%dT%H%M%SZ")}')
+            lines.append(f'DTSTART;VALUE=DATE:{_ical_dt(dtstart)}')
+            if dtend is not None:
+                lines.append(f'DTEND;VALUE=DATE:{_ical_dt(dtend)}')
+            lines.append(f'SUMMARY:{_ical_escape(summary)}')
+            lines.append('END:VEVENT')
+
+        add_event(f'league-{league.id}-reg-open', f'Apertura iscrizioni — {league.name}',
+                  league.registration_opens)
+        add_event(f'league-{league.id}-reg-close', f'Chiusura iscrizioni — {league.name}',
+                  league.registration_closes)
+        add_event(f'league-{league.id}-start', f'Inizio stagione — {league.name}',
+                  league.start_date)
+        add_event(f'league-{league.id}-end', f'Fine stagione — {league.name}',
+                  league.end_date)
+
+        # Scadenze di sostituzione per membri morti non ancora sostituiti
+        member_qs = TeamMember.objects.filter(
+            team__league=league,
+            replaced_by__isnull=True,
+            person__death__is_confirmed=True,
+        ).select_related('person', 'person__death', 'team', 'team__manager')
+        # Filtro lato Python perché get_substitution_deadline è un metodo
+        for m in member_qs:
+            deadline = m.get_substitution_deadline()
+            if deadline is None:
+                continue
+            add_event(
+                f'league-{league.id}-sub-{m.id}',
+                f'Scadenza sostituzione {m.person.name_it} ({m.team.manager.username})',
+                deadline.date(),
+            )
+
+        lines.append('END:VCALENDAR')
+        body = '\r\n'.join(lines) + '\r\n'
+        resp = HttpResponse(body, content_type='text/calendar; charset=utf-8')
+        resp['Content-Disposition'] = f'attachment; filename="fantamorte-{league.slug}.ics"'
+        return resp
+
+
+# ---------------- Export CSV ----------------
+
+class LeagueRankingsCSVView(LoginRequiredMixin, View):
+    """Scarica la classifica corrente della lega in CSV."""
+
+    def get(self, request, slug):
+        league = get_object_or_404(League, slug=slug)
+        if not league.can_user_view(request.user):
+            return HttpResponseForbidden('Non hai accesso a questa lega.')
+
+        rankings = scoring.compute_league_rankings(league)
+        resp = HttpResponse(content_type='text/csv; charset=utf-8')
+        resp['Content-Disposition'] = f'attachment; filename="classifica-{league.slug}.csv"'
+        writer = csv.writer(resp)
+        writer.writerow(['posizione', 'squadra', 'manager', 'punteggio', 'decessi_validi'])
+        for i, row in enumerate(rankings, start=1):
+            t = row['team']
+            writer.writerow([i, t.name, t.manager.username, row['score'], len(row['deaths'])])
+        return resp
+
+
+class LeagueDeathsCSVView(LoginRequiredMixin, View):
+    """Scarica la timeline decessi della lega in CSV."""
+
+    def get(self, request, slug):
+        league = get_object_or_404(League, slug=slug)
+        if not league.can_user_view(request.user):
+            return HttpResponseForbidden('Non hai accesso a questa lega.')
+
+        deaths = (
+            Death.objects.filter(
+                is_confirmed=True,
+                death_date__gte=league.start_date,
+                death_date__lte=league.end_date,
+            )
+            .select_related('person')
+            .prefetch_related('bonuses__bonus_type')
+            .order_by('death_date')
+        )
+        resp = HttpResponse(content_type='text/csv; charset=utf-8')
+        resp['Content-Disposition'] = f'attachment; filename="decessi-{league.slug}.csv"'
+        writer = csv.writer(resp)
+        writer.writerow(['data', 'nome', 'eta', 'wikidata_id', 'bonus'])
+        for d in deaths:
+            bonus_names = ', '.join(b.bonus_type.name for b in d.bonuses.all())
+            writer.writerow([
+                d.death_date.isoformat(),
+                d.person.name_it,
+                d.death_age if d.death_age is not None else '',
+                d.person.wikidata_id,
+                bonus_names,
+            ])
+        return resp

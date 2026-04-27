@@ -21,6 +21,7 @@
 
 {% if user == team.manager or user.is_staff %}
   <a href="{% url 'team_edit' team.pk %}" class="btn btn-outline-dark btn-sm mb-3">Modifica squadra</a>
+  <a href="{% url 'team_what_if' team.pk %}" class="btn btn-outline-dark btn-sm mb-3">Simula "what if"</a>
 {% endif %}
 
 <div class="row">

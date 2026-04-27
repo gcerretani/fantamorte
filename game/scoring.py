@@ -208,6 +208,34 @@ def _compute_league_rankings_uncached(league):
     return rankings
 
 
+def simulate_team_points_for_person(team, person, death_age, death_month=None):
+    """Simula i punti che `team` farebbe se `person` morisse oggi con l'età data.
+
+    Pensata per il simulatore "what-if". Non persiste nulla. Se `person` non
+    è in squadra ritorna 0.
+
+    death_month (1-12) abilita il moltiplicatore jolly se coincide col mese
+    jolly del team. Se None, non considera il jolly.
+    """
+    league = _league_of(team)
+    member = team.members.filter(person=person, replaced_by__isnull=True).first()
+    if member is None:
+        return 0
+
+    raw = _base_points(league)
+    if member.is_original and league is not None:
+        for lb in _league_bonus_map(league).values():
+            if lb.is_active and lb.bonus_type.detection_method == BonusType.DETECTION_ORIGINAL:
+                raw += lb.compute_points(age=death_age)
+
+    multiplier = 1
+    if member.is_captain:
+        multiplier *= _captain_multiplier(league)
+    if death_month is not None and team.jolly_month and death_month == team.jolly_month:
+        multiplier *= _jolly_multiplier(league)
+    return raw * multiplier
+
+
 def compute_league_rankings(league, use_cache=True):
     """Classifica completa di una lega.
 

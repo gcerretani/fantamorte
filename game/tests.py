@@ -712,3 +712,64 @@ class SitemapStaticTest(TestCase):
         from django.core.cache import cache
         cache.set('fm-test', 42, 30)
         self.assertEqual(cache.get('fm-test'), 42)
+
+
+class WhatIfSimulatorTest(ScoringBaseTestCase):
+
+    def setUp(self):
+        super().setUp()
+        TeamMember.objects.create(team=self.team, person=self.berlusconi, is_captain=True)
+
+    def test_simula_punti_per_persona_in_squadra(self):
+        from .scoring import simulate_team_points_for_person
+        # Persona viva nessun bonus configurato → solo base × moltiplicatore capitano
+        pts = simulate_team_points_for_person(self.team, self.berlusconi, death_age=86)
+        self.assertEqual(pts, self.league.base_points * self.league.captain_multiplier)
+
+    def test_jolly_si_attiva_solo_nel_mese_giusto(self):
+        from .scoring import simulate_team_points_for_person
+        self.team.jolly_month = 6
+        self.team.save()
+        pts_giugno = simulate_team_points_for_person(self.team, self.berlusconi, 86, death_month=6)
+        pts_marzo = simulate_team_points_for_person(self.team, self.berlusconi, 86, death_month=3)
+        self.assertGreater(pts_giugno, pts_marzo)
+
+    def test_persona_non_in_squadra_zero_punti(self):
+        from .scoring import simulate_team_points_for_person
+        pts = simulate_team_points_for_person(self.team, self.fellini, 73)
+        self.assertEqual(pts, 0)
+
+
+class CSVAndIcalExportTest(ScoringBaseTestCase):
+
+    def setUp(self):
+        super().setUp()
+        TeamMember.objects.create(team=self.team, person=self.berlusconi)
+        from .models import LeagueMembership
+        LeagueMembership.objects.get_or_create(
+            league=self.league, user=self.owner, defaults={'role': 'owner'},
+        )
+        self.client.force_login(self.owner)
+
+    def test_export_classifica_csv(self):
+        resp = self.client.get(f'/leghe/{self.league.slug}/classifica.csv')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp['Content-Type'], 'text/csv; charset=utf-8')
+        body = resp.content.decode('utf-8')
+        self.assertIn('posizione', body)
+        self.assertIn('Squadra Test', body)
+
+    def test_export_decessi_csv(self):
+        resp = self.client.get(f'/leghe/{self.league.slug}/decessi.csv')
+        self.assertEqual(resp.status_code, 200)
+        body = resp.content.decode('utf-8')
+        self.assertIn('Silvio Berlusconi', body)
+
+    def test_calendar_ics(self):
+        resp = self.client.get(f'/leghe/{self.league.slug}/calendar.ics')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp['Content-Type'].startswith('text/calendar'))
+        body = resp.content.decode('utf-8')
+        self.assertIn('BEGIN:VCALENDAR', body)
+        self.assertIn('END:VCALENDAR', body)
+        self.assertIn('Inizio stagione', body)

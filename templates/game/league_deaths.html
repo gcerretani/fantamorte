@@ -2,9 +2,13 @@
 {% block title %}Decessi {{ league.name }}{% endblock %}
 {% block content %}
 
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h2 class="mb-0">Decessi — {{ league.name }}</h2>
-  <a href="{% url 'league_detail' league.slug %}" class="btn btn-outline-dark btn-sm">&larr; Torna alla lega</a>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{% url 'league_deaths_csv' league.slug %}" class="btn btn-outline-dark btn-sm" aria-label="Scarica decessi in CSV">Scarica CSV</a>
+    <a href="{% url 'league_calendar' league.slug %}" class="btn btn-outline-dark btn-sm" aria-label="Scarica calendario iCal della lega">Calendario .ics</a>
+    <a href="{% url 'league_detail' league.slug %}" class="btn btn-outline-dark btn-sm">&larr; Torna alla lega</a>
+  </div>
 </div>
 
 {% if deaths %}

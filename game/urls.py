@@ -15,6 +15,9 @@ urlpatterns = [
     path('leghe/<slug:slug>/classifica/', views.LeagueRankingsView.as_view(), name='league_rankings'),
     path('leghe/<slug:slug>/decessi/', views.LeagueDeathsView.as_view(), name='league_deaths'),
     path('leghe/<slug:slug>/squadra/nuova/', views.TeamCreateView.as_view(), name='team_create'),
+    path('leghe/<slug:slug>/calendar.ics', views.LeagueCalendarView.as_view(), name='league_calendar'),
+    path('leghe/<slug:slug>/classifica.csv', views.LeagueRankingsCSVView.as_view(), name='league_rankings_csv'),
+    path('leghe/<slug:slug>/decessi.csv', views.LeagueDeathsCSVView.as_view(), name='league_deaths_csv'),
 
     # Pagine generiche
     path('regolamento/', views.RulesView.as_view(), name='rules'),
@@ -25,6 +28,7 @@ urlpatterns = [
     path('squadra/<int:pk>/modifica/', views.TeamEditView.as_view(), name='team_edit'),
     path('squadra/<int:pk>/aggiungi/', views.AddPersonView.as_view(), name='add_person'),
     path('squadra/<int:pk>/sostituisci/<int:member_pk>/', views.SubstituteMemberView.as_view(), name='substitute_member'),
+    path('squadra/<int:pk>/what-if/', views.TeamWhatIfView.as_view(), name='team_what_if'),
 
     # Persone & decessi
     path('persona/<int:pk>/', views.PersonDetailView.as_view(), name='person_detail'),
