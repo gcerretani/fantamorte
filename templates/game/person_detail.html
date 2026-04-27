@@ -5,7 +5,8 @@
 <div class="row">
   <div class="col-md-4 mb-3">
     {% if person.image_url %}
-      <img src="{{ person.image_url }}" alt="{{ person.name_it }}" class="img-fluid rounded shadow-sm">
+      <img src="{{ person.image_url }}" alt="Foto di {{ person.name_it }}"
+        loading="lazy" decoding="async" class="img-fluid rounded shadow-sm">
     {% else %}
       <div class="bg-secondary text-light text-center rounded p-5">
         <span style="font-size:4rem">&#128100;</span>

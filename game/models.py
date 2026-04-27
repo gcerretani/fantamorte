@@ -276,6 +276,10 @@ class Death(models.Model):
         ordering = ['death_date']
         verbose_name = 'Decesso'
         verbose_name_plural = 'Decessi'
+        indexes = [
+            models.Index(fields=['death_date']),
+            models.Index(fields=['is_confirmed', 'death_date']),
+        ]
 
     def __str__(self):
         confirmed = ' ✓' if self.is_confirmed else ' (non confermato)'

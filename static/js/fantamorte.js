@@ -230,8 +230,8 @@
       if (p.occupation) meta.push(`<li><strong>Attività</strong>: ${escapeHtml(p.occupation)}</li>`);
       if (p.nationality) meta.push(`<li><strong>Cittadinanza</strong>: ${escapeHtml(p.nationality)}</li>`);
       const img = p.image_url
-        ? `<img src="${escapeHtml(p.image_url)}" alt="" class="img-fluid rounded shadow-sm">`
-        : `<div class="bg-secondary text-light text-center rounded p-4"><span style="font-size:3rem">&#128100;</span></div>`;
+        ? `<img src="${escapeHtml(p.image_url)}" alt="Foto di ${escapeHtml(p.name_it || '')}" loading="lazy" decoding="async" class="img-fluid rounded shadow-sm">`
+        : `<div class="bg-secondary text-light text-center rounded p-4" aria-hidden="true"><span style="font-size:3rem">&#128100;</span></div>`;
       const summary = p.summary_it
         ? `<h6 class="mt-3">Biografia</h6><p style="white-space:pre-line">${nl2br(p.summary_it)}</p>`
         : '<p class="text-muted small">(Nessuna biografia disponibile.)</p>';

@@ -32,6 +32,8 @@ SITE_ID = env.int('SITE_ID', default=1)
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # GZip va dopo Security e prima di tutto il resto. Comprime risposte HTML/JSON.
+    'django.middleware.gzip.GZipMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -74,6 +76,8 @@ DATABASES = {
         default=f'sqlite:///{BASE_DIR / "db.sqlite3"}'
     )
 }
+# Persistent connections (no-op su SQLite; utile su MariaDB/Postgres in produzione).
+DATABASES['default']['CONN_MAX_AGE'] = env.int('CONN_MAX_AGE', default=60)
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},

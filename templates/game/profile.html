@@ -56,9 +56,12 @@
           Ricevi una notifica quando un personaggio decede. Funziona anche con app installata.
         </p>
         <div class="d-flex gap-2 flex-wrap">
-          <button id="enablePushBtn" class="btn btn-success btn-sm" onclick="fmEnablePush()">Attiva</button>
-          <button class="btn btn-outline-secondary btn-sm" onclick="fmDisablePush()">Disattiva</button>
-          <button class="btn btn-outline-dark btn-sm" onclick="fmTestPush()">Invia test</button>
+          <button id="enablePushBtn" class="btn btn-success btn-sm" type="button"
+            onclick="fmEnablePush()" aria-label="Attiva notifiche push su questo dispositivo">Attiva</button>
+          <button class="btn btn-outline-secondary btn-sm" type="button"
+            onclick="fmDisablePush()" aria-label="Disattiva notifiche push">Disattiva</button>
+          <button class="btn btn-outline-dark btn-sm" type="button"
+            onclick="fmTestPush()" aria-label="Invia notifica push di test">Invia test</button>
         </div>
         {% if not VAPID_PUBLIC_KEY %}
           <div class="alert alert-warning mt-3 mb-0 small">

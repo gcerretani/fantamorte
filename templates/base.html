@@ -34,15 +34,18 @@
   </script>
 </head>
 <body class="bg-light">
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-3">
+<a href="#fmMainContent" class="fm-skip-link">Salta al contenuto</a>
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-3" aria-label="Navigazione principale">
   <div class="container">
-    <a class="navbar-brand" href="{% url 'home' %}">&#9760; Fantamorte</a>
+    <a class="navbar-brand" href="{% url 'home' %}"><span aria-hidden="true">&#9760;</span> Fantamorte</a>
     <div class="d-flex align-items-center order-lg-last">
-      <button id="fmInstallBtn" class="btn btn-outline-light btn-sm me-2" type="button" title="Installa app">&#x2913; Installa</button>
+      <button id="fmInstallBtn" class="btn btn-outline-light btn-sm me-2" type="button"
+        title="Installa app" aria-label="Installa app"><span aria-hidden="true">&#x2913;</span> Installa</button>
       <button id="fmThemeBtn" class="btn btn-outline-light btn-sm me-2" type="button"
         title="Cambia tema" aria-label="Cambia tema">◐</button>
-      <button class="navbar-toggler" type="button" data-bs-toggle="offcanvas" data-bs-target="#navOffcanvas">
-        <span class="navbar-toggler-icon"></span>
+      <button class="navbar-toggler" type="button" data-bs-toggle="offcanvas" data-bs-target="#navOffcanvas"
+        aria-label="Apri menu di navigazione" aria-controls="navOffcanvas" aria-expanded="false">
+        <span class="navbar-toggler-icon" aria-hidden="true"></span>
       </button>
     </div>
     <div class="offcanvas offcanvas-end text-bg-dark" tabindex="-1" id="navOffcanvas">
@@ -81,16 +84,18 @@
   </div>
 </nav>
 
-<div class="container">
+<main id="fmMainContent" class="container" tabindex="-1">
+  <div role="status" aria-live="polite" aria-atomic="true">
   {% for msg in messages %}
     <div class="alert alert-{{ msg.tags|default:'info' }} alert-dismissible fade show">
       {{ msg }}
-      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Chiudi messaggio"></button>
     </div>
   {% endfor %}
+  </div>
 
   {% block content %}{% endblock %}
-</div>
+</main>
 
 <footer class="text-center text-muted py-4 mt-5 border-top">
   <small>Fantamorte &mdash; dati da <a href="https://www.wikidata.org" target="_blank">Wikidata</a> &middot;

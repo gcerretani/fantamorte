@@ -50,6 +50,31 @@
 [data-theme="dark"] a { color: var(--fm-link); }
 [data-theme="dark"] .table-danger > * { background-color: rgba(220,53,69,0.18) !important; color: var(--fm-text) !important; }
 
+/* Accessibilità: focus visibile in entrambi i temi e skip link */
+
+:focus-visible {
+  outline: 2px solid var(--fm-link);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+[data-theme="dark"] :focus-visible {
+  outline-color: var(--fm-link);
+}
+.fm-skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 10000;
+  background: var(--fm-text);
+  color: var(--fm-bg);
+  padding: 8px 12px;
+  text-decoration: none;
+  border-radius: 0 0 4px 0;
+}
+.fm-skip-link:focus {
+  left: 0;
+}
+
 /* Componenti custom */
 
 .skull { font-size: 1.2em; }
