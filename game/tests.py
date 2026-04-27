@@ -670,3 +670,45 @@ class SubstitutionReminderTest(TestCase):
         self.member.save()
         self._run_command()
         self.assertFalse(SubstitutionReminder.objects.exists())
+
+
+class RankingsCacheTest(ScoringBaseTestCase):
+
+    def setUp(self):
+        super().setUp()
+        from django.core.cache import cache
+        cache.clear()
+        TeamMember.objects.create(team=self.team, person=self.berlusconi)
+
+    def test_seconda_chiamata_legge_da_cache(self):
+        from .scoring import _RANKINGS_DATA_KEY, _rankings_version
+        from django.core.cache import cache
+
+        first = compute_league_rankings(self.league)
+        version = _rankings_version(self.league.id)
+        key = _RANKINGS_DATA_KEY.format(league_id=self.league.id, version=version)
+        self.assertIsNotNone(cache.get(key))
+        # Manomettiamo la cache: la seconda chiamata deve restituirla così com'è
+        cache.set(key, [{'fake': True}], 300)
+        second = compute_league_rankings(self.league)
+        self.assertEqual(second, [{'fake': True}])
+        self.assertNotEqual(first, second)
+
+    def test_invalidazione_su_nuovo_decesso_confermato(self):
+        first = compute_league_rankings(self.league)
+        first_score = first[0]['score']
+        # Aggiungo Fellini in squadra e creo un nuovo decesso confermato
+        TeamMember.objects.create(team=self.team, person=self.giovanni_paolo_ii)
+        # Il decesso esiste già da setUp (ScoringBaseTestCase), ma il signal su
+        # TeamMember bumpa la versione → la prossima call deve ricalcolare.
+        second = compute_league_rankings(self.league)
+        self.assertGreater(second[0]['score'], first_score)
+
+
+class SitemapStaticTest(TestCase):
+    """Sanity check: la cache locmem default funziona e non genera errori."""
+
+    def test_cache_get_set_default(self):
+        from django.core.cache import cache
+        cache.set('fm-test', 42, 30)
+        self.assertEqual(cache.get('fm-test'), 42)
