@@ -80,7 +80,8 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
 - **`League`** ha `start_date`, `end_date`, `registration_opens/closes`,
   `base_points`, `captain_multiplier`, `jolly_multiplier`,
   `max_captains`, `max_non_captains`, `jolly_enabled`,
-  `substitution_deadline_days`, `visibility` (public/private), `invite_code`.
+  `substitution_deadline_days`, `visibility` (public/private), `invite_code`,
+  `search_wikipedia_langs` (CSV di wiki, es. `itwiki,enwiki`; vuoto = tutta Wikidata).
 - **`LeagueMembership.role`** ∈ `owner|admin|member`.
 - **`Team`** ha FK a `League` (vincolo unique `(manager, league)` →
   un utente ha **una squadra per lega**). Ha anche `jolly_month` (mese del
@@ -168,15 +169,22 @@ API pubblica:
 
 In `wikidata_api/client.py`. Nessun modello Django — è utility pura.
 
-- `search_by_italian_name(name)`: cerca su Wikipedia italiana → risolve QID Wikidata
+- `search_by_italian_name(name, require_wikis=None)`: `wbsearchentities` + query SPARQL
+  (`HUMAN_SEARCH_QUERY`) per filtrare solo umani (P31=Q5) e, opzionalmente, solo persone
+  con una pagina nelle wiki indicate (es. `['itwiki','enwiki']`). Più preciso del vecchio
+  flusso Wikipedia-search → pageprops.
 - `get_entity(qid)`: fetch completo (labels, claims, immagine Commons, occupazione, nazionalità, URL Wikipedia)
 - `get_summary(wiki_title)`: intro da Wikipedia italiana (cacheata 30 giorni)
 - `check_deaths_batch(qids, year)`: query SPARQL batch per morti in un dato anno
 - `detect_bonuses(qid, claims_cache, bonus_types)`: verifica proprietà Wikidata per i bonus
 - `detect_age_bonus(age, bonus_type)`: valuta formula età con whitelist
 
+Le query SPARQL sono template in `wikidata_api/sparql.py`:
+`DEATH_CHECK_QUERY`, `HUMAN_SEARCH_QUERY` (nuova).
+
 Config in `settings.py`: `WIKIDATA_USER_AGENT` (default `'Fantamorte/1.0'`),
-`WIKIDATA_REQUEST_DELAY` (0.5 s di rate limit tra richieste).
+`WIKIDATA_REQUEST_DELAY` (0.5 s di rate limit tra richieste; azzerato per ricerche
+interattive).
 
 ## URL principali (mappa)
 
@@ -199,7 +207,7 @@ Config in `settings.py`: `WIKIDATA_USER_AGENT` (default `'Fantamorte/1.0'`),
 /persona/<pk>/                  pagina dettaglio (con bio Wikipedia)
 /morte/<pk>/                    dettaglio decesso con bonus e squadre coinvolte
 /api/persona/<pk>/              JSON per il modal "click sul nome"
-/api/search-person/             autocomplete Wikidata
+/api/search-person/             autocomplete Wikidata (accetta ?q=&league=<slug> per filtrare per lingua)
 /api/leghe/<slug>/wikidata-diff/    JSON POST: diff campi Wikidata vs DB (admin)
 /api/leghe/<slug>/wikidata-apply/   JSON POST: applica campi selezionati (admin)
 
@@ -221,6 +229,9 @@ Config in `settings.py`: `WIKIDATA_USER_AGENT` (default `'Fantamorte/1.0'`),
 - JS custom in `static/js/fantamorte.js`: tema, install prompt, push,
   modal persona, countdown sostituzioni, toast. Tutto attaccato a
   `window.fm*` (`fmShowPerson`, `fmEnablePush`, `fmToast`, ...).
+- La ricerca persona (`/api/search-person/`) usa debounce 600 ms e
+  `AbortController` per annullare richieste obsolete; i risultati sono
+  cachati 5 min lato Django. Errori mostrati inline, niente `alert()`.
 - Per aprire il **modal dettagli persona** ovunque, basta un
   `<a href="#" data-fm-person-pk="{{ person.pk }}">…</a>` — il listener
   globale fa il resto. Da preferire al link a `/persona/<pk>/` quando si
@@ -317,7 +328,6 @@ docker compose exec web python manage.py migrate
 ## Aree migliorabili / TODO suggeriti
 
 - Inviti via email per leghe private (oggi solo codice condiviso)
-- Email reminder X giorni prima della scadenza sostituzione
 - Statistiche cross-lega (storico per utente, leaderboard "all-time")
 - Test di integrazione per le view e per il client Wikidata
 - Possibile rimozione completa di `Season` (richiede di rivedere
