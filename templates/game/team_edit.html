@@ -42,9 +42,12 @@
     <div class="collapse mb-3" id="addForm">
       <div class="card card-body">
         <div class="mb-2">
-          <input type="text" id="searchInput" class="form-control" placeholder="Cerca su Wikipedia italiana...">
+          <input type="text" id="searchInput" class="form-control" placeholder="{% if league.search_wikipedia_langs %}Cerca su Wikipedia…{% else %}Cerca su Wikidata…{% endif %}">
         </div>
         <div id="searchResults" class="list-group mb-2"></div>
+        <div id="searchSpinner" class="d-none text-center text-muted small py-1">
+          <span class="spinner-border spinner-border-sm me-1"></span>Ricerca in corso…
+        </div>
         <div class="d-flex gap-2 align-items-center">
           <input type="hidden" id="selectedQid" name="wikidata_id">
           <span id="selectedName" class="text-muted small flex-grow-1">Nessuna persona selezionata</span>
@@ -53,6 +56,10 @@
             <label class="form-check-label" for="isCaptain">Capitano</label>
           </div>
           <button id="addBtn" class="btn btn-success btn-sm" disabled>Aggiungi</button>
+        </div>
+        <div id="addError" class="alert alert-danger alert-dismissible d-none mt-2 mb-0 py-2 px-3 small" role="alert">
+          <span id="addErrorMsg"></span>
+          <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
         </div>
       </div>
     </div>
@@ -133,17 +140,35 @@
 {% if can_edit %}
 <script>
 const teamPk = "{{ team.pk }}";
+const leagueSlug = "{{ league.slug }}";
 const csrfToken = "{{ csrf_token }}";
 let searchTimeout;
+let searchAbortController = null;
+
+function showAddError(msg) {
+  const el = document.getElementById('addError');
+  document.getElementById('addErrorMsg').textContent = msg;
+  el.classList.remove('d-none');
+}
 
 document.getElementById('searchInput').addEventListener('input', function() {
   clearTimeout(searchTimeout);
+  document.getElementById('addError').classList.add('d-none');
   const q = this.value.trim();
-  if (q.length < 2) { document.getElementById('searchResults').innerHTML = ''; return; }
+  if (q.length < 2) {
+    document.getElementById('searchResults').innerHTML = '';
+    document.getElementById('searchSpinner').classList.add('d-none');
+    return;
+  }
   searchTimeout = setTimeout(() => {
-    fetch(`/api/search-person/?q=${encodeURIComponent(q)}`)
+    if (searchAbortController) searchAbortController.abort();
+    searchAbortController = new AbortController();
+    document.getElementById('searchResults').innerHTML = '';
+    document.getElementById('searchSpinner').classList.remove('d-none');
+    fetch(`/api/search-person/?q=${encodeURIComponent(q)}&league=${encodeURIComponent(leagueSlug)}`, { signal: searchAbortController.signal })
       .then(r => r.json())
       .then(data => {
+        document.getElementById('searchSpinner').classList.add('d-none');
         const el = document.getElementById('searchResults');
         el.innerHTML = '';
         data.results.forEach(r => {
@@ -155,6 +180,7 @@ document.getElementById('searchInput').addEventListener('input', function() {
           a.dataset.name = r.name_it;
           a.addEventListener('click', e => {
             e.preventDefault();
+            document.getElementById('addError').classList.add('d-none');
             document.getElementById('selectedQid').value = r.wikidata_id;
             document.getElementById('selectedName').textContent = r.name_it + ' (' + r.wikidata_id + ')';
             document.getElementById('addBtn').disabled = false;
@@ -162,14 +188,22 @@ document.getElementById('searchInput').addEventListener('input', function() {
           });
           el.appendChild(a);
         });
+      })
+      .catch(err => {
+        if (err.name !== 'AbortError') document.getElementById('searchSpinner').classList.add('d-none');
       });
-  }, 300);
+  }, 600);
 });
 
 document.getElementById('addBtn').addEventListener('click', function() {
   const qid = document.getElementById('selectedQid').value;
   const isCaptain = document.getElementById('isCaptain').checked ? '1' : '0';
   if (!qid) return;
+
+  const btn = this;
+  const originalLabel = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Aggiunta...';
 
   const fd = new FormData();
   fd.append('wikidata_id', qid);
@@ -182,10 +216,16 @@ document.getElementById('addBtn').addEventListener('click', function() {
       if (data.success) {
         location.reload();
       } else {
-        alert(data.error || 'Errore sconosciuto');
+        btn.innerHTML = originalLabel;
+        btn.disabled = false;
+        showAddError(data.error || 'Errore sconosciuto');
       }
     })
-    .catch(() => alert('Errore di rete'));
+    .catch(() => {
+      btn.innerHTML = originalLabel;
+      btn.disabled = false;
+      showAddError('Errore di rete');
+    });
 });
 </script>
 {% endif %}

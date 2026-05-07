@@ -33,38 +33,51 @@ class WikidataClient:
         resp.raise_for_status()
         return resp.json()
 
-    def search_by_italian_name(self, name):
-        data = self._get(self.IT_WIKI_SEARCH_API, {
-            'action': 'query',
-            'list': 'search',
-            'srsearch': name,
-            'srlimit': 10,
-            'srprop': 'snippet',
+    def search_by_italian_name(self, name, require_wikis=None):
+        # Step 1: search Wikidata entities by Italian label/alias
+        data = self._get('https://www.wikidata.org/w/api.php', {
+            'action': 'wbsearchentities',
+            'search': name,
+            'language': 'it',
+            'type': 'item',
+            'limit': 20,
             'format': 'json',
         })
-        titles = [r['title'] for r in data.get('query', {}).get('search', [])]
-        if not titles:
+        candidates = data.get('search', [])
+        if not candidates:
             return []
 
-        prop_data = self._get(self.IT_WIKI_API, {
-            'action': 'query',
-            'titles': '|'.join(titles),
-            'prop': 'pageprops',
-            'ppprop': 'wikibase_item',
-            'format': 'json',
-        })
+        # Step 2: SPARQL to filter P31=Q5 (human) and get itwiki title in one shot.
+        # This is much lighter than wbgetentities with props=claims.
+        values = ' '.join(f'wd:{c["id"]}' for c in candidates)
+        if require_wikis:
+            union_clauses = ' UNION '.join(
+                f'{{ ?wp schema:about ?item ; schema:isPartOf <https://{w[:-4]}.wikipedia.org/> . }}'
+                for w in require_wikis
+            )
+            wiki_filter = f'  FILTER EXISTS {{ {union_clauses} }}'
+        else:
+            wiki_filter = ''
+        query = sparql_templates.HUMAN_SEARCH_QUERY.format(values=values, wiki_filter=wiki_filter)
+        sparql_data = self._sparql(query)
+
+        human_map = {}  # qid -> itwiki_title
+        for binding in sparql_data.get('results', {}).get('bindings', []):
+            qid = binding['item']['value'].split('/')[-1]
+            human_map[qid] = binding.get('itwikiTitle', {}).get('value', '')
 
         results = []
-        pages = prop_data.get('query', {}).get('pages', {})
-        for page in pages.values():
-            qid = page.get('pageprops', {}).get('wikibase_item')
-            if qid:
-                results.append({
-                    'wikidata_id': qid,
-                    'name_it': page.get('title', ''),
-                    'description': '',
-                    'wikipedia_url_it': f'https://it.wikipedia.org/wiki/{page.get("title", "").replace(" ", "_")}',
-                })
+        for candidate in candidates:
+            qid = candidate['id']
+            if qid not in human_map:
+                continue
+            wiki_title = human_map[qid]
+            results.append({
+                'wikidata_id': qid,
+                'name_it': candidate.get('label', qid),
+                'description': candidate.get('description', ''),
+                'wikipedia_url_it': f'https://it.wikipedia.org/wiki/{wiki_title.replace(" ", "_")}' if wiki_title else '',
+            })
         return results
 
     def get_entity(self, wikidata_id):

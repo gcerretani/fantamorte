@@ -376,6 +376,10 @@ class League(models.Model):
     )
 
     is_locked = models.BooleanField(default=False, help_text='Se True, la composizione delle squadre è bloccata.')
+    search_wikipedia_langs = models.TextField(
+        blank=True, default='',
+        help_text='Lingue Wikipedia accettate (es. itwiki,enwiki). Vuoto = tutta Wikidata.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

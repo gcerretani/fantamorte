@@ -198,6 +198,8 @@ class LeagueAdminView(LoginRequiredMixin, View):
             'league_bonuses': league.league_bonuses.select_related('bonus_type').order_by('bonus_type__ordering'),
             'all_bonus_types': BonusType.objects.all().order_by('ordering'),
             'is_owner': league.is_owner(request.user),
+            'wiki_langs': WIKIPEDIA_LANGS,
+            'league_search_langs': set(league.search_wikipedia_langs.split(',')) if league.search_wikipedia_langs else set(),
         })
 
     def post(self, request, slug):
@@ -226,6 +228,8 @@ class LeagueAdminView(LoginRequiredMixin, View):
                 return redirect('league_admin', slug=slug)
             league.jolly_enabled = request.POST.get('jolly_enabled') == 'on'
             league.is_locked = request.POST.get('is_locked') == 'on'
+            checked_wikis = [w for w in request.POST.getlist('search_wiki_langs') if w in _VALID_WIKIS]
+            league.search_wikipedia_langs = ','.join(checked_wikis)
             league.save()
             messages.success(request, 'Regole aggiornate.')
 
@@ -384,6 +388,22 @@ class DeathDetailView(DetailView):
         return ctx
 
 
+WIKIPEDIA_LANGS = [
+    ('itwiki', 'Italiano (it)'),
+    ('enwiki', 'English (en)'),
+    ('frwiki', 'Français (fr)'),
+    ('dewiki', 'Deutsch (de)'),
+    ('eswiki', 'Español (es)'),
+    ('ptwiki', 'Português (pt)'),
+    ('ruwiki', 'Русский (ru)'),
+    ('zhwiki', '中文 (zh)'),
+    ('jawiki', '日本語 (ja)'),
+    ('arwiki', 'العربية (ar)'),
+    ('nlwiki', 'Nederlands (nl)'),
+    ('plwiki', 'Polski (pl)'),
+]
+_VALID_WIKIS = {code for code, _ in WIKIPEDIA_LANGS}
+
 MONTHS_LIST = [
     (1, 'Gennaio'), (2, 'Febbraio'), (3, 'Marzo'), (4, 'Aprile'),
     (5, 'Maggio'), (6, 'Giugno'), (7, 'Luglio'), (8, 'Agosto'),
@@ -418,7 +438,7 @@ class TeamCreateView(LoginRequiredMixin, View):
         existing = Team.objects.filter(manager=request.user, league=league).first()
         if existing:
             return redirect('team_edit', pk=existing.pk)
-        return render(request, self.template_name, {'league': league, 'creating': True})
+        return render(request, self.template_name, {'league': league, 'creating': True, 'can_edit': True, 'months': MONTHS_LIST})
 
     def post(self, request, slug):
         league = get_object_or_404(League, slug=slug)
@@ -431,7 +451,7 @@ class TeamCreateView(LoginRequiredMixin, View):
         name = request.POST.get('name', '').strip()
         if not name:
             messages.error(request, 'Il nome della squadra è obbligatorio.')
-            return render(request, self.template_name, {'league': league, 'creating': True})
+            return render(request, self.template_name, {'league': league, 'creating': True, 'can_edit': True, 'months': MONTHS_LIST})
         team, created = Team.objects.get_or_create(
             manager=request.user, league=league,
             defaults={'name': name}
@@ -723,16 +743,36 @@ class PersonInfoView(View):
         return JsonResponse(data)
 
 
+import logging
+_search_logger = logging.getLogger(__name__)
+
+
 class PersonSearchView(View):
     def get(self, request):
         q = request.GET.get('q', '').strip()
         if len(q) < 2:
             return JsonResponse({'results': []})
+        league_slug = request.GET.get('league', '')
+        require_wikis = None
+        if league_slug:
+            league_obj = League.objects.filter(slug=league_slug).first()
+            if league_obj and league_obj.search_wikipedia_langs:
+                require_wikis = [w for w in league_obj.search_wikipedia_langs.split(',') if w]
+
+        from django.core.cache import cache
+        cache_key = f'wds:{q.lower()}:{",".join(require_wikis) if require_wikis else ""}'
+        results = cache.get(cache_key)
+        if results is not None:
+            return JsonResponse({'results': results})
+
         from wikidata_api.client import WikidataClient
         client = WikidataClient()
+        client.delay = 0  # ricerca interattiva: nessun rate-limit artificiale
         try:
-            results = client.search_by_italian_name(q)
+            results = client.search_by_italian_name(q, require_wikis=require_wikis)
+            cache.set(cache_key, results, 300)  # 5 minuti
         except Exception:
+            _search_logger.exception('Wikidata search failed for q=%r', q)
             results = []
         return JsonResponse({'results': results})
 
@@ -924,6 +964,8 @@ def _compute_diff(person, entity):
         if field == 'death_date' or field == 'birth_date':
             if old_val is not None:
                 old_val = old_val.isoformat()
+            if new_val is not None and hasattr(new_val, 'isoformat'):
+                new_val = new_val.isoformat()
         if old_val != new_val:
             changes.append({
                 'field': field,

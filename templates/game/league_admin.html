@@ -90,6 +90,28 @@
         <label class="form-check-label" for="is_locked">Squadre bloccate</label>
       </div>
       <div class="col-12">
+        <label class="form-label fw-semibold">Filtro ricerca persone</label>
+        <div class="mb-2">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="wikiFilterAll" {% if not league.search_wikipedia_langs %}checked{% endif %}>
+            <label class="form-check-label" for="wikiFilterAll">Tutta Wikidata (nessun filtro)</label>
+          </div>
+        </div>
+        <div id="wikiLangsGrid" class="row g-1 small {% if not league.search_wikipedia_langs %}opacity-50 pe-none{% endif %}">
+          {% for code, label in wiki_langs %}
+          <div class="col-6 col-md-4 col-lg-3">
+            <div class="form-check">
+              <input class="form-check-input wiki-lang-check" type="checkbox"
+                     name="search_wiki_langs" value="{{ code }}" id="wl_{{ code }}"
+                     {% if code in league_search_langs %}checked{% endif %}
+                     {% if not league.search_wikipedia_langs %}disabled{% endif %}>
+              <label class="form-check-label" for="wl_{{ code }}">{{ label }}</label>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="col-12">
         <button type="submit" class="btn btn-dark">Salva regole</button>
       </div>
     </form>
@@ -202,4 +224,20 @@
 
 </div>
 
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.getElementById('wikiFilterAll').addEventListener('change', function() {
+  const grid = document.getElementById('wikiLangsGrid');
+  const checks = grid.querySelectorAll('.wiki-lang-check');
+  if (this.checked) {
+    grid.classList.add('opacity-50', 'pe-none');
+    checks.forEach(c => { c.disabled = true; c.checked = false; });
+  } else {
+    grid.classList.remove('opacity-50', 'pe-none');
+    checks.forEach(c => { c.disabled = false; });
+  }
+});
+</script>
 {% endblock %}

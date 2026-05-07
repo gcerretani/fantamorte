@@ -31,3 +31,16 @@ ASK {{
   wd:{qid} wdt:{prop}/wdt:P31 wd:{value} .
 }}
 """
+
+HUMAN_SEARCH_QUERY = """
+SELECT ?item ?itwikiTitle WHERE {{
+  VALUES ?item {{ {values} }}
+  ?item wdt:P31 wd:Q5 .
+{wiki_filter}
+  OPTIONAL {{
+    ?itwikiPage schema:about ?item ;
+               schema:isPartOf <https://it.wikipedia.org/> ;
+               schema:name ?itwikiTitle .
+  }}
+}}
+"""
