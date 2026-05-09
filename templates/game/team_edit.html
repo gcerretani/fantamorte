@@ -45,6 +45,7 @@
           <input type="text" id="searchInput" class="form-control" placeholder="{% if league.search_wikipedia_langs %}Cerca su Wikipedia…{% else %}Cerca su Wikidata…{% endif %}">
         </div>
         <div id="searchResults" class="list-group mb-2"></div>
+        <div id="searchWarning" class="d-none alert alert-warning py-2 px-3 small mb-2" role="alert"></div>
         <div id="searchSpinner" class="d-none text-center text-muted small py-1">
           <span class="spinner-border spinner-border-sm me-1"></span>Ricerca in corso…
         </div>
@@ -169,6 +170,13 @@ document.getElementById('searchInput').addEventListener('input', function() {
       .then(r => r.json())
       .then(data => {
         document.getElementById('searchSpinner').classList.add('d-none');
+        const warnEl = document.getElementById('searchWarning');
+        if (data.warning) {
+          warnEl.textContent = '⚠ ' + data.warning;
+          warnEl.classList.remove('d-none');
+        } else {
+          warnEl.classList.add('d-none');
+        }
         const el = document.getElementById('searchResults');
         el.innerHTML = '';
         data.results.forEach(r => {

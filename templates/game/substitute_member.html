@@ -22,6 +22,7 @@
     <label class="form-label">Cerca su Wikipedia italiana</label>
     <input type="text" id="searchInput" class="form-control" placeholder="Nome della persona...">
     <div id="searchResults" class="list-group mt-1"></div>
+    <div id="searchWarning" class="d-none alert alert-warning py-2 px-3 small mt-1" role="alert"></div>
   </div>
 
   <form method="post">
@@ -46,6 +47,13 @@ document.getElementById('searchInput').addEventListener('input', function() {
     fetch(`/api/search-person/?q=${encodeURIComponent(q)}`)
       .then(r => r.json())
       .then(data => {
+        const warnEl = document.getElementById('searchWarning');
+        if (data.warning) {
+          warnEl.textContent = '⚠ ' + data.warning;
+          warnEl.classList.remove('d-none');
+        } else {
+          warnEl.classList.add('d-none');
+        }
         const el = document.getElementById('searchResults');
         el.innerHTML = '';
         data.results.forEach(r => {

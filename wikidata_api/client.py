@@ -59,7 +59,23 @@ class WikidataClient:
         else:
             wiki_filter = ''
         query = sparql_templates.HUMAN_SEARCH_QUERY.format(values=values, wiki_filter=wiki_filter)
-        sparql_data = self._sparql(query)
+        try:
+            sparql_data = self._sparql(query)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning(
+                'SPARQL timeout/error during search for %r, returning unfiltered wbsearchentities results', name
+            )
+            fallback = [
+                {
+                    'wikidata_id': c['id'],
+                    'name_it': c.get('label', c['id']),
+                    'description': c.get('description', ''),
+                    'wikipedia_url_it': '',
+                }
+                for c in candidates
+            ]
+            return fallback, True
 
         human_map = {}  # qid -> itwiki_title
         for binding in sparql_data.get('results', {}).get('bindings', []):
@@ -78,7 +94,7 @@ class WikidataClient:
                 'description': candidate.get('description', ''),
                 'wikipedia_url_it': f'https://it.wikipedia.org/wiki/{wiki_title.replace(" ", "_")}' if wiki_title else '',
             })
-        return results
+        return results, False
 
     def get_entity(self, wikidata_id):
         data = self._get(self.ENTITY_URL.format(wikidata_id))
@@ -99,8 +115,14 @@ class WikidataClient:
         wikipedia_url = f'https://it.wikipedia.org/wiki/{wiki_title.replace(" ", "_")}' if wiki_title else ''
 
         image_url = self._build_commons_image_url(claims.get('P18', []))
-        occupation = self._labels_for_entity_claims(claims.get('P106', []), limit=4)
-        nationality = self._labels_for_entity_claims(claims.get('P27', []), limit=2)
+        try:
+            occupation = self._labels_for_entity_claims(claims.get('P106', []), limit=4)
+        except Exception:
+            occupation = None  # None = non determinabile, non mostrare nel diff
+        try:
+            nationality = self._labels_for_entity_claims(claims.get('P27', []), limit=2)
+        except Exception:
+            nationality = None
 
         return {
             'name_it': name_it,
@@ -166,26 +188,23 @@ class WikidataClient:
                 qids.append(qid)
         if not qids:
             return ''
-        try:
-            params = {
-                'action': 'wbgetentities',
-                'ids': '|'.join(qids),
-                'props': 'labels',
-                'languages': f'{lang}|en',
-                'format': 'json',
-            }
-            data = self._get('https://www.wikidata.org/w/api.php', params)
-            entities = data.get('entities', {})
-            labels = []
-            for qid in qids:
-                ent = entities.get(qid, {})
-                lbls = ent.get('labels', {})
-                lbl = (lbls.get(lang) or lbls.get('en') or {}).get('value')
-                if lbl:
-                    labels.append(lbl)
-            return ', '.join(labels)
-        except Exception:
-            return ''
+        params = {
+            'action': 'wbgetentities',
+            'ids': '|'.join(qids),
+            'props': 'labels',
+            'languages': f'{lang}|en',
+            'format': 'json',
+        }
+        data = self._get('https://www.wikidata.org/w/api.php', params)
+        entities = data.get('entities', {})
+        labels = []
+        for qid in qids:
+            ent = entities.get(qid, {})
+            lbls = ent.get('labels', {})
+            lbl = (lbls.get(lang) or lbls.get('en') or {}).get('value')
+            if lbl:
+                labels.append(lbl)
+        return ', '.join(labels)
 
     def _parse_date_claim(self, claim_list):
         if not claim_list:

@@ -77,38 +77,27 @@ class LeagueCreateView(LoginRequiredMixin, View):
             messages.error(request, 'Esiste già una lega con questo nome.')
             return render(request, self.template_name, {'creating': True, 'data': request.POST})
 
+        visibility = request.POST.get('visibility', League.VISIBILITY_PUBLIC)
         slug = _unique_slug(name)
-        try:
-            league = League.objects.create(
-                name=name,
-                slug=slug,
-                description=request.POST.get('description', '').strip(),
-                owner=request.user,
-                visibility=request.POST.get('visibility', League.VISIBILITY_PUBLIC),
-                invite_code=secrets.token_urlsafe(8) if request.POST.get('visibility') == League.VISIBILITY_PRIVATE else '',
-                start_date=request.POST.get('start_date') or timezone.now().date(),
-                end_date=request.POST.get('end_date') or timezone.now().date(),
-                registration_opens=request.POST.get('registration_opens') or timezone.now().date(),
-                registration_closes=request.POST.get('registration_closes') or timezone.now().date(),
-                base_points=int(request.POST.get('base_points') or 50),
-                captain_multiplier=int(request.POST.get('captain_multiplier') or 2),
-                jolly_multiplier=int(request.POST.get('jolly_multiplier') or 2),
-                jolly_enabled=request.POST.get('jolly_enabled') == 'on',
-                max_captains=int(request.POST.get('max_captains') or 1),
-                max_non_captains=int(request.POST.get('max_non_captains') or 11),
-                substitution_deadline_days=int(request.POST.get('substitution_deadline_days') or 7),
-            )
-        except (ValueError, TypeError) as e:
-            messages.error(request, f'Dati non validi: {e}')
-            return render(request, self.template_name, {'creating': True, 'data': request.POST})
+        today = timezone.now().date()
+        league = League.objects.create(
+            name=name,
+            slug=slug,
+            owner=request.user,
+            visibility=visibility,
+            invite_code=secrets.token_urlsafe(8) if visibility == League.VISIBILITY_PRIVATE else '',
+            start_date=today,
+            end_date=today,
+            registration_opens=today,
+            registration_closes=today,
+        )
 
-        # Iscrizione owner + bonus default attivati
         LeagueMembership.objects.create(league=league, user=request.user, role=LeagueMembership.ROLE_OWNER)
         for bt in BonusType.objects.filter(is_active=True):
             LeagueBonus.objects.create(league=league, bonus_type=bt, is_active=True)
 
-        messages.success(request, f'Lega "{league.name}" creata!')
-        return redirect('league_detail', slug=league.slug)
+        messages.success(request, f'Lega "{league.name}" creata! Configura ora calendario e regole.')
+        return redirect('league_admin', slug=league.slug)
 
 
 def _unique_slug(name):
@@ -552,8 +541,8 @@ class AddPersonView(LoginRequiredMixin, View):
                     'death_date': entity.get('death_date'),
                     'is_dead': entity.get('death_date') is not None or entity.get('death_year') is not None,
                     'image_url': entity.get('image_url', ''),
-                    'occupation': entity.get('occupation', ''),
-                    'nationality': entity.get('nationality', ''),
+                    'occupation': entity.get('occupation') or '',
+                    'nationality': entity.get('nationality') or '',
                     'claims_cache': entity.get('claims_cache', {}),
                     'wikipedia_url_it': entity.get('wikipedia_url_it', ''),
                     'last_checked': timezone.now(),
@@ -651,8 +640,8 @@ class SubstituteMemberView(LoginRequiredMixin, View):
                 'death_date': entity.get('death_date'),
                 'is_dead': entity.get('death_date') is not None,
                 'image_url': entity.get('image_url', ''),
-                'occupation': entity.get('occupation', ''),
-                'nationality': entity.get('nationality', ''),
+                'occupation': entity.get('occupation') or '',
+                'nationality': entity.get('nationality') or '',
                 'claims_cache': entity.get('claims_cache', {}),
                 'wikipedia_url_it': entity.get('wikipedia_url_it', ''),
                 'last_checked': timezone.now(),
@@ -760,7 +749,9 @@ class PersonSearchView(View):
                 require_wikis = [w for w in league_obj.search_wikipedia_langs.split(',') if w]
 
         from django.core.cache import cache
-        cache_key = f'wds:{q.lower()}:{",".join(require_wikis) if require_wikis else ""}'
+        import hashlib
+        raw_key = f'wds:{q.lower()}:{",".join(require_wikis) if require_wikis else ""}'
+        cache_key = 'wds:' + hashlib.md5(raw_key.encode()).hexdigest()
         results = cache.get(cache_key)
         if results is not None:
             return JsonResponse({'results': results})
@@ -768,13 +759,20 @@ class PersonSearchView(View):
         from wikidata_api.client import WikidataClient
         client = WikidataClient()
         client.delay = 0  # ricerca interattiva: nessun rate-limit artificiale
+        sparql_warning = None
         try:
-            results = client.search_by_italian_name(q, require_wikis=require_wikis)
-            cache.set(cache_key, results, 300)  # 5 minuti
+            results, sparql_failed = client.search_by_italian_name(q, require_wikis=require_wikis)
+            if sparql_failed:
+                sparql_warning = 'Wikidata lento: risultati non filtrati per lingua. Verifica la persona prima di aggiungerla.'
+            else:
+                cache.set(cache_key, results, 300)  # 5 minuti
         except Exception:
             _search_logger.exception('Wikidata search failed for q=%r', q)
             results = []
-        return JsonResponse({'results': results})
+        response = {'results': results}
+        if sparql_warning:
+            response['warning'] = sparql_warning
+        return JsonResponse(response)
 
 
 class RulesView(TemplateView):
@@ -961,6 +959,10 @@ def _compute_diff(person, entity):
     for field, label in DIFF_FIELDS:
         old_val = getattr(person, field)
         new_val = entity.get(field)
+        # None significa "dato non determinabile da Wikidata" (es. timeout label lookup):
+        # non mostrare come diff per evitare falsi positivi.
+        if new_val is None and old_val is not None and old_val != '':
+            continue
         if field == 'death_date' or field == 'birth_date':
             if old_val is not None:
                 old_val = old_val.isoformat()
