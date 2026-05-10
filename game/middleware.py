@@ -4,10 +4,8 @@ Le rotte pubbliche sono solo quelle elencate in `PUBLIC_PATHS` /
 `PUBLIC_PREFIXES`: login, registrazione, reset password, static, PWA
 manifest e service worker, pagina offline.
 """
-import re
 from django.conf import settings
 from django.shortcuts import redirect
-from django.urls import reverse
 
 
 PUBLIC_PATHS = {

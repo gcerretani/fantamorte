@@ -78,12 +78,18 @@
     </div>
   </div>
 
-  {% if team %}
+  {% if teams %}
   <div class="col-12">
     <div class="card">
       <div class="card-body">
-        <h5 class="card-title">La tua squadra</h5>
-        <p><a href="{% url 'team_edit' team.pk %}" class="btn btn-outline-dark btn-sm">{{ team.name }} &rarr;</a></p>
+        <h5 class="card-title">Le tue squadre</h5>
+        <div class="d-flex flex-wrap gap-2">
+          {% for t in teams %}
+            <a href="{% url 'team_edit' t.pk %}" class="btn btn-outline-dark btn-sm">
+              {{ t.name }}{% if t.league %} <small class="text-muted">— {{ t.league.name }}</small>{% endif %}
+            </a>
+          {% endfor %}
+        </div>
       </div>
     </div>
   </div>
