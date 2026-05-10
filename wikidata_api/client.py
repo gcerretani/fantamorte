@@ -1,3 +1,4 @@
+import logging
 import time
 import requests
 from datetime import date
@@ -5,11 +6,13 @@ from django.conf import settings
 from . import sparql as sparql_templates
 
 
+logger = logging.getLogger(__name__)
+
+
 class WikidataClient:
     ENTITY_URL = 'https://www.wikidata.org/wiki/Special:EntityData/{}.json'
     SPARQL_URL = 'https://query.wikidata.org/sparql'
     IT_WIKI_API = 'https://it.wikipedia.org/w/api.php'
-    IT_WIKI_SEARCH_API = 'https://it.wikipedia.org/w/api.php'
 
     def __init__(self):
         ua = getattr(settings, 'WIKIDATA_USER_AGENT', 'Fantamorte/1.0')
@@ -34,6 +37,12 @@ class WikidataClient:
         return resp.json()
 
     def search_by_italian_name(self, name, require_wikis=None):
+        """Cerca persone su Wikidata per nome.
+
+        Ritorna `(results, sparql_failed)`: una lista di dict e un flag che
+        indica se il filtro SPARQL ha fallito (in tal caso i risultati non sono
+        filtrati per umano/lingua).
+        """
         # Step 1: search Wikidata entities by Italian label/alias
         data = self._get('https://www.wikidata.org/w/api.php', {
             'action': 'wbsearchentities',
@@ -45,7 +54,7 @@ class WikidataClient:
         })
         candidates = data.get('search', [])
         if not candidates:
-            return []
+            return [], False
 
         # Step 2: SPARQL to filter P31=Q5 (human) and get itwiki title in one shot.
         # This is much lighter than wbgetentities with props=claims.
@@ -62,8 +71,7 @@ class WikidataClient:
         try:
             sparql_data = self._sparql(query)
         except Exception:
-            import logging
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 'SPARQL timeout/error during search for %r, returning unfiltered wbsearchentities results', name
             )
             fallback = [
@@ -118,10 +126,13 @@ class WikidataClient:
         try:
             occupation = self._labels_for_entity_claims(claims.get('P106', []), limit=4)
         except Exception:
-            occupation = None  # None = non determinabile, non mostrare nel diff
+            # None = non determinabile (es. timeout label lookup); il diff lo ignora.
+            logger.warning('Recupero occupation fallito per %s', wikidata_id, exc_info=True)
+            occupation = None
         try:
             nationality = self._labels_for_entity_claims(claims.get('P27', []), limit=2)
         except Exception:
+            logger.warning('Recupero nationality fallito per %s', wikidata_id, exc_info=True)
             nationality = None
 
         return {

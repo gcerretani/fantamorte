@@ -1,22 +1,35 @@
+import hashlib
 import json
+import logging
 import secrets
-from django.views.generic import TemplateView, DetailView, View
-from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import JsonResponse, HttpResponseForbidden
-from django.contrib import messages
-from django.utils import timezone
-from django.utils.text import slugify
-from django.utils.decorators import method_decorator
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.cache import cache_control
+from datetime import datetime, timedelta
+from urllib.parse import unquote
+
 from django.conf import settings
+from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.cache import cache
+from django.http import JsonResponse, HttpResponseForbidden
+from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
-from .models import (
-    Team, TeamMember, WikipediaPerson, Death, BonusType,
-    UserProfile, PushSubscription, League, LeagueMembership, LeagueBonus,
-)
+from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.utils.text import slugify
+from django.views.decorators.cache import cache_control
+from django.views.decorators.csrf import csrf_exempt
+from django.views.generic import TemplateView, DetailView, View
+
+from wikidata_api.client import WikidataClient
+
 from . import scoring
+from .models import (
+    BonusType, Death, League, LeagueBonus, LeagueMembership,
+    PushSubscription, SiteSettings, Team, TeamMember, UserProfile,
+    WikipediaPerson,
+)
+
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------- Dashboard utente ----------------
@@ -356,7 +369,6 @@ class TeamDetailView(DetailView):
         ctx['score'] = scoring.compute_team_total_score(team)
         ctx['death_details'] = scoring.compute_team_death_details(team)
         ctx['active_members'] = team.get_active_members().select_related('person')
-        ctx['all_members'] = team.members.select_related('person', 'replaced_by__person')
         return ctx
 
 
@@ -517,9 +529,6 @@ class AddPersonView(LoginRequiredMixin, View):
         if not wikidata_id:
             return JsonResponse({'error': 'wikidata_id mancante'}, status=400)
 
-        from datetime import timedelta
-        from wikidata_api.client import WikidataClient
-        from game.models import SiteSettings
         interval = SiteSettings.get().wikidata_check_interval_hours
         threshold = timezone.now() - timedelta(hours=interval)
         existing = WikipediaPerson.objects.filter(wikidata_id=wikidata_id).first()
@@ -621,7 +630,6 @@ class SubstituteMemberView(LoginRequiredMixin, View):
             messages.error(request, 'Seleziona una persona da Wikidata.')
             return redirect('substitute_member', pk=pk, member_pk=member_pk)
 
-        from wikidata_api.client import WikidataClient
         client = WikidataClient()
         try:
             entity = client.get_entity(wikidata_id)
@@ -671,22 +679,31 @@ class PersonDetailView(DetailView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         person = self.object
-        # Lazy fetch del summary se mancante
         if not person.summary_it and person.wikipedia_url_it:
-            try:
-                from wikidata_api.client import WikidataClient
-                from urllib.parse import unquote
-                title = unquote(person.wikipedia_url_it.rsplit('/', 1)[-1].replace('_', ' '))
-                client = WikidataClient()
-                summary = client.get_summary(title)
-                if summary:
-                    person.summary_it = summary
-                    person.summary_fetched_at = timezone.now()
-                    person.save(update_fields=['summary_it', 'summary_fetched_at'])
-            except Exception:
-                pass
-        ctx['team_members'] = TeamMember.objects.filter(person=person).select_related('team__manager', 'team__season')
+            _refresh_person_summary(person)
+        ctx['team_members'] = TeamMember.objects.filter(person=person).select_related(
+            'team__manager', 'team__league', 'team__season',
+        )
         return ctx
+
+
+def _refresh_person_summary(person):
+    """Aggiorna `summary_it` da Wikipedia se mancante o piu' vecchio di 30 giorni."""
+    if not person.wikipedia_url_it:
+        return
+    if person.summary_it and person.summary_fetched_at:
+        if (timezone.now() - person.summary_fetched_at) <= timedelta(days=30):
+            return
+    try:
+        title = unquote(person.wikipedia_url_it.rsplit('/', 1)[-1].replace('_', ' '))
+        summary = WikidataClient().get_summary(title)
+    except Exception:
+        logger.warning('Refresh summary fallito per %s', person.wikidata_id, exc_info=True)
+        return
+    if summary:
+        person.summary_it = summary
+        person.summary_fetched_at = timezone.now()
+        person.save(update_fields=['summary_it', 'summary_fetched_at'])
 
 
 class PersonInfoView(View):
@@ -694,24 +711,7 @@ class PersonInfoView(View):
 
     def get(self, request, pk):
         person = get_object_or_404(WikipediaPerson, pk=pk)
-        # Aggiorna summary se mancante o stantio (>30 giorni)
-        try:
-            need_refresh = not person.summary_it
-            if not need_refresh and person.summary_fetched_at:
-                from datetime import timedelta
-                need_refresh = (timezone.now() - person.summary_fetched_at) > timedelta(days=30)
-            if need_refresh and person.wikipedia_url_it:
-                from wikidata_api.client import WikidataClient
-                from urllib.parse import unquote
-                title = unquote(person.wikipedia_url_it.rsplit('/', 1)[-1].replace('_', ' '))
-                client = WikidataClient()
-                summary = client.get_summary(title)
-                if summary:
-                    person.summary_it = summary
-                    person.summary_fetched_at = timezone.now()
-                    person.save(update_fields=['summary_it', 'summary_fetched_at'])
-        except Exception:
-            pass
+        _refresh_person_summary(person)
 
         data = {
             'id': person.pk,
@@ -732,10 +732,6 @@ class PersonInfoView(View):
         return JsonResponse(data)
 
 
-import logging
-_search_logger = logging.getLogger(__name__)
-
-
 class PersonSearchView(View):
     def get(self, request):
         q = request.GET.get('q', '').strip()
@@ -748,15 +744,12 @@ class PersonSearchView(View):
             if league_obj and league_obj.search_wikipedia_langs:
                 require_wikis = [w for w in league_obj.search_wikipedia_langs.split(',') if w]
 
-        from django.core.cache import cache
-        import hashlib
         raw_key = f'wds:{q.lower()}:{",".join(require_wikis) if require_wikis else ""}'
         cache_key = 'wds:' + hashlib.md5(raw_key.encode()).hexdigest()
         results = cache.get(cache_key)
         if results is not None:
             return JsonResponse({'results': results})
 
-        from wikidata_api.client import WikidataClient
         client = WikidataClient()
         client.delay = 0  # ricerca interattiva: nessun rate-limit artificiale
         sparql_warning = None
@@ -767,7 +760,7 @@ class PersonSearchView(View):
             else:
                 cache.set(cache_key, results, 300)  # 5 minuti
         except Exception:
-            _search_logger.exception('Wikidata search failed for q=%r', q)
+            logger.exception('Wikidata search failed for q=%r', q)
             results = []
         response = {'results': results}
         if sparql_warning:
@@ -790,10 +783,11 @@ class ProfileView(LoginRequiredMixin, View):
     def get(self, request):
         profile, _ = UserProfile.objects.get_or_create(user=request.user)
         subs = request.user.push_subscriptions.all()
+        teams = request.user.teams.select_related('league').order_by('-league__start_date')
         return render(request, self.template_name, {
             'profile': profile,
             'push_subscriptions': subs,
-            'team': request.user.teams.first(),
+            'teams': teams,
         })
 
     def post(self, request):
@@ -1068,7 +1062,6 @@ class LeagueBulkApplyView(LoginRequiredMixin, View):
 
         applied = 0
         errors = []
-        from datetime import date as date_cls
 
         for upd in updates:
             person_pk = upd.get('person_pk')
@@ -1091,7 +1084,6 @@ class LeagueBulkApplyView(LoginRequiredMixin, View):
             # Conversione tipi per campi data
             if field in ('birth_date', 'death_date') and new_value:
                 try:
-                    from datetime import datetime
                     new_value = datetime.strptime(new_value, '%Y-%m-%d').date()
                 except (ValueError, TypeError):
                     errors.append(f'Formato data non valido per {field}: {new_value}')

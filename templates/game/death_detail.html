@@ -36,13 +36,11 @@
             </tr>
           {% endfor %}
         </tbody>
-        <tfoot>
-          <tr class="table-dark">
-            <td>Base + bonus</td>
-            <td colspan="2">50 + {% with total=0 %}{{ bonuses|length }}{% endwith %} bonus</td>
-          </tr>
-        </tfoot>
       </table>
+      <p class="text-muted small">
+        I punti effettivi dipendono dalla configurazione della lega.
+        Vedi <a href="{% url 'rules' %}">il regolamento</a>.
+      </p>
     {% else %}
       <p class="text-muted">Nessun bonus per questo decesso.</p>
     {% endif %}

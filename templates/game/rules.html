@@ -9,7 +9,7 @@
     <h5>L'idea del gioco</h5>
     <p>
       Ogni giocatore (manager) compone una squadra di personaggi pubblici. Quando uno di
-      questi personaggi muore durante la stagione, la squadra accumula punti.
+      questi personaggi muore durante il periodo di gioco della lega, la squadra accumula punti.
     </p>
 
     <h5>Composizione della squadra</h5>
@@ -18,9 +18,14 @@
       <li><strong>11 morituri</strong> non capitano.</li>
       <li>Un <strong>mese jolly</strong> opzionale: i decessi avvenuti in quel mese raddoppiano (cumulabile col capitano).</li>
     </ul>
+    <p class="text-muted small">
+      I numeri esatti (capitani, morituri, punti base, moltiplicatori, durata sostituzione)
+      sono configurabili per ogni lega dal pannello admin.
+    </p>
 
     <h5>Punti</h5>
-    <p>Ogni decesso assegna {{ 50 }} punti base, più gli eventuali bonus elencati sotto.
+    <p>Ogni decesso assegna i <strong>punti base della lega</strong> (default 50),
+    più gli eventuali bonus elencati sotto.
     Il totale viene poi moltiplicato per il moltiplicatore (capitano e/o jolly).</p>
 
     {% if bonus_types %}
@@ -50,9 +55,9 @@
 
     <h5>Sostituzioni</h5>
     <p>
-      Quando un membro della tua squadra muore, hai
-      {% if season %}<strong>{{ season.substitution_deadline_days }} giorni</strong>{% else %}<strong>7 giorni</strong>{% endif %}
-      di tempo per nominare un sostituto, a partire dalla conferma del decesso da parte degli amministratori.
+      Quando un membro della tua squadra muore, hai un certo numero di giorni
+      (configurabile dalla lega, default <strong>7</strong>) per nominare un sostituto,
+      a partire dalla conferma del decesso da parte degli amministratori.
       I punti del decesso restano comunque assegnati.
     </p>
 

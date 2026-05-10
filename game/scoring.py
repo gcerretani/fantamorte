@@ -3,8 +3,7 @@
 Ogni team ha (o avrà) un puntatore alla league. Le morti che contano sono
 quelle confermate avvenute tra `league.start_date` e `league.end_date`.
 """
-from datetime import date
-from .models import Death, Team, TeamMember, BonusType, LeagueBonus
+from .models import Death, BonusType, LeagueBonus
 
 
 # ---------- helpers ----------
@@ -27,16 +26,17 @@ def _jolly_multiplier(league):
     return league.jolly_multiplier if league else 2
 
 
-def _league_bonus_for(league, bonus_type):
-    """Ritorna il LeagueBonus attivo per (league, bonus_type) o None."""
+def _league_bonus_map(league):
+    """Dizionario bonus_type_id → LeagueBonus attivo per la lega (o {} se senza lega)."""
     if league is None:
-        return None
-    return LeagueBonus.objects.filter(
-        league=league, bonus_type=bonus_type, is_active=True
-    ).first()
+        return {}
+    return {
+        lb.bonus_type_id: lb
+        for lb in LeagueBonus.objects.filter(league=league, is_active=True).select_related('bonus_type')
+    }
 
 
-def _bonus_points_in_league(bonus, league):
+def _bonus_points_in_league(bonus, league, lb_map=None):
     """Punti effettivi di un DeathBonus all'interno di una lega.
 
     Tiene conto degli override (LeagueBonus.override_points / override_formula)
@@ -44,19 +44,21 @@ def _bonus_points_in_league(bonus, league):
     """
     bt = bonus.bonus_type
     age = bonus.death.death_age
-    lb = _league_bonus_for(league, bt)
-    if lb is None:
-        # Se la lega esiste ma il bonus non è tra quelli configurati, esclude
-        # il bonus (regola: una lega usa solo i bonus che si è scelta).
-        if league is not None:
+    if league is not None:
+        if lb_map is None:
+            lb_map = _league_bonus_map(league)
+        lb = lb_map.get(bt.id)
+        if lb is None:
+            # La lega esiste ma il bonus non è tra quelli configurati: escluso
+            # (regola: una lega usa solo i bonus che si è scelta).
             return 0
-        # Fallback legacy: usa i punti del BonusType
-        if bt.points_formula:
-            return bt.compute_points(age=age)
-        if bonus.points_awarded is not None:
-            return bonus.points_awarded
-        return bt.points
-    return lb.compute_points(age=age)
+        return lb.compute_points(age=age)
+    # Fallback legacy: usa i punti del BonusType
+    if bt.points_formula:
+        return bt.compute_points(age=age)
+    if bonus.points_awarded is not None:
+        return bonus.points_awarded
+    return bt.points
 
 
 def _confirmed_deaths_for_league(league):
@@ -66,23 +68,24 @@ def _confirmed_deaths_for_league(league):
     return qs
 
 
+def _find_member(team, person_id):
+    """Cerca un TeamMember per `person_id` usando la cache prefetchata se disponibile."""
+    if 'members' in getattr(team, '_prefetched_objects_cache', {}):
+        return next((m for m in team.members.all() if m.person_id == person_id), None)
+    return team.members.filter(person_id=person_id).first()
+
+
 # ---------- API pubblica ----------
 
-def compute_team_points_for_death(team, death):
-    league = _league_of(team)
-    member = team.members.filter(person=death.person).first()
-    if member is None:
-        return 0
-    raw = _base_points(league) + sum(_bonus_points_in_league(b, league) for b in death.bonuses.all())
-
-    # Bonus "giocata originale" (detection_method='original')
-    if member.is_original:
-        original_lbs = LeagueBonus.objects.filter(
-            league=league, is_active=True,
-            bonus_type__detection_method=BonusType.DETECTION_ORIGINAL,
-        ).select_related('bonus_type') if league else []
-        for lb in original_lbs:
-            raw += lb.compute_points(age=death.death_age)
+def _points_for_member_death(member, team, death, league, lb_map):
+    """Calcola i punti per un singolo (member, death) con la mappa bonus precaricata."""
+    raw = _base_points(league) + sum(
+        _bonus_points_in_league(b, league, lb_map) for b in death.bonuses.all()
+    )
+    if member.is_original and league is not None:
+        for lb in lb_map.values():
+            if lb.bonus_type.detection_method == BonusType.DETECTION_ORIGINAL:
+                raw += lb.compute_points(age=death.death_age)
 
     multiplier = 1
     if member.is_captain:
@@ -92,16 +95,25 @@ def compute_team_points_for_death(team, death):
     return raw * multiplier
 
 
+def compute_team_points_for_death(team, death):
+    league = _league_of(team)
+    member = _find_member(team, death.person_id)
+    if member is None:
+        return 0
+    return _points_for_member_death(member, team, death, league, _league_bonus_map(league))
+
+
 def compute_team_death_details(team):
     league = _league_of(team)
+    lb_map = _league_bonus_map(league)
     deaths = _confirmed_deaths_for_league(league)
     details = []
     base = _base_points(league)
     for death in deaths:
-        member = team.members.filter(person=death.person).first()
+        member = _find_member(team, death.person_id)
         if member is None:
             continue
-        pts = compute_team_points_for_death(team, death)
+        pts = _points_for_member_death(member, team, death, league, lb_map)
         if pts == 0:
             continue
         details.append({
@@ -123,24 +135,32 @@ def compute_team_death_details(team):
 
 def compute_team_total_score(team):
     league = _league_of(team)
+    lb_map = _league_bonus_map(league)
     deaths = _confirmed_deaths_for_league(league)
-    return sum(compute_team_points_for_death(team, d) for d in deaths)
+    total = 0
+    for death in deaths:
+        member = _find_member(team, death.person_id)
+        if member is None:
+            continue
+        total += _points_for_member_death(member, team, death, league, lb_map)
+    return total
 
 
 def compute_league_rankings(league):
     """Classifica completa di una lega."""
     teams = league.teams.select_related('manager').prefetch_related('members__person')
     deaths_list = list(_confirmed_deaths_for_league(league))
+    lb_map = _league_bonus_map(league)
 
     rankings = []
     for team in teams:
         score = 0
         items = []
         for death in deaths_list:
-            member = next((m for m in team.members.all() if m.person_id == death.person_id), None)
+            member = _find_member(team, death.person_id)
             if member is None:
                 continue
-            pts = compute_team_points_for_death(team, death)
+            pts = _points_for_member_death(member, team, death, league, lb_map)
             if pts == 0:
                 continue
             score += pts
