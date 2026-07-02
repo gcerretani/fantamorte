@@ -8,17 +8,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
+# Utente non privilegiato: gunicorn e le management command non devono
+# girare come root nel container.
+RUN groupadd --system app && useradd --system --gid app --home-dir /app --no-create-home app
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# collectstatic può restare eseguito da root in fase di build, purché i
+# file prodotti siano leggibili dall'utente app che li servirà a runtime.
 RUN chmod +x entrypoint.sh && \
     SECRET_KEY=build-time-placeholder \
     DATABASE_URL=sqlite:////tmp/build.db \
-    python manage.py collectstatic --noinput
+    python manage.py collectstatic --noinput && \
+    chown -R app:app /app
 
 EXPOSE 8000
+
+USER app
 
 ENTRYPOINT ["./entrypoint.sh"]
 CMD ["gunicorn", "fantamorte_project.wsgi:application", \

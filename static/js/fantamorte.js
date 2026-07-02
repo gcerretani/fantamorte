@@ -204,6 +204,7 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
+  window.fmEscapeHtml = escapeHtml;
 
   function nl2br(s) {
     return escapeHtml(s).replace(/\n/g, '<br>');

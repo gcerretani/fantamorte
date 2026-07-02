@@ -132,7 +132,7 @@ class BonusType(models.Model):
             return self.points
         # eval whitelist: solo cifre, operatori e variabile age
         allowed = set('0123456789+-*/(). agemax(),min')
-        if not all(c in allowed for c in formula):
+        if not all(c in allowed for c in formula) or '**' in formula:
             return self.points
         try:
             value = eval(formula, {'__builtins__': {}}, {'age': age or 0, 'max': max, 'min': min})
@@ -485,7 +485,7 @@ class LeagueBonus(models.Model):
         formula = (self.override_formula or self.bonus_type.points_formula or '').strip()
         if formula:
             allowed = set('0123456789+-*/(). agemax(),min')
-            if all(c in allowed for c in formula):
+            if all(c in allowed for c in formula) and '**' not in formula:
                 try:
                     return int(eval(formula, {'__builtins__': {}}, {'age': age or 0, 'max': max, 'min': min}))
                 except Exception:

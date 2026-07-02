@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 import requests
 from datetime import date
@@ -105,6 +106,8 @@ class WikidataClient:
         return results, False
 
     def get_entity(self, wikidata_id):
+        if not re.fullmatch(r'Q\d+', str(wikidata_id)):
+            raise ValueError(f'QID Wikidata non valido: {wikidata_id!r}')
         data = self._get(self.ENTITY_URL.format(wikidata_id))
         entity = data.get('entities', {}).get(wikidata_id, {})
         labels = entity.get('labels', {})

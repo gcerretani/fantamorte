@@ -1,22 +1,22 @@
 import hashlib
 import json
 import logging
+import re
 import secrets
-from datetime import datetime, timedelta
+from datetime import date, timedelta
 from urllib.parse import unquote
 
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.cache import cache
-from django.http import JsonResponse, HttpResponseForbidden
+from django.http import Http404, JsonResponse, HttpResponseForbidden
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.utils.text import slugify
 from django.views.decorators.cache import cache_control
-from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import TemplateView, DetailView, View
 
 from wikidata_api.client import WikidataClient
@@ -91,6 +91,8 @@ class LeagueCreateView(LoginRequiredMixin, View):
             return render(request, self.template_name, {'creating': True, 'data': request.POST})
 
         visibility = request.POST.get('visibility', League.VISIBILITY_PUBLIC)
+        if visibility not in dict(League.VISIBILITY_CHOICES):
+            visibility = League.VISIBILITY_PUBLIC
         slug = _unique_slug(name)
         today = timezone.now().date()
         league = League.objects.create(
@@ -213,11 +215,23 @@ class LeagueAdminView(LoginRequiredMixin, View):
         if action == 'update_rules':
             league.name = request.POST.get('name', league.name).strip() or league.name
             league.description = request.POST.get('description', league.description)
-            league.visibility = request.POST.get('visibility', league.visibility)
-            league.start_date = request.POST.get('start_date') or league.start_date
-            league.end_date = request.POST.get('end_date') or league.end_date
-            league.registration_opens = request.POST.get('registration_opens') or league.registration_opens
-            league.registration_closes = request.POST.get('registration_closes') or league.registration_closes
+            visibility = request.POST.get('visibility', league.visibility)
+            if visibility in dict(League.VISIBILITY_CHOICES):
+                league.visibility = visibility
+            try:
+                for field in ('start_date', 'end_date', 'registration_opens', 'registration_closes'):
+                    raw = request.POST.get(field)
+                    if raw:
+                        setattr(league, field, date.fromisoformat(raw))
+            except ValueError:
+                messages.error(request, 'Formato data non valido.')
+                return redirect('league_admin', slug=slug)
+            if league.start_date > league.end_date:
+                messages.error(request, 'La data di inizio deve precedere la fine.')
+                return redirect('league_admin', slug=slug)
+            if league.registration_opens > league.registration_closes:
+                messages.error(request, 'L\'apertura iscrizioni deve precedere la chiusura.')
+                return redirect('league_admin', slug=slug)
             try:
                 league.base_points = int(request.POST.get('base_points') or league.base_points)
                 league.captain_multiplier = int(request.POST.get('captain_multiplier') or league.captain_multiplier)
@@ -246,7 +260,10 @@ class LeagueAdminView(LoginRequiredMixin, View):
                 pts_key = f'bonus_points_{lb.pk}'
                 lb.is_active = request.POST.get(key) == 'on'
                 pts = request.POST.get(pts_key, '').strip()
-                lb.override_points = int(pts) if pts else None
+                try:
+                    lb.override_points = int(pts) if pts else None
+                except (ValueError, TypeError):
+                    lb.override_points = None
                 lb.save()
             # Eventuali nuovi bonus type
             for bt_id in request.POST.getlist('add_bonus'):
@@ -358,10 +375,16 @@ class LeagueDeathsView(LoginRequiredMixin, View):
 
 # ---------------- Squadre ----------------
 
-class TeamDetailView(DetailView):
+class TeamDetailView(LoginRequiredMixin, DetailView):
     model = Team
     template_name = 'game/team_detail.html'
     context_object_name = 'team'
+
+    def get_object(self, queryset=None):
+        team = super().get_object(queryset)
+        if team.league_id and not team.league.can_user_view(self.request.user):
+            raise Http404('Squadra di una lega privata.')
+        return team
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -372,7 +395,7 @@ class TeamDetailView(DetailView):
         return ctx
 
 
-class DeathDetailView(DetailView):
+class DeathDetailView(LoginRequiredMixin, DetailView):
     model = Death
     template_name = 'game/death_detail.html'
     context_object_name = 'death'
@@ -382,7 +405,14 @@ class DeathDetailView(DetailView):
         death = self.object
         ctx['bonuses'] = death.bonuses.select_related('bonus_type')
         ctx['teams_affected'] = []
-        for member in TeamMember.objects.filter(person=death.person).select_related('team'):
+        members = TeamMember.objects.filter(person=death.person).select_related(
+            'team__manager', 'team__league',
+        )
+        for member in members:
+            league = member.team.league
+            # Le squadre di leghe private restano visibili solo ai membri.
+            if league and not league.can_user_view(self.request.user):
+                continue
             pts = scoring.compute_team_points_for_death(member.team, death)
             if pts:
                 ctx['teams_affected'].append({'team': member.team, 'points': pts})
@@ -495,18 +525,30 @@ class TeamEditView(LoginRequiredMixin, View):
             return redirect('team_edit', pk=pk)
 
         name = request.POST.get('name', '').strip()
-        jolly_month = request.POST.get('jolly_month')
-        captain_id = request.POST.get('captain_id')
+        jolly_month = request.POST.get('jolly_month', '')
+        captain_id = request.POST.get('captain_id', '')
 
         if name:
             team.name = name
         if jolly_month and (not team.league or team.league.jolly_enabled):
-            team.jolly_month = int(jolly_month)
+            try:
+                jolly_month = int(jolly_month)
+            except (TypeError, ValueError):
+                jolly_month = None
+            if jolly_month is not None and 1 <= jolly_month <= 12:
+                team.jolly_month = jolly_month
+            else:
+                messages.error(request, 'Mese jolly non valido.')
         team.save()
 
         if captain_id:
-            team.members.update(is_captain=False)
-            team.members.filter(pk=int(captain_id)).update(is_captain=True)
+            try:
+                captain_pk = int(captain_id)
+            except (TypeError, ValueError):
+                captain_pk = None
+            if captain_pk is not None:
+                team.members.update(is_captain=False)
+                team.members.filter(pk=captain_pk).update(is_captain=True)
 
         messages.success(request, 'Squadra aggiornata.')
         return redirect('team_edit', pk=pk)
@@ -528,6 +570,8 @@ class AddPersonView(LoginRequiredMixin, View):
 
         if not wikidata_id:
             return JsonResponse({'error': 'wikidata_id mancante'}, status=400)
+        if not re.fullmatch(r'Q\d+', wikidata_id):
+            return JsonResponse({'error': 'wikidata_id non valido'}, status=400)
 
         interval = SiteSettings.get().wikidata_check_interval_hours
         threshold = timezone.now() - timedelta(hours=interval)
@@ -670,7 +714,7 @@ class SubstituteMemberView(LoginRequiredMixin, View):
         return redirect('team_edit', pk=pk)
 
 
-class PersonDetailView(DetailView):
+class PersonDetailView(LoginRequiredMixin, DetailView):
     """Pagina di dettaglio di una persona della rosa."""
     model = WikipediaPerson
     template_name = 'game/person_detail.html'
@@ -681,9 +725,14 @@ class PersonDetailView(DetailView):
         person = self.object
         if not person.summary_it and person.wikipedia_url_it:
             _refresh_person_summary(person)
-        ctx['team_members'] = TeamMember.objects.filter(person=person).select_related(
+        members = TeamMember.objects.filter(person=person).select_related(
             'team__manager', 'team__league', 'team__season',
         )
+        # Le squadre di leghe private restano visibili solo ai membri.
+        ctx['team_members'] = [
+            m for m in members
+            if not m.team.league_id or m.team.league.can_user_view(self.request.user)
+        ]
         return ctx
 
 
@@ -706,7 +755,7 @@ def _refresh_person_summary(person):
         person.save(update_fields=['summary_it', 'summary_fetched_at'])
 
 
-class PersonInfoView(View):
+class PersonInfoView(LoginRequiredMixin, View):
     """Endpoint JSON per il pannello dettagli persona (open su click)."""
 
     def get(self, request, pk):
@@ -732,7 +781,7 @@ class PersonInfoView(View):
         return JsonResponse(data)
 
 
-class PersonSearchView(View):
+class PersonSearchView(LoginRequiredMixin, View):
     def get(self, request):
         q = request.GET.get('q', '').strip()
         if len(q) < 2:
@@ -853,7 +902,6 @@ class OfflineView(TemplateView):
 
 # --- Push subscriptions API ---
 
-@method_decorator(csrf_exempt, name='dispatch')
 class PushSubscribeView(LoginRequiredMixin, View):
     """Salva l'endpoint Web Push del browser corrente."""
 
@@ -882,7 +930,6 @@ class PushSubscribeView(LoginRequiredMixin, View):
         return JsonResponse({'success': True, 'created': created, 'id': sub.pk})
 
 
-@method_decorator(csrf_exempt, name='dispatch')
 class PushUnsubscribeView(LoginRequiredMixin, View):
     def post(self, request):
         try:
@@ -1036,7 +1083,13 @@ class LeagueBulkDiffView(LoginRequiredMixin, View):
 
 
 class LeagueBulkApplyView(LoginRequiredMixin, View):
-    """POST JSON → applica aggiornamenti selezionati alle WikipediaPerson."""
+    """POST JSON → riapplica i campi selezionati dai dati Wikidata.
+
+    Il client indica solo QUALI campi applicare (person_pk + field): i valori
+    vengono sempre rifetchati da Wikidata server-side. WikipediaPerson è un
+    record globale condiviso fra tutte le leghe, quindi non si accettano mai
+    valori arbitrari dal body della richiesta.
+    """
 
     def post(self, request, slug):
         league = get_object_or_404(League, slug=slug)
@@ -1060,13 +1113,16 @@ class LeagueBulkApplyView(LoginRequiredMixin, View):
             ).distinct().values_list('pk', flat=True)
         )
 
-        applied = 0
         errors = []
 
+        # Raggruppa i campi richiesti per persona: una sola fetch Wikidata ciascuna.
+        fields_by_pk = {}
         for upd in updates:
+            if not isinstance(upd, dict):
+                errors.append('Elemento di updates non valido.')
+                continue
             person_pk = upd.get('person_pk')
             field = upd.get('field')
-            new_value = upd.get('new_value')
 
             if person_pk not in valid_pks:
                 errors.append(f'Persona {person_pk} non appartiene a questa lega.')
@@ -1074,35 +1130,41 @@ class LeagueBulkApplyView(LoginRequiredMixin, View):
             if field not in APPLYABLE_FIELDS:
                 errors.append(f'Campo non modificabile: {field}')
                 continue
+            fields_by_pk.setdefault(person_pk, set()).add(field)
 
+        from wikidata_api.client import WikidataClient
+        client = WikidataClient()
+        applied = 0
+
+        for person_pk, fields in fields_by_pk.items():
             try:
                 person = WikipediaPerson.objects.get(pk=person_pk)
             except WikipediaPerson.DoesNotExist:
                 errors.append(f'Persona {person_pk} non trovata.')
                 continue
 
-            # Conversione tipi per campi data
-            if field in ('birth_date', 'death_date') and new_value:
-                try:
-                    new_value = datetime.strptime(new_value, '%Y-%m-%d').date()
-                except (ValueError, TypeError):
-                    errors.append(f'Formato data non valido per {field}: {new_value}')
+            try:
+                entity = client.get_entity(person.wikidata_id)
+            except Exception as e:
+                errors.append(f'Wikidata non raggiungibile per {person.name_it}: {e}')
+                continue
+
+            touched = False
+            for field in fields:
+                new_value = entity.get(field)
+                old_value = getattr(person, field)
+                # None = dato non determinabile da Wikidata (es. timeout label
+                # lookup): non cancellare il valore esistente, come nel diff.
+                if new_value is None and old_value not in (None, ''):
                     continue
-            elif field in ('birth_year', 'death_year') and new_value is not None:
-                try:
-                    new_value = int(new_value)
-                except (ValueError, TypeError):
-                    errors.append(f'Valore anno non valido per {field}: {new_value}')
-                    continue
+                setattr(person, field, new_value)
+                if field in DEATH_FIELDS:
+                    person.is_dead = bool(person.death_date or person.death_year)
+                touched = True
+                applied += 1
 
-            setattr(person, field, new_value)
-
-            # Ricalcola is_dead se si è toccato un campo morte
-            if field in DEATH_FIELDS:
-                person.is_dead = bool(person.death_date or person.death_year)
-
-            person.last_checked = timezone.now()
-            person.save()
-            applied += 1
+            if touched:
+                person.last_checked = timezone.now()
+                person.save()
 
         return JsonResponse({'applied': applied, 'errors': errors})
