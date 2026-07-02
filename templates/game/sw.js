@@ -40,8 +40,12 @@ self.addEventListener('fetch', function (event) {
   if (req.headers.get('accept') && req.headers.get('accept').includes('text/html')) {
     event.respondWith(
       fetch(req).then(function (resp) {
-        const copy = resp.clone();
-        caches.open(CACHE).then(function (c) { c.put(req, copy); });
+        // Cache solo risposte 200 stessa-origine: mai redirect (302 login),
+        // pagine di errore o risposte opache.
+        if (resp.ok && resp.type === 'basic') {
+          const copy = resp.clone();
+          caches.open(CACHE).then(function (c) { c.put(req, copy); });
+        }
         return resp;
       }).catch(function () {
         return caches.match(req).then(function (m) { return m || caches.match('/offline/'); });
@@ -51,8 +55,10 @@ self.addEventListener('fetch', function (event) {
     event.respondWith(
       caches.match(req).then(function (cached) {
         return cached || fetch(req).then(function (resp) {
-          const copy = resp.clone();
-          caches.open(CACHE).then(function (c) { c.put(req, copy); });
+          if (resp.ok) {
+            const copy = resp.clone();
+            caches.open(CACHE).then(function (c) { c.put(req, copy); });
+          }
           return resp;
         });
       })

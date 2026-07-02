@@ -20,7 +20,8 @@
     return pref;
   }
   function applyPref(pref, persist) {
-    html.setAttribute('data-theme', effectiveTheme(pref));
+    const effective = effectiveTheme(pref);
+    html.setAttribute('data-theme', effective);
     html.setAttribute('data-theme-pref', pref);
     if (persist) localStorage.setItem('fm-theme', pref);
     const btn = document.getElementById('fmThemeBtn');
@@ -30,12 +31,27 @@
       btn.title = label;
       btn.setAttribute('aria-label', label);
     }
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', effective === 'dark' ? '#212529' : '#f8f9fa');
   }
   window.fmToggleTheme = function () {
     const current = readPref();
     const idx = THEME_PREFS.indexOf(current);
     const next = THEME_PREFS[(idx + 1) % THEME_PREFS.length];
     applyPref(next, true);
+  };
+
+  // Usata dalla pagina profilo per tenere sincronizzato localStorage
+  // con la preferenza scelta nel form (senza il quale readPref() darebbe
+  // sempre precedenza al vecchio valore in localStorage).
+  window.fmSetThemePreference = function (pref) {
+    if (THEME_PREFS.indexOf(pref) === -1) return;
+    if (pref === 'auto') {
+      localStorage.removeItem('fm-theme');
+    } else {
+      localStorage.setItem('fm-theme', pref);
+    }
+    applyPref(pref, false);
   };
 
   applyPref(readPref(), false);
@@ -66,11 +82,14 @@
 
   window.fmToast = function (msg, kind) {
     const c = ensureToastContainer();
+    const resolvedKind = kind || 'dark';
     const el = document.createElement('div');
-    el.className = 'toast align-items-center text-bg-' + (kind || 'dark') + ' border-0 show';
+    el.className = 'toast align-items-center text-bg-' + resolvedKind + ' border-0 show';
     el.setAttribute('role', 'alert');
-    el.innerHTML = `<div class="d-flex"><div class="toast-body">${msg}</div>
-      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>`;
+    const closeWhite = ['danger', 'dark', 'success', 'primary'].indexOf(resolvedKind) !== -1;
+    el.innerHTML = `<div class="d-flex"><div class="toast-body"></div>
+      <button type="button" class="btn-close${closeWhite ? ' btn-close-white' : ''} me-2 m-auto" data-bs-dismiss="toast"></button></div>`;
+    el.querySelector('.toast-body').textContent = msg;
     c.appendChild(el);
     setTimeout(() => el.remove(), 5000);
     el.querySelector('.btn-close').addEventListener('click', () => el.remove());
@@ -88,6 +107,19 @@
   document.addEventListener('DOMContentLoaded', function () {
     const btn = document.getElementById('fmInstallBtn');
     if (!btn) return;
+
+    // iOS Safari non supporta beforeinstallprompt: mostra istruzioni manuali.
+    const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+      || window.navigator.standalone === true;
+    if (isIos && !isStandalone) {
+      btn.style.display = '';
+      btn.addEventListener('click', function () {
+        window.fmToast('Per installare: tocca il pulsante Condividi di Safari e poi "Aggiungi alla schermata Home".', 'info');
+      });
+      return;
+    }
+
     btn.addEventListener('click', async function () {
       if (!deferredPrompt) return;
       deferredPrompt.prompt();
@@ -268,6 +300,7 @@
     document.querySelectorAll('[data-fm-countdown]').forEach(function (el) {
       const target = parseInt(el.dataset.fmCountdown, 10);
       if (!target) return;
+      let intervalId = null;
       function tick() {
         const remaining = Math.max(0, target - Math.floor(Date.now() / 1000));
         const days = Math.floor(remaining / 86400);
@@ -280,10 +313,18 @@
         else str = `${mins}m ${secs}s`;
         el.textContent = str;
         if (remaining < 24 * 3600) el.classList.add('urgent');
-        if (remaining <= 0) el.textContent = 'Scaduto';
+        if (remaining <= 0) {
+          el.textContent = 'Scaduto';
+          if (intervalId !== null) {
+            clearInterval(intervalId);
+            intervalId = null;
+          }
+        }
       }
       tick();
-      setInterval(tick, 1000);
+      if (target - Math.floor(Date.now() / 1000) > 0) {
+        intervalId = setInterval(tick, 1000);
+      }
     });
   });
 })();

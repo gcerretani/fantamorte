@@ -35,8 +35,8 @@
         <li class="list-group-item d-flex justify-content-between align-items-center">
           <div>
             {% if member.is_captain %}<span class="badge badge-captain me-1">C</span>{% endif %}
-            {% if member.is_original %}<span class="badge bg-info me-1" title="Giocata originale">★</span>{% endif %}
-            <a href="#" class="text-decoration-none" data-fm-person-pk="{{ member.person.pk }}">
+            {% if member.is_original %}<span class="badge text-bg-info me-1" title="Giocata originale">★</span>{% endif %}
+            <a href="{% url 'person_detail' member.person.pk %}" class="text-decoration-none" data-fm-person-pk="{{ member.person.pk }}">
               {{ member.person.name_it }}
             </a>
             {% if member.person.birth_date %}
@@ -47,7 +47,7 @@
           </div>
           <div>
             {% if member.person.is_dead %}
-              <span class="badge bg-danger">&#9760; {{ member.person.death_date }}</span>
+              <span class="badge bg-danger">&#9760; {{ member.person.death_date|date:"d/m/Y" }}</span>
               {% if user == team.manager and member.replaced_by is None %}
                 <a href="{% url 'substitute_member' team.pk member.pk %}" class="btn btn-warning btn-sm ms-1">Sostituisci</a>
               {% endif %}
@@ -63,6 +63,7 @@
   <div class="col-md-6">
     <h5>Punti guadagnati</h5>
     {% if death_details %}
+      <div class="table-responsive">
       <table class="table table-sm table-deaths">
         <thead><tr><th>Persona</th><th>Data</th><th>Base</th><th>Bonus</th><th>×</th><th>Tot</th></tr></thead>
         <tbody>
@@ -73,7 +74,7 @@
                 {% if d.is_captain %}<span class="badge badge-captain">C</span>{% endif %}
                 {% if d.jolly %}<span class="badge badge-jolly">J</span>{% endif %}
               </td>
-              <td><small>{{ d.death.death_date }}</small></td>
+              <td><small>{{ d.death.death_date|date:"d/m/Y" }}</small></td>
               <td>{{ d.base }}</td>
               <td>{{ d.bonuses|length }}</td>
               <td>×{{ d.multiplier }}</td>
@@ -82,6 +83,7 @@
           {% endfor %}
         </tbody>
       </table>
+      </div>
     {% else %}
       <p class="text-muted">Nessun punto ancora.</p>
     {% endif %}

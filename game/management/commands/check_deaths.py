@@ -23,11 +23,17 @@ class Command(BaseCommand):
         parser.add_argument('--league', type=str, help='Slug di una lega specifica')
         parser.add_argument('--year', type=int, help='Forza un singolo anno per la query SPARQL')
         parser.add_argument('--force', action='store_true', help='Ignora il filtro last_checked e data_frozen')
+        parser.add_argument(
+            '--no-autoconfirm', action='store_true',
+            help='Crea i decessi come non confermati (default: i decessi da Wikidata '
+                 'con data valida vengono confermati subito, con punti e notifiche)',
+        )
 
     def handle(self, *args, **options):
         dry_run = options['dry_run']
         slug = options.get('league')
         forced_year = options.get('year')
+        autoconfirm = not options['no_autoconfirm']
 
         leagues = League.objects.all()
         if slug:
@@ -128,7 +134,10 @@ class Command(BaseCommand):
                     'death_date': death_date or date_cls(year_for_death, 12, 31),
                     'death_age': person.get_age_at_death(),
                     'source': Death.SOURCE_WIKIDATA,
-                    'is_confirmed': False,
+                    # Il dato arriva da Wikidata con data valida: si conferma
+                    # subito (punti + notifiche via signal). Revocabile da admin;
+                    # data_frozen sulla persona esclude dai check successivi.
+                    'is_confirmed': autoconfirm,
                 },
             )
 
@@ -148,7 +157,16 @@ class Command(BaseCommand):
                                 defaults={'points_awarded': bt.points, 'is_auto_detected': True},
                             )
 
-            self.stdout.write(self.style.SUCCESS(f'Decesso: {person.name_it} ({qid}) † {death_date or death_year}'))
+            if not created and autoconfirm and not death.is_confirmed:
+                # Decesso già registrato ma mai confermato: promuovilo
+                # (la transizione False→True fa scattare punti e notifiche).
+                death.is_confirmed = True
+                death.save()
+
+            status = 'confermato' if death.is_confirmed else 'da confermare'
+            self.stdout.write(self.style.SUCCESS(
+                f'Decesso ({status}): {person.name_it} ({qid}) † {death_date or death_year}'
+            ))
 
         if not dry_run:
             active_persons.exclude(wikidata_id__in=dead_ids).update(last_checked=timezone.now())

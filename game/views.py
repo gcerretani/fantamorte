@@ -45,10 +45,14 @@ class HomeView(LoginRequiredMixin, TemplateView):
             .select_related('league')
             .order_by('-league__start_date')
         )
-        my_leagues = []
-        for m in my_memberships:
-            team = Team.objects.filter(manager=user, league=m.league).first()
-            my_leagues.append({'league': m.league, 'role': m.role, 'team': team})
+        teams_by_league = {
+            t.league_id: t
+            for t in Team.objects.filter(manager=user, league__isnull=False)
+        }
+        my_leagues = [
+            {'league': m.league, 'role': m.role, 'team': teams_by_league.get(m.league_id)}
+            for m in my_memberships
+        ]
         ctx['my_leagues'] = my_leagues
         # Suggerimenti: leghe pubbliche di cui non sono membro
         member_ids = [m.league_id for m in my_memberships]
@@ -131,8 +135,12 @@ class LeagueDetailView(LoginRequiredMixin, View):
     def get(self, request, slug):
         league = get_object_or_404(League, slug=slug)
         if not league.can_user_view(request.user):
-            messages.error(request, 'Lega privata: serve un invito.')
-            return redirect('league_list')
+            # Teaser per non-membri di lega privata: mostra solo il form
+            # per il codice invito (eventualmente precompilato da ?code=).
+            return render(request, 'game/league_join.html', {
+                'league': league,
+                'prefill_code': request.GET.get('code', ''),
+            })
 
         my_team = Team.objects.filter(manager=request.user, league=league).first()
         rankings = scoring.compute_league_rankings(league)
@@ -159,6 +167,15 @@ class LeagueDetailView(LoginRequiredMixin, View):
 
 
 class LeagueJoinView(LoginRequiredMixin, View):
+    def get(self, request, slug):
+        """Link invito condivisibile: /leghe/<slug>/iscriviti/?code=XXX."""
+        league = get_object_or_404(League, slug=slug)
+        url = reverse('league_detail', kwargs={'slug': slug})
+        code = request.GET.get('code', '')
+        if code and not league.is_member(request.user):
+            url = f'{url}?code={code}'
+        return redirect(url)
+
     def post(self, request, slug):
         league = get_object_or_404(League, slug=slug)
         if league.is_member(request.user):
@@ -386,12 +403,17 @@ class TeamDetailView(LoginRequiredMixin, DetailView):
             raise Http404('Squadra di una lega privata.')
         return team
 
+    def get_queryset(self):
+        # I membri prefetchati vengono riusati da _find_member nello scoring.
+        return Team.objects.select_related('league', 'manager').prefetch_related('members__person')
+
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         team = self.object
-        ctx['score'] = scoring.compute_team_total_score(team)
-        ctx['death_details'] = scoring.compute_team_death_details(team)
-        ctx['active_members'] = team.get_active_members().select_related('person')
+        details = scoring.compute_team_death_details(team)
+        ctx['death_details'] = details
+        ctx['score'] = sum(d['points'] for d in details)
+        ctx['active_members'] = [m for m in team.members.all() if m.is_active()]
         return ctx
 
 
@@ -504,11 +526,13 @@ class TeamEditView(LoginRequiredMixin, View):
         league = team.league
         members = team.members.select_related('person').order_by('-is_captain', 'person__name_it')
         dead_members = [m for m in members if m.person.is_dead and m.is_active()]
+        active_count = sum(1 for m in members if m.is_active())
         return render(request, self.template_name, {
             'team': team,
             'league': league,
             'season': team.season,  # legacy
             'members': members,
+            'active_count': active_count,
             'dead_members': dead_members,
             'months': MONTHS_LIST,
             'can_edit': _can_edit_team(team, request.user),
@@ -869,14 +893,14 @@ class ManifestView(View):
             'theme_color': settings.PWA_APP_THEME_COLOR,
             'lang': 'it-IT',
             'icons': [
-                {'src': '/static/pwa/icon-192.png', 'sizes': '192x192', 'type': 'image/png', 'purpose': 'any maskable'},
-                {'src': '/static/pwa/icon-512.png', 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any maskable'},
+                {'src': '/static/pwa/icon-192.png', 'sizes': '192x192', 'type': 'image/png', 'purpose': 'any'},
+                {'src': '/static/pwa/icon-512.png', 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any'},
                 {'src': '/static/pwa/icon.svg', 'sizes': 'any', 'type': 'image/svg+xml', 'purpose': 'any'},
             ],
+            # Solo URL esistenti: le pagine classifica/decessi sono per-lega.
             'shortcuts': [
-                {'name': 'Classifica', 'url': '/classifica/'},
-                {'name': 'La mia squadra', 'url': '/profilo/'},
-                {'name': 'Decessi', 'url': '/decessi/'},
+                {'name': 'Le mie leghe', 'url': '/'},
+                {'name': 'Profilo', 'url': '/profilo/'},
             ],
             'categories': ['games', 'entertainment'],
         }

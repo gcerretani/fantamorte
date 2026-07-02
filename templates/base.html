@@ -41,13 +41,14 @@
       <button id="fmInstallBtn" class="btn btn-outline-light btn-sm me-2" type="button" title="Installa app">&#x2913; Installa</button>
       <button id="fmThemeBtn" class="btn btn-outline-light btn-sm me-2" type="button"
         title="Cambia tema" aria-label="Cambia tema">◐</button>
-      <button class="navbar-toggler" type="button" data-bs-toggle="offcanvas" data-bs-target="#navOffcanvas">
+      <button class="navbar-toggler" type="button" data-bs-toggle="offcanvas" data-bs-target="#navOffcanvas"
+        aria-label="Menu" aria-controls="navOffcanvas" aria-expanded="false">
         <span class="navbar-toggler-icon"></span>
       </button>
     </div>
-    <div class="offcanvas offcanvas-end text-bg-dark" tabindex="-1" id="navOffcanvas">
+    <div class="offcanvas offcanvas-end text-bg-dark" tabindex="-1" id="navOffcanvas" aria-labelledby="navOffcanvasLabel">
       <div class="offcanvas-header">
-        <h5 class="offcanvas-title">Menu</h5>
+        <h5 class="offcanvas-title" id="navOffcanvasLabel">Menu</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas"></button>
       </div>
       <div class="offcanvas-body">
@@ -83,7 +84,7 @@
 
 <div class="container">
   {% for msg in messages %}
-    <div class="alert alert-{{ msg.tags|default:'info' }} alert-dismissible fade show">
+    <div class="alert alert-{{ msg.tags|default:'info' }} alert-dismissible fade show" role="alert">
       {{ msg }}
       <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
     </div>

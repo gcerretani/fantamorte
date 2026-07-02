@@ -154,7 +154,7 @@ class DeathAdmin(admin.ModelAdmin):
     search_fields = ('person__name_it',)
     readonly_fields = ('created_at',)
     inlines = [DeathBonusInline]
-    actions = ['confirm_deaths', 'detect_bonuses_action']
+    actions = ['confirm_deaths', 'unconfirm_deaths', 'detect_bonuses_action']
 
     @admin.action(description='Conferma morti selezionati')
     def confirm_deaths(self, request, queryset):
@@ -168,6 +168,16 @@ class DeathAdmin(admin.ModelAdmin):
             death.person.save()
             count += 1
         self.message_user(request, f'{count} decessi confermati.')
+
+    @admin.action(description='Revoca conferma morti selezionati')
+    def unconfirm_deaths(self, request, queryset):
+        # update() non passa dai signal: nessuna notifica alla revoca.
+        # Per escludere la persona dai check automatici successivi impostare
+        # anche data_frozen=True sulla WikipediaPerson.
+        count = queryset.filter(is_confirmed=True).update(
+            is_confirmed=False, confirmed_at=None, confirmed_by=None,
+        )
+        self.message_user(request, f'{count} conferme revocate.')
 
     @admin.action(description='Auto-rileva bonus da Wikidata')
     def detect_bonuses_action(self, request, queryset):
