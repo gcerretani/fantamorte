@@ -2,10 +2,15 @@
 
 Ogni team ha (o avrà) un puntatore alla league. Le morti che contano sono
 quelle confermate avvenute tra `league.start_date` e `league.end_date`.
+
+Le leghe condividono solo il database degli eventi (Death/DeathBonus come
+proprietà del decesso): tutto ciò che è relativo alla lega — bonus primo e
+ultimo morto inclusi — viene calcolato qui, senza righe persistite condivise.
 """
 import time
 
 from django.core.cache import cache
+from django.utils import timezone
 
 from .models import Death, BonusType, LeagueBonus
 
@@ -48,6 +53,10 @@ def _bonus_points_in_league(bonus, league, lb_map=None):
     (dict bonus_type_id -> LeagueBonus) lo usa per evitare query.
     """
     bt = bonus.bonus_type
+    # Primo/ultimo morto sono relativi alla lega e calcolati dinamicamente
+    # (_first_last_death_pks): eventuali righe DeathBonus legacy vanno ignorate.
+    if bt.detection_method in (BonusType.DETECTION_FIRST_DEATH, BonusType.DETECTION_LAST_DEATH):
+        return 0
     age = bonus.death.death_age
     if league is not None:
         if lb_map is None:
@@ -107,17 +116,43 @@ def _find_member(team, person_id):
     return team.members.filter(person_id=person_id).first()
 
 
+def _first_last_death_pks(league, deaths):
+    """pk del primo e dell'ultimo decesso confermato DELLA LEGA.
+
+    `deaths` deve essere già filtrato sul periodo della lega e ordinato per
+    death_date (è l'output di `_confirmed_deaths_for_league`). L'ultimo morto
+    è definitivo solo a lega conclusa: prima restituisce None.
+    """
+    if league is None:
+        return None, None
+    deaths = list(deaths)
+    if not deaths:
+        return None, None
+    first_pk = deaths[0].pk
+    last_pk = deaths[-1].pk if league.end_date < timezone.now().date() else None
+    return first_pk, last_pk
+
+
 # ---------- API pubblica ----------
 
-def _points_for_member_death(member, team, death, league, lb_map):
-    """Calcola i punti per un singolo (member, death) con la mappa bonus precaricata."""
+def _points_for_member_death(member, team, death, league, lb_map, first_pk=None, last_pk=None):
+    """Calcola i punti per un singolo (member, death) con la mappa bonus precaricata.
+
+    `first_pk`/`last_pk` identificano il primo e l'ultimo decesso della lega
+    (vedi `_first_last_death_pks`): i relativi bonus sono per-lega e non
+    dipendono da righe DeathBonus condivise tra leghe.
+    """
     raw = _base_points(league) + sum(
         _bonus_points_in_league(b, league, lb_map) for b in death.bonuses.all()
     )
-    if member.is_original and league is not None:
-        for lb in lb_map.values():
-            if lb.bonus_type.detection_method == BonusType.DETECTION_ORIGINAL:
-                raw += lb.compute_points(age=death.death_age)
+    for lb in lb_map.values():
+        dm = lb.bonus_type.detection_method
+        if dm == BonusType.DETECTION_ORIGINAL and member.is_original:
+            raw += lb.compute_points(age=death.death_age)
+        elif dm == BonusType.DETECTION_FIRST_DEATH and death.pk == first_pk:
+            raw += lb.compute_points(age=death.death_age)
+        elif dm == BonusType.DETECTION_LAST_DEATH and last_pk is not None and death.pk == last_pk:
+            raw += lb.compute_points(age=death.death_age)
 
     multiplier = 1
     if member.is_captain:
@@ -132,20 +167,27 @@ def compute_team_points_for_death(team, death):
     member = _find_member(team, death.person_id)
     if member is None:
         return 0
-    return _points_for_member_death(member, team, death, league, _league_bonus_map(league))
+    first_pk, last_pk = _first_last_death_pks(league, _confirmed_deaths_for_league(league))
+    return _points_for_member_death(
+        member, team, death, league, _league_bonus_map(league),
+        first_pk=first_pk, last_pk=last_pk,
+    )
 
 
 def compute_team_death_details(team):
     league = _league_of(team)
     lb_map = _league_bonus_map(league)
-    deaths = _confirmed_deaths_for_league(league)
+    deaths = list(_confirmed_deaths_for_league(league))
+    first_pk, last_pk = _first_last_death_pks(league, deaths)
     details = []
     base = _base_points(league)
     for death in deaths:
         member = _find_member(team, death.person_id)
         if member is None:
             continue
-        pts = _points_for_member_death(member, team, death, league, lb_map)
+        pts = _points_for_member_death(
+            member, team, death, league, lb_map, first_pk=first_pk, last_pk=last_pk,
+        )
         if pts == 0:
             continue
         details.append({
@@ -156,6 +198,8 @@ def compute_team_death_details(team):
             'bonuses': list(death.bonuses.all()),
             'is_captain': member.is_captain,
             'is_original': member.is_original,
+            'is_first_death': death.pk == first_pk,
+            'is_last_death': last_pk is not None and death.pk == last_pk,
             'jolly': team.jolly_month == death.death_date.month,
             'multiplier': (
                 (_captain_multiplier(league) if member.is_captain else 1)
@@ -168,19 +212,23 @@ def compute_team_death_details(team):
 def compute_team_total_score(team):
     league = _league_of(team)
     lb_map = _league_bonus_map(league)
-    deaths = _confirmed_deaths_for_league(league)
+    deaths = list(_confirmed_deaths_for_league(league))
+    first_pk, last_pk = _first_last_death_pks(league, deaths)
     total = 0
     for death in deaths:
         member = _find_member(team, death.person_id)
         if member is None:
             continue
-        total += _points_for_member_death(member, team, death, league, lb_map)
+        total += _points_for_member_death(
+            member, team, death, league, lb_map, first_pk=first_pk, last_pk=last_pk,
+        )
     return total
 
 
 def _compute_league_rankings_uncached(league):
     teams = league.teams.select_related('manager').prefetch_related('members__person')
     deaths_list = list(_confirmed_deaths_for_league(league))
+    first_pk, last_pk = _first_last_death_pks(league, deaths_list)
     lb_map = _league_bonus_map(league)
 
     rankings = []
@@ -192,7 +240,9 @@ def _compute_league_rankings_uncached(league):
             member = members_by_person.get(death.person_id)
             if member is None:
                 continue
-            pts = _points_for_member_death(member, team, death, league, lb_map)
+            pts = _points_for_member_death(
+                member, team, death, league, lb_map, first_pk=first_pk, last_pk=last_pk,
+            )
             if pts == 0:
                 continue
             score += pts

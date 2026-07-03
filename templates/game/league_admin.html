@@ -74,6 +74,12 @@
         <input type="number" name="substitution_deadline_days" class="form-control" value="{{ league.substitution_deadline_days }}" min="0" max="365">
       </div>
       <div class="col-md-3">
+        <label class="form-label">Somma massima età rosa</label>
+        <input type="number" name="max_total_age" class="form-control" value="{{ league.max_total_age }}" min="0" max="10000"
+               aria-describedby="maxTotalAgeHelp">
+        <div id="maxTotalAgeHelp" class="form-text">0 = nessun limite. Somma delle età dei membri attivi.</div>
+      </div>
+      <div class="col-md-3">
         <label class="form-label">×Capitano</label>
         <input type="number" name="captain_multiplier" class="form-control" value="{{ league.captain_multiplier }}" min="1" max="10">
       </div>
@@ -131,6 +137,10 @@
               <td><input type="checkbox" name="bonus_active_{{ lb.pk }}" {% if lb.is_active %}checked{% endif %}></td>
               <td>
                 <strong>{{ lb.bonus_type.name }}</strong>
+                {% if lb.bonus_type.league_id %}<span class="badge text-bg-warning ms-1">personalizzato</span>{% endif %}
+                {% if lb.bonus_type.detection_method == 'wikidata' %}
+                  <small class="text-muted ms-1"><code>{{ lb.bonus_type.wikidata_property }}{% if lb.bonus_type.wikidata_value %}={{ lb.bonus_type.wikidata_value }}{% endif %}</code></small>
+                {% endif %}
                 {% if lb.bonus_type.description %}<br><small class="text-muted">{{ lb.bonus_type.description }}</small>{% endif %}
               </td>
               <td>
@@ -151,6 +161,68 @@
       </div>
       <button class="btn btn-dark btn-sm">Salva bonus</button>
     </form>
+
+    <hr class="my-4">
+    <h5>Nuovo bonus personalizzato (proprietà Wikidata)</h5>
+    <p class="small text-muted mb-2">
+      Il bonus scatta quando la persona deceduta ha la proprietà indicata su Wikidata.
+      Esempi: <code>P166</code>=<code>Q41254</code> (Grammy Award), <code>P509</code>=<code>Q84263196</code>
+      (causa di morte: COVID-19), <code>P1196</code>=<code>Q149086</code> (modalità: omicidio),
+      <code>P106</code>=<code>Q11631</code> (occupazione: astronauta). Lascia il valore vuoto per
+      "qualsiasi valore della proprietà". Il match segue anche le gerarchie di Wikidata
+      (es. "Nobel per la fisica" conta come "Premio Nobel").
+    </p>
+    <form method="post" class="row g-2 align-items-end mb-4">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="create_custom_bonus">
+      <div class="col-md-3">
+        <label class="form-label">Nome</label>
+        <input type="text" name="bonus_name" class="form-control form-control-sm" required maxlength="100">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Punti</label>
+        <input type="number" name="bonus_points" class="form-control form-control-sm" required>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Proprietà</label>
+        <input type="text" name="bonus_wikidata_property" class="form-control form-control-sm"
+               placeholder="P166" pattern="[Pp]\d+" required>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Valore (opz.)</label>
+        <input type="text" name="bonus_wikidata_value" class="form-control form-control-sm"
+               placeholder="Q7191" pattern="[Qq]\d+">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Descrizione (opz.)</label>
+        <input type="text" name="bonus_description" class="form-control form-control-sm" maxlength="200">
+      </div>
+      <div class="col-12">
+        <button class="btn btn-outline-dark btn-sm">Crea bonus</button>
+      </div>
+    </form>
+
+    {% with custom_types=league.custom_bonus_types.all %}
+    {% if custom_types %}
+      <h6>Bonus personalizzati di questa lega</h6>
+      <ul class="list-group mb-3">
+        {% for bt in custom_types %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span>
+              <strong>{{ bt.name }}</strong> (+{{ bt.points }})
+              <small class="text-muted"><code>{{ bt.wikidata_property }}{% if bt.wikidata_value %}={{ bt.wikidata_value }}{% endif %}</code></small>
+            </span>
+            <form method="post" onsubmit="return confirm('Eliminare il bonus «{{ bt.name }}» e i punti già assegnati con esso?');">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="delete_custom_bonus">
+              <input type="hidden" name="bonus_type_id" value="{{ bt.pk }}">
+              <button class="btn btn-outline-danger btn-sm">Elimina</button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+    {% endwith %}
   </div>
 
   <!-- MEMBRI -->

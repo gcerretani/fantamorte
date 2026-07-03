@@ -5,7 +5,7 @@
 #   wikidata_check_interval_hours dei SiteSettings, quindi girare spesso
 #   non genera richieste extra a Wikidata)
 # - una volta al giorno (alle SCHEDULER_DAILY_HOUR, default 06):
-#   send_substitution_reminders, award_first_last_death --first/--last
+#   send_substitution_reminders
 set -u
 
 DAILY_HOUR="${SCHEDULER_DAILY_HOUR:-6}"
@@ -21,8 +21,6 @@ while :; do
     day=$(date +%F)
     if [ "$hour" -eq "$DAILY_HOUR" ] && [ "$day" != "$last_daily" ]; then
         python manage.py send_substitution_reminders || echo "send_substitution_reminders fallito"
-        python manage.py award_first_last_death --first || echo "award --first fallito"
-        python manage.py award_first_last_death --last || echo "award --last fallito"
         last_daily="$day"
     fi
 

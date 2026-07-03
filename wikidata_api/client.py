@@ -274,24 +274,17 @@ class WikidataClient:
     def _check_wikidata_bonus(self, wikidata_id, bonus_type, claims_cache):
         prop = bonus_type.wikidata_property
         value = bonus_type.wikidata_value
-        if not prop:
+        # I P/Q id possono arrivare da input utente (bonus personalizzati di
+        # lega): il formato va validato prima di interpolarli nella SPARQL.
+        if not prop or not re.fullmatch(r'P\d+', prop):
             return False
         if prop not in claims_cache:
             return False
         if not value:
             return True
-        # For Oscar-style: check if any award has P31 == value — use SPARQL
-        # Special case: P166 with value Q19020 (Oscar) — use property path query
-        if prop == 'P166' and value:
-            query = sparql_templates.PROPERTY_VALUE_CHECK_QUERY.format(
-                qid=wikidata_id, prop=prop, value=value
-            )
-            try:
-                result = self._sparql(query)
-                return result.get('boolean', False)
-            except Exception:
-                return False
-        # For simple property presence with specific value
+        if not re.fullmatch(r'Q\d+', value):
+            return False
+        # 1) Match esatto sui claim in cache: nessuna richiesta di rete.
         claims = claims_cache.get(prop, [])
         for claim in claims:
             snak = claim.get('mainsnak', {})
@@ -300,7 +293,18 @@ class WikidataClient:
                 if dv.get('type') == 'wikibase-entityid':
                     if dv.get('value', {}).get('id') == value:
                         return True
-        return False
+        # 2) Match gerarchico via SPARQL: il claim può puntare a una
+        # istanza/sottoclasse/parte del target (es. P166=Q38104 "Nobel per
+        # la fisica" per il bonus generico Q7191 "Premio Nobel").
+        query = sparql_templates.PROPERTY_VALUE_CHECK_QUERY.format(
+            qid=wikidata_id, prop=prop, value=value
+        )
+        try:
+            result = self._sparql(query)
+            return result.get('boolean', False)
+        except Exception:
+            logger.warning('Check gerarchico %s %s=%s fallito', wikidata_id, prop, value, exc_info=True)
+            return False
 
     def detect_age_bonus(self, age, bonus_type):
         if bonus_type.detection_method != 'age' or not bonus_type.age_formula:

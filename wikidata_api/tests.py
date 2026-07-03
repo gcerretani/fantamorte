@@ -126,3 +126,57 @@ class ParseDateClaimTest(TestCase):
         result_date, result_year = self.client._parse_date_claim(claims)
         self.assertIsNone(result_date)
         self.assertIsNone(result_year)
+
+
+class HierarchicalBonusCheckTest(TestCase):
+    """_check_wikidata_bonus: match esatto in cache, poi gerarchico via SPARQL."""
+
+    class FakeBonus:
+        def __init__(self, prop, value):
+            self.wikidata_property = prop
+            self.wikidata_value = value
+
+    def _claims(self, prop, qid):
+        return {prop: [{'mainsnak': {'snaktype': 'value', 'datavalue': {
+            'type': 'wikibase-entityid', 'value': {'id': qid}}}}]}
+
+    def test_match_esatto_senza_rete(self):
+        client = WikidataClient()
+        with patch.object(WikidataClient, '_sparql', side_effect=AssertionError('rete non attesa')):
+            ok = client._check_wikidata_bonus(
+                'Q937', self.FakeBonus('P166', 'Q7191'), self._claims('P166', 'Q7191'))
+        self.assertTrue(ok)
+
+    def test_match_gerarchico_via_sparql(self):
+        # Einstein: P166=Q38104 (Nobel per la fisica), bonus generico Q7191.
+        client = WikidataClient()
+        with patch.object(WikidataClient, '_sparql', return_value={'boolean': True}) as mock_sparql:
+            ok = client._check_wikidata_bonus(
+                'Q937', self.FakeBonus('P166', 'Q7191'), self._claims('P166', 'Q38104'))
+        self.assertTrue(ok)
+        query = mock_sparql.call_args[0][0]
+        self.assertIn('wd:Q937', query)
+        self.assertIn('wdt:P166', query)
+        self.assertIn('wd:Q7191', query)
+
+    def test_gerarchia_negativa(self):
+        client = WikidataClient()
+        with patch.object(WikidataClient, '_sparql', return_value={'boolean': False}):
+            ok = client._check_wikidata_bonus(
+                'Q937', self.FakeBonus('P166', 'Q99999'), self._claims('P166', 'Q38104'))
+        self.assertFalse(ok)
+
+    def test_proprieta_o_valore_malformati_rifiutati(self):
+        client = WikidataClient()
+        claims = self._claims('P166', 'Q38104')
+        with patch.object(WikidataClient, '_sparql', side_effect=AssertionError('rete non attesa')):
+            self.assertFalse(client._check_wikidata_bonus(
+                'Q937', self.FakeBonus('P166} UNION {evil', 'Q7191'), claims))
+            self.assertFalse(client._check_wikidata_bonus(
+                'Q937', self.FakeBonus('P166', 'Q7191 . ?x ?y ?z'), claims))
+
+    def test_solo_presenza_proprieta(self):
+        client = WikidataClient()
+        ok = WikidataClient()._check_wikidata_bonus(
+            'Q937', self.FakeBonus('P39', ''), self._claims('P39', 'Q11696'))
+        self.assertTrue(ok)

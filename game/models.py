@@ -50,6 +50,20 @@ class WikipediaPerson(models.Model):
             return self.death_year - self.birth_year
         return None
 
+    def get_current_age(self):
+        """Età attuale (o all'eventuale decesso). None se mancano i dati di nascita."""
+        if self.is_dead:
+            return self.get_age_at_death()
+        today = timezone.now().date()
+        if self.birth_date:
+            age = today.year - self.birth_date.year
+            if (today.month, today.day) < (self.birth_date.month, self.birth_date.day):
+                age -= 1
+            return age
+        if self.birth_year:
+            return today.year - self.birth_year
+        return None
+
 
 class BonusType(models.Model):
     DETECTION_MANUAL = 'manual'
@@ -67,7 +81,13 @@ class BonusType(models.Model):
         (DETECTION_LAST_DEATH, 'Ultimo decesso della stagione'),
     ]
 
-    name = models.CharField(max_length=100, unique=True)
+    name = models.CharField(max_length=100)
+    # Se valorizzato, bonus personalizzato: visibile e utilizzabile solo in
+    # questa lega. Se NULL, bonus "di sistema" proposto a tutte le leghe.
+    league = models.ForeignKey(
+        'League', on_delete=models.CASCADE, related_name='custom_bonus_types',
+        null=True, blank=True,
+    )
     description = models.TextField(blank=True)
     points = models.IntegerField(
         help_text='Punti fissi. Ignorato se points_formula è valorizzato.'
@@ -90,11 +110,13 @@ class BonusType(models.Model):
 
     class Meta:
         ordering = ['ordering', 'name']
+        unique_together = [('league', 'name')]
         verbose_name = 'Tipo bonus'
         verbose_name_plural = 'Tipi bonus'
 
     def __str__(self):
-        return f'{self.name} (+{self.points})'
+        suffix = f' [{self.league.name}]' if self.league_id else ''
+        return f'{self.name} (+{self.points}){suffix}'
 
     def compute_points(self, age=None):
         """Restituisce i punti di questo bonus per una data età (se applicabile)."""
@@ -149,6 +171,13 @@ class Team(models.Model):
 
     def get_active_non_captain_count(self):
         return self.members.filter(is_captain=False, replaced_by=None).count()
+
+    def get_active_total_age(self):
+        """Somma delle età attuali dei membri attivi (0 per chi non ha dati di nascita)."""
+        return sum(
+            m.person.get_current_age() or 0
+            for m in self.members.filter(replaced_by=None).select_related('person')
+        )
 
 
 class TeamMember(models.Model):
@@ -327,6 +356,10 @@ class League(models.Model):
     # Regole composizione squadra
     max_captains = models.PositiveIntegerField(default=1)
     max_non_captains = models.PositiveIntegerField(default=11, help_text='Numero di morituri non capitano.')
+    max_total_age = models.PositiveIntegerField(
+        default=0,
+        help_text='Somma massima delle età dei membri attivi di una squadra (0 = nessun limite).',
+    )
     jolly_enabled = models.BooleanField(default=True, help_text='Se True, ogni squadra può avere un mese jolly.')
 
     # Regole punteggio

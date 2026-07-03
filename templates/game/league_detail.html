@@ -89,6 +89,9 @@
     <h5 class="mt-4">Regole della lega</h5>
     <ul class="list-unstyled small">
       <li>Composizione: <strong>{{ league.max_captains }} capitano + {{ league.max_non_captains }} morituri</strong></li>
+      {% if league.max_total_age %}
+        <li>Somma massima età rosa: <strong>{{ league.max_total_age }} anni</strong></li>
+      {% endif %}
       <li>Punti base: <strong>{{ league.base_points }}</strong></li>
       <li>Capitano: ×{{ league.captain_multiplier }}
         {% if league.jolly_enabled %}— Jolly: ×{{ league.jolly_multiplier }}{% endif %}</li>
