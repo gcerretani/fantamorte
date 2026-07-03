@@ -11,5 +11,6 @@ urlpatterns = [
     path('manifest.webmanifest', game_views.ManifestView.as_view(), name='manifest'),
     path('sw.js', game_views.ServiceWorkerView.as_view(), name='service_worker'),
     path('offline/', game_views.OfflineView.as_view(), name='offline'),
+    path('healthz/', game_views.HealthCheckView.as_view(), name='healthz'),
     path('', include('game.urls')),
 ]

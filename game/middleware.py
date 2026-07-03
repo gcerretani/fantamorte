@@ -14,6 +14,7 @@ PUBLIC_PATHS = {
     '/offline/',
     '/favicon.ico',
     '/robots.txt',
+    '/healthz/',
 }
 
 PUBLIC_PREFIXES = (

@@ -75,7 +75,7 @@
         {% for death in recent_deaths %}
           <li class="list-group-item d-flex justify-content-between">
             <div>
-              <a href="#" data-fm-person-pk="{{ death.person.pk }}">{{ death.person.name_it }}</a>
+              <a href="{% url 'person_detail' death.person.pk %}" data-fm-person-pk="{{ death.person.pk }}">{{ death.person.name_it }}</a>
               {% if death.death_age %}<small class="text-muted">({{ death.death_age }})</small>{% endif %}
             </div>
             <small class="text-muted">{{ death.death_date|date:"d/m/Y" }}</small>

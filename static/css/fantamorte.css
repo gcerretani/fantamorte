@@ -63,7 +63,7 @@
 /* Componenti custom */
 
 .badge-jolly { background-color: #6f42c1; }
-.badge-captain { background-color: #fd7e14; }
+.badge-captain { background-color: #fd7e14; color: #212529; }
 .table-deaths td { vertical-align: middle; }
 
 /* Toast container */

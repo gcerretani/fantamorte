@@ -22,6 +22,8 @@ con regole, calendario e bonus configurabili.
 - **Bootstrap 5.3** + vanilla JS per il frontend (server-rendered, no SPA)
 - **django-allauth** per auth + OAuth (Google, GitHub)
 - **pywebpush** per Web Push (VAPID)
+- **Email transazionali** implementate in `game/email.py` (template testo+HTML
+  in `templates/email/`): notifica decesso e reminder sostituzione
 - **Wikidata SPARQL** + Wikipedia API (it) per dati biografici
 - **Docker / Docker Compose** + Gunicorn per il deploy
 
@@ -37,18 +39,24 @@ fantamorte/
 │   ├── admin.py             # Django admin
 │   ├── scoring.py           # Calcolo punteggi (sorgente di verità: la League)
 │   ├── push.py              # Web Push (VAPID + broadcast)
-│   ├── signals.py           # Hook su Death.is_confirmed → push
+│   ├── email.py             # Email transazionali (decesso, reminder sostituzione)
+│   ├── signals.py           # Hook su Death.is_confirmed → push + email
 │   ├── middleware.py        # LoginRequiredEverywhereMiddleware
 │   ├── context_processors.py
-│   ├── tests.py             # Test di scoring (suite completa ~470 righe)
+│   ├── tests.py             # Test di scoring + email + reminder + tema
+│   ├── tests_commands.py    # Test management command (check_deaths)
+│   ├── tests_middleware.py  # Test LoginRequiredEverywhereMiddleware
+│   ├── tests_views.py       # Test permessi/integrazione view (in arrivo)
 │   ├── management/commands/ # check_deaths, mark_originals, award_first_last_death, generate_vapid_keys
 │   └── migrations/
 ├── wikidata_api/            # Client SPARQL/Wikipedia (puro utility, niente modelli)
 │   ├── client.py            # WikidataClient: search, entity, summary, SPARQL, bonus detection
-│   └── sparql.py            # Template query SPARQL (DEATH_CHECK_QUERY, ecc.)
+│   ├── sparql.py            # Template query SPARQL (DEATH_CHECK_QUERY, ecc.)
+│   └── tests.py             # Test del client (mockando le chiamate HTTP)
 ├── templates/
 │   ├── base.html            # Layout, navbar offcanvas, modal persona, dark mode
 │   ├── account/             # Override allauth (login/signup) con stile Bootstrap
+│   ├── email/               # Template email transazionali (txt + html)
 │   └── game/                # Tutti i template della app (+ sw.js renderizzato)
 ├── static/
 │   ├── css/fantamorte.css   # Tema custom + dark mode + componenti
@@ -70,9 +78,7 @@ User ─┬─ owns ──────────► League ◄── membershi
       │                     │
       └─ teams ────► Team ──┘
                       │
-                      └─ members ──► TeamMember ──► WikipediaPerson ──► Death ─┬─► DeathBonus ──► BonusType
-                                                                                │
-                                                                                └─► Season (legacy: indicizza per anno)
+                      └─ members ──► TeamMember ──► WikipediaPerson ──► Death ──► DeathBonus ──► BonusType
 
 LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
 ```
@@ -86,7 +92,6 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
 - **`Team`** ha FK a `League` (vincolo unique `(manager, league)` →
   un utente ha **una squadra per lega**). Ha anche `jolly_month` (mese del
   jolly, intero 1-12) e `is_locked` (squadra bloccata: nessuna modifica).
-  Mantiene un FK opzionale a `Season` solo per retro-compatibilità.
 - **`TeamMember.is_original`** flag che abilita il bonus "giocata originale".
   Calcolato a inizio stagione dal command `mark_originals`. Il campo
   `replaced_by` crea una catena per tracciare le sostituzioni (solo
@@ -100,19 +105,26 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
   (es. `3*(60-age)`); l'eval è whitelistato (`age`, `max`, `min` + operatori
   aritmetici). Il `detection_method` può essere
   `manual|wikidata|age|original|first_death|last_death`.
-- **`Death`** ha `is_confirmed` (flag che fa scattare i punti e il push).
-  La transizione `False → True` viene tracciata da `_was_confirmed` nel
-  pre-save signal.
-- **`Season`** è ancora usata da `Death` come "indice per anno"
-  (richiesto da `check_deaths` per il filtro SPARQL). **Non** detta
-  più le regole di gioco — quelle stanno in `League`.
+- **`Death`** ha `is_confirmed` (flag che fa scattare i punti, il push e le
+  email). La transizione `False → True` viene tracciata da `_was_confirmed`
+  nel pre-save signal. `check_deaths` **auto-conferma**: un decesso rilevato
+  su Wikidata con una data valida nasce già `is_confirmed=True` (usa
+  `--no-autoconfirm` per crearlo non confermato). Dal Django admin l'azione
+  "Revoca conferma" rimette `is_confirmed=False` (via `update()`, quindi
+  senza notifiche); per escludere definitivamente la persona dai check
+  automatici successivi occorre anche impostare `data_frozen=True` sulla
+  `WikipediaPerson`.
 - **`SiteSettings`** è un singleton (via Django admin) per configurazione
   globale, ad es. `wikidata_check_interval_hours`.
-- **`UserProfile`** tiene le preferenze per-utente: `push_enabled`,
-  `email_notifications`, `dark_mode`. Creato automaticamente al signup
-  via signal.
+- **`UserProfile`** tiene le preferenze per-utente: `push_notifications_enabled`,
+  `email_notifications_enabled`, `theme_preference` (`auto|light|dark`).
+  Creato automaticamente al signup via signal.
 - **`PushSubscription`** registra endpoint VAPID per-utente con
   `last_used_at` e `auth`/`p256dh` keys.
+- **`SubstitutionReminder`** traccia i reminder di scadenza sostituzione già
+  inviati (unique per `team_member` + `threshold_days`), per evitare invii
+  duplicati. Usato da `send_substitution_reminders` per le soglie T-3 e T-1
+  giorni prima della `substitution_deadline_days`.
 
 ## Auth e privacy
 
@@ -212,7 +224,9 @@ interattive).
 /api/leghe/<slug>/wikidata-apply/   JSON POST: applica campi selezionati (admin)
 
 /profilo/                       preferenze utente (push/email/dark mode)
+/statistiche/                   statistiche cross-lega (storico + leaderboard all-time)
 /regolamento/                   regolamento generico
+/healthz/                       healthcheck (pubblico, verifica anche il DB)
 
 /api/push/{subscribe,unsubscribe,test}/
 
@@ -257,8 +271,9 @@ interattive).
 
 ## Test
 
-La suite di test in `game/tests.py` (~470 righe) copre il calcolo del
-punteggio in modo esaustivo:
+La suite di test è divisa su più file. `game/tests.py` copre il calcolo del
+punteggio in modo esaustivo, più email transazionali, reminder sostituzioni
+e preferenze tema:
 
 - `ScoringBaseTestCase`: fixture con lega, stagione, squadra e 3 personaggi
   storici (Berlusconi, Giovanni Paolo II, Fellini)
@@ -271,13 +286,27 @@ punteggio in modo esaustivo:
   bordo
 - `TotaleEDeathDetailsTest`: aggregati e struttura dei dettagli
 - `RankingTest`: ordinamento classifica, pareggi
+- `ThemePreferenceTest`: default e valori validi di `theme_preference`
+- `DeathEmailTest`: opt-in/out email, subject "urgent", trigger dal signal
+  sulla transizione `is_confirmed`, no-crash se l'email non è configurata
+- `SubstitutionReminderTest`: soglie T-3/T-1, idempotenza via
+  `SubstitutionReminder`
 
-**Aree non ancora coperte dai test**: view (integrazione), Wikidata client
-(API esterna), signal handler, push notifications, admin actions.
+Altri file di test:
+- `game/tests_commands.py`: management command `check_deaths` (auto-conferma,
+  `--no-autoconfirm`, `--force`, `--dry-run`)
+- `game/tests_middleware.py`: `LoginRequiredEverywhereMiddleware` (path
+  pubblici vs protetti)
+- `game/tests_views.py`: permessi/integrazione delle view (in arrivo,
+  copertura ancora parziale)
+- `wikidata_api/tests.py`: client Wikidata con chiamate HTTP mockate
+
+**Aree ancora poco coperte**: view (integrazione, in corso in
+`tests_views.py`), admin actions.
 
 Esegui i test con:
 ```bash
-python manage.py test game
+python manage.py test game wikidata_api
 ```
 
 ## Comandi utili
@@ -297,9 +326,10 @@ python manage.py generate_vapid_keys
 python manage.py runserver
 
 # Cron / job periodici (per ogni lega in corso)
-python manage.py check_deaths              # rileva morti via Wikidata
+python manage.py check_deaths              # rileva morti via Wikidata (auto-conferma se data valida)
 python manage.py check_deaths --dry-run    # senza scrivere
-python manage.py check_deaths --force      # ignora data_frozen sulle persone
+python manage.py check_deaths --force      # ignora data_frozen e last_checked sulle persone
+python manage.py check_deaths --no-autoconfirm   # crea i decessi non confermati
 python manage.py mark_originals            # a inizio stagione di una lega
 python manage.py award_first_last_death --league <slug> --first   # primo decesso
 python manage.py award_first_last_death --league <slug> --last    # fine stagione
@@ -327,11 +357,13 @@ docker compose exec web python manage.py migrate
 
 ## Aree migliorabili / TODO suggeriti
 
-- Inviti via email per leghe private (oggi solo codice condiviso)
-- Statistiche cross-lega (storico per utente, leaderboard "all-time")
-- Test di integrazione per le view e per il client Wikidata
-- Possibile rimozione completa di `Season` (richiede di rivedere
-  `check_deaths` e `Death.season`); valutare quando ci sarà tempo
+- Inviti via email per leghe private (oggi codice condiviso + link invito
+  diretto; le email transazionali di decesso/reminder sono già implementate
+  in `game/email.py`)
+- Coprire le admin actions con test
+- Bonus primo/ultimo morto per-lega: oggi `DeathBonus` è globale per Death,
+  quindi se due leghe condividono la stessa persona il bonus assegnato in una
+  lega risulta visibile anche nell'altra (se quella lega ha il bonus attivo)
 - Indici DB su `Death.death_date`, `Team.league`, `LeagueMembership.user`
   se le leghe diventano numerose
 - API REST con DRF se serve un'app mobile nativa

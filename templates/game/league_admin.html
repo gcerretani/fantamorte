@@ -122,6 +122,7 @@
     <form method="post">
       {% csrf_token %}
       <input type="hidden" name="action" value="set_bonus">
+      <div class="table-responsive">
       <table class="table table-sm align-middle">
         <thead><tr><th>Attivo</th><th>Bonus</th><th>Default</th><th>Override punti</th></tr></thead>
         <tbody>
@@ -147,12 +148,14 @@
           {% endfor %}
         </tbody>
       </table>
+      </div>
       <button class="btn btn-dark btn-sm">Salva bonus</button>
     </form>
   </div>
 
   <!-- MEMBRI -->
   <div class="tab-pane fade" id="tabMembers">
+    <div class="table-responsive">
     <table class="table table-sm align-middle">
       <thead><tr><th>Utente</th><th>Ruolo</th><th>Iscritto</th><th>Azioni</th></tr></thead>
       <tbody>
@@ -161,7 +164,7 @@
             <td>{{ m.user.username }} <small class="text-muted">{{ m.user.email }}</small></td>
             <td>
               {% if m.role == 'owner' %}<span class="badge bg-warning text-dark">Owner</span>
-              {% elif m.role == 'admin' %}<span class="badge bg-info">Admin</span>
+              {% elif m.role == 'admin' %}<span class="badge text-bg-info">Admin</span>
               {% else %}<span class="badge bg-secondary">Membro</span>{% endif %}
             </td>
             <td><small>{{ m.joined_at|date:"d/m/Y" }}</small></td>
@@ -207,18 +210,36 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
   </div>
 
   {% if league.visibility == 'private' %}
   <!-- INVITE CODE -->
   <div class="tab-pane fade" id="tabInvite">
-    <p>Codice invito attuale (condividilo con chi vuoi far entrare):</p>
-    <pre class="bg-dark text-light p-3 rounded">{{ league.invite_code }}</pre>
-    <form method="post">
+    <p>Link di invito (condividilo con chi vuoi far entrare — il codice è già incluso):</p>
+    <div class="input-group mb-3">
+      <input type="text" id="inviteLink" class="form-control" readonly
+             value="{{ request.scheme }}://{{ request.get_host }}{% url 'league_join' league.slug %}?code={{ league.invite_code }}">
+      <button type="button" class="btn btn-outline-dark" id="copyInviteLink">Copia</button>
+    </div>
+    <p class="small text-muted">Codice invito: <code>{{ league.invite_code }}</code></p>
+    <form method="post" onsubmit="return confirm('Rigenerando il codice, i link di invito già condivisi smetteranno di funzionare. Continuare?');">
       {% csrf_token %}
       <input type="hidden" name="action" value="rotate_invite">
       <button class="btn btn-outline-dark btn-sm">Rigenera codice</button>
     </form>
+    <script>
+    document.getElementById('copyInviteLink').addEventListener('click', function () {
+      const input = document.getElementById('inviteLink');
+      navigator.clipboard.writeText(input.value).then(() => {
+        this.textContent = 'Copiato!';
+        setTimeout(() => { this.textContent = 'Copia'; }, 2000);
+      }).catch(() => {
+        input.select();
+        document.execCommand('copy');
+      });
+    });
+    </script>
   </div>
   {% endif %}
 

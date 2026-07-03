@@ -6,8 +6,8 @@
   <div class="col-md-8">
     <h2>&#9760; {{ death.person.name_it }}</h2>
     <p class="text-muted">
-      {% if death.person.birth_date %}Nato/a: {{ death.person.birth_date }} &mdash; {% endif %}
-      Morto/a: {{ death.death_date }}
+      {% if death.person.birth_date %}Nato/a: {{ death.person.birth_date|date:"d/m/Y" }} &mdash; {% endif %}
+      Morto/a: {{ death.death_date|date:"d/m/Y" }}
       {% if death.death_age %} ({{ death.death_age }} anni){% endif %}
       &mdash; <span class="badge {% if death.is_confirmed %}bg-success{% else %}bg-warning text-dark{% endif %}">
         {% if death.is_confirmed %}Confermato{% else %}Non confermato{% endif %}
@@ -19,6 +19,7 @@
 
     <h5>Bonus applicati</h5>
     {% if bonuses %}
+      <div class="table-responsive">
       <table class="table table-sm">
         <thead><tr><th>Bonus</th><th>Punti</th><th>Tipo</th></tr></thead>
         <tbody>
@@ -28,7 +29,7 @@
               <td>+{{ b.points_awarded }}</td>
               <td>
                 {% if b.is_auto_detected %}
-                  <span class="badge bg-info text-dark">automatico</span>
+                  <span class="badge text-bg-info">automatico</span>
                 {% else %}
                   <span class="badge bg-secondary">manuale</span>
                 {% endif %}
@@ -37,6 +38,7 @@
           {% endfor %}
         </tbody>
       </table>
+      </div>
       <p class="text-muted small">
         I punti effettivi dipendono dalla configurazione della lega.
         Vedi <a href="{% url 'rules' %}">il regolamento</a>.

@@ -133,26 +133,30 @@
       return;
     }
 
+    // Valori dinamici (Wikidata/DB) non fidati: escapare sempre prima di
+    // inserirli nell'HTML. Il valore di data-new-value viene invece
+    // assegnato via JS dopo il rendering, senza mai passare per innerHTML.
+    const newValues = [];
     let html = '<table class="table table-bordered table-sm align-middle">';
     html += '<thead class="table-light"><tr><th>Giocatore</th><th>Campo</th><th>Valore attuale</th><th>Nuovo valore</th><th>Importa</th></tr></thead><tbody>';
     withChanges.forEach(person => {
       person.changes.forEach((ch, i) => {
         const rowspan = i === 0 ? ` rowspan="${person.changes.length}"` : '';
-        const nameCell = i === 0 ? `<td${rowspan}><strong>${person.name_it}</strong><br><code class="small">${person.wikidata_id}</code></td>` : '';
+        const nameCell = i === 0 ? `<td${rowspan}><strong>${fmEscapeHtml(person.name_it)}</strong><br><code class="small">${fmEscapeHtml(person.wikidata_id)}</code></td>` : '';
         const rowClass = ch.is_removal ? 'table-danger' : (ch.field === 'death_date' || ch.field === 'death_year' ? 'table-success' : '');
-        const oldDisplay = ch.old !== null ? ch.old : '<em class="text-muted">—</em>';
-        const newDisplay = ch.new !== null ? ch.new : '<em class="text-muted">—</em>';
+        const oldDisplay = ch.old !== null ? fmEscapeHtml(ch.old) : '<em class="text-muted">—</em>';
+        const newDisplay = ch.new !== null ? fmEscapeHtml(ch.new) : '<em class="text-muted">—</em>';
         const badge = ch.is_removal ? '<span class="badge bg-danger ms-1">Rimozione</span>' : '';
+        newValues.push(ch.new !== null ? ch.new : '');
         html += `<tr class="${rowClass}">
           ${nameCell}
-          <td>${ch.label}${badge}</td>
+          <td>${fmEscapeHtml(ch.label)}${badge}</td>
           <td>${oldDisplay}</td>
           <td>${newDisplay}</td>
           <td class="text-center">
             <input type="checkbox" class="form-check-input diff-check"
-              data-person-pk="${person.person_pk}"
-              data-field="${ch.field}"
-              data-new-value="${ch.new !== null ? ch.new : ''}"
+              data-person-pk="${fmEscapeHtml(String(person.person_pk))}"
+              data-field="${fmEscapeHtml(ch.field)}"
               data-is-null="${ch.new === null ? '1' : '0'}"
               ${ch.is_removal ? '' : 'checked'}>
           </td>
@@ -161,6 +165,12 @@
     });
     html += '</tbody></table>';
     wrapper.innerHTML = html;
+    // Assegna data-new-value dopo l'inserimento nel DOM: essendo una
+    // property assignment JS (non parsing HTML) non introduce rischio XSS,
+    // a differenza dell'interpolazione diretta nell'attributo HTML.
+    document.querySelectorAll('.diff-check').forEach((cb, idx) => {
+      cb.dataset.newValue = newValues[idx];
+    });
     document.getElementById('diff-section').classList.remove('d-none');
     document.querySelectorAll('.diff-check').forEach(cb => cb.addEventListener('change', updateApplyButton));
     updateApplyButton();
@@ -188,7 +198,7 @@
       const data = await fetchDiff(null);
       renderDiff(data.results || []);
     } catch (e) {
-      alert('Errore durante il controllo: ' + e.message);
+      fmToast('Errore durante il controllo: ' + e.message, 'danger');
     } finally {
       setSpinner(this, false);
     }
@@ -204,7 +214,7 @@
         renderDiff(data.results || []);
         document.getElementById('diff-section').scrollIntoView({behavior: 'smooth'});
       } catch (e) {
-        alert('Errore durante il controllo: ' + e.message);
+        fmToast('Errore durante il controllo: ' + e.message, 'danger');
       } finally {
         setSpinner(this, false);
       }

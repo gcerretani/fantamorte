@@ -97,3 +97,18 @@
 </div>
 
 {% endblock %}
+
+{% block extra_js %}
+<script>
+  // Tiene sincronizzato localStorage['fm-theme'] con la preferenza scelta
+  // qui, altrimenti readPref() in fantamorte.js darebbe sempre precedenza
+  // a un vecchio valore salvato in localStorage.
+  document.querySelectorAll('input[name="theme_preference"]').forEach(function (radio) {
+    radio.addEventListener('change', function () {
+      if (this.checked && window.fmSetThemePreference) {
+        window.fmSetThemePreference(this.value);
+      }
+    });
+  });
+</script>
+{% endblock %}
