@@ -7,7 +7,7 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("game", "0013_remove_first_last_death_bonus_rows"),
+        ("game", "0014_remove_first_last_death_bonus_rows"),
     ]
 
     operations = [
