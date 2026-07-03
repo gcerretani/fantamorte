@@ -755,3 +755,87 @@ class CSVAndIcalExportTest(ScoringBaseTestCase):
         self.assertIn('BEGIN:VCALENDAR', body)
         self.assertIn('END:VCALENDAR', body)
         self.assertIn('Inizio stagione', body)
+
+
+class PrimoUltimoMortoTest(TestCase):
+    """Bonus primo/ultimo morto: relativi alla singola lega, senza righe
+    DeathBonus condivise né correlazioni tra leghe."""
+
+    def _make_league(self, name, slug, start, end, first_pts=None, last_pts=None):
+        league = League.objects.create(
+            name=name, slug=slug, owner=self.manager,
+            start_date=start, end_date=end,
+            registration_opens=start, registration_closes=end,
+            base_points=10,
+        )
+        if first_pts is not None:
+            LeagueBonus.objects.create(league=league, bonus_type=self.bt_first, is_active=True,
+                                       override_points=first_pts)
+        if last_pts is not None:
+            LeagueBonus.objects.create(league=league, bonus_type=self.bt_last, is_active=True,
+                                       override_points=last_pts)
+        return league
+
+    def setUp(self):
+        self.manager = User.objects.create_user('fl-manager', password='x')
+        self.bt_first = BonusType.objects.create(
+            name='FL Primo', points=50, detection_method=BonusType.DETECTION_FIRST_DEATH,
+        )
+        self.bt_last = BonusType.objects.create(
+            name='FL Ultimo', points=50, detection_method=BonusType.DETECTION_LAST_DEATH,
+        )
+        self.p1 = WikipediaPerson.objects.create(wikidata_id='Q77701', name_it='Primo Deceduto', is_dead=True)
+        self.p2 = WikipediaPerson.objects.create(wikidata_id='Q77702', name_it='Secondo Deceduto', is_dead=True)
+        self.d1 = Death.objects.create(person=self.p1, death_date=date(2021, 1, 10),
+                                       death_age=80, is_confirmed=True)
+        self.d2 = Death.objects.create(person=self.p2, death_date=date(2021, 6, 10),
+                                       death_age=70, is_confirmed=True)
+
+    def test_primo_e_ultimo_in_lega_conclusa(self):
+        league = self._make_league('FL Conclusa', 'fl-conclusa',
+                                   date(2021, 1, 1), date(2021, 12, 31),
+                                   first_pts=50, last_pts=40)
+        team = Team.objects.create(name='FL Team', manager=self.manager, league=league)
+        TeamMember.objects.create(team=team, person=self.p1)
+        TeamMember.objects.create(team=team, person=self.p2)
+        # d1 = primo (10+50), d2 = ultimo (10+40)
+        self.assertEqual(compute_team_points_for_death(team, self.d1), 60)
+        self.assertEqual(compute_team_points_for_death(team, self.d2), 50)
+        self.assertEqual(compute_team_total_score(team), 110)
+
+    def test_ultimo_non_assegnato_se_lega_in_corso(self):
+        league = self._make_league('FL In Corso', 'fl-in-corso',
+                                   date(2021, 1, 1), date(2099, 12, 31),
+                                   first_pts=50, last_pts=40)
+        team = Team.objects.create(name='FL Team 2', manager=self.manager, league=league)
+        TeamMember.objects.create(team=team, person=self.p1)
+        TeamMember.objects.create(team=team, person=self.p2)
+        # d1 primo (10+50); d2 solo base: l'ultimo è definitivo solo a lega finita
+        self.assertEqual(compute_team_points_for_death(team, self.d1), 60)
+        self.assertEqual(compute_team_points_for_death(team, self.d2), 10)
+
+    def test_nessuna_correlazione_tra_leghe(self):
+        # Lega A copre tutto il 2021: il suo primo morto è d1.
+        # Lega B copre solo il secondo semestre: il suo primo morto è d2.
+        league_a = self._make_league('FL A', 'fl-a', date(2021, 1, 1), date(2021, 12, 31),
+                                     first_pts=50)
+        league_b = self._make_league('FL B', 'fl-b', date(2021, 6, 1), date(2021, 12, 31),
+                                     first_pts=50)
+        team_a = Team.objects.create(name='FL Team A', manager=self.manager, league=league_a)
+        TeamMember.objects.create(team=team_a, person=self.p2)
+        team_b = Team.objects.create(name='FL Team B', manager=self.manager, league=league_b)
+        TeamMember.objects.create(team=team_b, person=self.p2)
+        # In A d2 non è il primo morto → solo base. In B d2 è il primo → base+50.
+        self.assertEqual(compute_team_points_for_death(team_a, self.d2), 10)
+        self.assertEqual(compute_team_points_for_death(team_b, self.d2), 60)
+
+    def test_riga_deathbonus_legacy_ignorata(self):
+        league = self._make_league('FL Legacy', 'fl-legacy',
+                                   date(2021, 1, 1), date(2021, 12, 31),
+                                   first_pts=50)
+        team = Team.objects.create(name='FL Team 3', manager=self.manager, league=league)
+        TeamMember.objects.create(team=team, person=self.p1)
+        # Riga persistita legacy: non deve sommarsi al calcolo dinamico.
+        DeathBonus.objects.create(death=self.d1, bonus_type=self.bt_first,
+                                  points_awarded=50, is_auto_detected=True)
+        self.assertEqual(compute_team_points_for_death(team, self.d1), 60)

@@ -63,13 +63,14 @@ cambiare a ogni deploy per invalidare la cache del service worker lato
 client), le credenziali OAuth (`GOOGLE_OAUTH_*`, `GITHUB_OAUTH_*`, opzionali:
 se vuote i relativi pulsanti di login social spariscono), gli header HSTS,
 `SCHEDULER_DAILY_HOUR`/`SCHEDULER_INTERVAL_SECONDS` (frequenza dei job del
-servizio `scheduler`: reminder e bonus primo/ultimo decesso sono giornalieri,
-`check_deaths` gira a intervallo) e `BACKUP_KEEP_DAYS` (rotazione dei backup
-del servizio `db_backup`).
+servizio `scheduler`: i reminder sono giornalieri, `check_deaths` gira a
+intervallo) e `BACKUP_KEEP_DAYS` (rotazione dei backup del servizio
+`db_backup`).
 
 Il servizio `scheduler` è quello che esegue periodicamente i job di gioco
-(`check_deaths`, `send_substitution_reminders`, `award_first_last_death`):
-senza, i decessi non vengono mai rilevati e i reminder/bonus non partono.
+(`check_deaths`, `send_substitution_reminders`): senza, i decessi non
+vengono mai rilevati e i reminder non partono. I bonus primo/ultimo morto
+sono calcolati dinamicamente dallo scoring, per lega, senza job dedicati.
 
 ```bash
 docker compose up -d
@@ -93,10 +94,6 @@ non per stagione; in mancanza dell'argomento operano sulle leghe in corso.
   confermati).
 - `mark_originals` — segna i membri "originali" di una squadra a inizio
   stagione, abilitando il bonus corrispondente.
-- `award_first_last_death` — assegna il bonus di primo (`--first`) o ultimo
-  (`--last`) decesso della lega; con `--league <slug>` opera su una lega
-  sola, senza opera in modalità scheduler su tutte le leghe eleggibili
-  (idempotente, adatto a un cron giornaliero).
 - `send_substitution_reminders` — invia push/email di promemoria (soglie
   T-3 e T-1 giorni) per le sostituzioni in scadenza; `--dry-run` per loggare
   senza inviare.

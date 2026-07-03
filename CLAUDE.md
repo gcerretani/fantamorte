@@ -47,7 +47,7 @@ fantamorte/
 │   ├── tests_commands.py    # Test management command (check_deaths)
 │   ├── tests_middleware.py  # Test LoginRequiredEverywhereMiddleware
 │   ├── tests_views.py       # Test permessi/integrazione view (in arrivo)
-│   ├── management/commands/ # check_deaths, mark_originals, award_first_last_death, generate_vapid_keys
+│   ├── management/commands/ # check_deaths, mark_originals, send_substitution_reminders, generate_vapid_keys
 │   └── migrations/
 ├── wikidata_api/            # Client SPARQL/Wikipedia (puro utility, niente modelli)
 │   ├── client.py            # WikidataClient: search, entity, summary, SPARQL, bonus detection
@@ -166,9 +166,13 @@ Implementato in `game/scoring.py`. La **League** è la sorgente di verità:
    Se un bonus non è in `LeagueBonus` per quella lega, **non viene contato**.
 3. Se `member.is_original`, somma anche i bonus con
    `detection_method='original'` attivi nella lega.
-4. Moltiplicatore = `captain_multiplier` (se capitano) × `jolly_multiplier`
+4. I bonus `first_death`/`last_death` sono **calcolati dinamicamente per
+   lega** (primo/ultimo decesso confermato nel periodo della lega; l'ultimo
+   solo a lega conclusa). Non esistono righe `DeathBonus` per questi tipi:
+   le leghe condividono solo il database degli eventi, nessuna correlazione.
+5. Moltiplicatore = `captain_multiplier` (se capitano) × `jolly_multiplier`
    (se mese jolly) — moltiplicano tra loro (es. entrambi attivi = 4×).
-5. Le morti considerate sono solo quelle con `is_confirmed=True` e
+6. Le morti considerate sono solo quelle con `is_confirmed=True` e
    `start_date ≤ death_date ≤ end_date` della lega.
 
 API pubblica:
@@ -331,8 +335,6 @@ python manage.py check_deaths --dry-run    # senza scrivere
 python manage.py check_deaths --force      # ignora data_frozen e last_checked sulle persone
 python manage.py check_deaths --no-autoconfirm   # crea i decessi non confermati
 python manage.py mark_originals            # a inizio stagione di una lega
-python manage.py award_first_last_death --league <slug> --first   # primo decesso
-python manage.py award_first_last_death --league <slug> --last    # fine stagione
 python manage.py send_substitution_reminders             # reminder push/email per sostituzioni (T-3, T-1)
 python manage.py send_substitution_reminders --dry-run   # solo log, niente invio
 
@@ -361,9 +363,6 @@ docker compose exec web python manage.py migrate
   diretto; le email transazionali di decesso/reminder sono già implementate
   in `game/email.py`)
 - Coprire le admin actions con test
-- Bonus primo/ultimo morto per-lega: oggi `DeathBonus` è globale per Death,
-  quindi se due leghe condividono la stessa persona il bonus assegnato in una
-  lega risulta visibile anche nell'altra (se quella lega ha il bonus attivo)
 - Indici DB su `Death.death_date`, `Team.league`, `LeagueMembership.user`
   se le leghe diventano numerose
 - API REST con DRF se serve un'app mobile nativa
