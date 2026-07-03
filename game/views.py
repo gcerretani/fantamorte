@@ -957,6 +957,9 @@ class PersonSearchView(LoginRequiredMixin, View):
 
         client = WikidataClient()
         client.delay = 0  # ricerca interattiva: nessun rate-limit artificiale
+        # Fail-fast: meglio un fallback rapido che un autocomplete appeso.
+        client.timeout = 5
+        client.sparql_timeout = 8
         sparql_warning = None
         try:
             results, sparql_failed = client.search_by_italian_name(q, require_wikis=require_wikis)

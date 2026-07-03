@@ -6,11 +6,13 @@ rete viene bloccata patchando `WikidataClient._get` così un eventuale bug
 che la invocasse comunque farebbe fallire il test.
 """
 from datetime import date
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test import TestCase
 
 from game.models import BonusType
+from . import client as client_module
 from .client import WikidataClient
 
 
@@ -136,6 +138,9 @@ class HierarchicalBonusCheckTest(TestCase):
             self.wikidata_property = prop
             self.wikidata_value = value
 
+    def setUp(self):
+        cache.clear()  # gli ASK gerarchici sono cachati tra i test
+
     def _claims(self, prop, qid):
         return {prop: [{'mainsnak': {'snaktype': 'value', 'datavalue': {
             'type': 'wikibase-entityid', 'value': {'id': qid}}}}]}
@@ -180,3 +185,126 @@ class HierarchicalBonusCheckTest(TestCase):
         ok = WikidataClient()._check_wikidata_bonus(
             'Q937', self.FakeBonus('P39', ''), self._claims('P39', 'Q11696'))
         self.assertTrue(ok)
+
+    def test_ask_gerarchico_cachato(self):
+        """La seconda chiamata con gli stessi argomenti non tocca SPARQL."""
+        client = WikidataClient()
+        bonus = self.FakeBonus('P166', 'Q7191')
+        claims = self._claims('P166', 'Q38104')
+        with patch.object(WikidataClient, '_sparql', return_value={'boolean': True}) as mock_sparql:
+            self.assertTrue(client._check_wikidata_bonus('Q937', bonus, claims))
+        self.assertEqual(mock_sparql.call_count, 1)
+        with patch.object(WikidataClient, '_sparql', side_effect=AssertionError('rete non attesa')):
+            self.assertTrue(client._check_wikidata_bonus('Q937', bonus, claims))
+
+    def test_ask_fallito_non_viene_cachato(self):
+        """Un errore SPARQL torna False ma non avvelena la cache."""
+        client = WikidataClient()
+        bonus = self.FakeBonus('P166', 'Q7191')
+        claims = self._claims('P166', 'Q38104')
+        with patch.object(WikidataClient, '_sparql', side_effect=RuntimeError('timeout')):
+            self.assertFalse(client._check_wikidata_bonus('Q937', bonus, claims))
+        with patch.object(WikidataClient, '_sparql', return_value={'boolean': True}):
+            self.assertTrue(client._check_wikidata_bonus('Q937', bonus, claims))
+
+
+class ThrottleTest(TestCase):
+    """_throttle: mai prima della prima richiesta, sì tra richieste ravvicinate."""
+
+    def setUp(self):
+        client_module._reset_session_for_tests()
+
+    def tearDown(self):
+        client_module._reset_session_for_tests()
+
+    def test_prima_richiesta_senza_attesa(self):
+        with patch.object(client_module.time, 'sleep') as mock_sleep:
+            client_module._throttle(0.5)
+        mock_sleep.assert_not_called()
+
+    def test_seconda_richiesta_ravvicinata_attende(self):
+        client_module._throttle(0.5)
+        with patch.object(client_module.time, 'sleep') as mock_sleep:
+            client_module._throttle(0.5)
+        mock_sleep.assert_called_once()
+        self.assertGreater(mock_sleep.call_args[0][0], 0)
+
+    def test_delay_zero_non_attende_mai(self):
+        client_module._throttle(0.5)
+        with patch.object(client_module.time, 'sleep') as mock_sleep:
+            client_module._throttle(0)
+        mock_sleep.assert_not_called()
+
+
+class SharedSessionAndTimeoutTest(TestCase):
+    """Session condivisa a livello di modulo e timeout sovrascrivibili."""
+
+    def setUp(self):
+        client_module._reset_session_for_tests()
+
+    def tearDown(self):
+        client_module._reset_session_for_tests()
+
+    def test_due_client_condividono_la_session(self):
+        self.assertIs(WikidataClient().session, WikidataClient().session)
+
+    def test_timeout_override_arriva_alla_session(self):
+        client = WikidataClient()
+        client.delay = 0
+        client.timeout = 5
+        fake_resp = MagicMock()
+        fake_resp.json.return_value = {}
+        with patch.object(client.session, 'get', return_value=fake_resp) as mock_get:
+            client._get('https://example.org/api')
+        self.assertEqual(mock_get.call_args.kwargs['timeout'], 5)
+
+    def test_sparql_timeout_override(self):
+        client = WikidataClient()
+        client.delay = 0
+        client.sparql_timeout = 8
+        fake_resp = MagicMock()
+        fake_resp.json.return_value = {}
+        with patch.object(client.session, 'get', return_value=fake_resp) as mock_get:
+            client._sparql('ASK { }')
+        self.assertEqual(mock_get.call_args.kwargs['timeout'], 8)
+
+
+class CombinedLabelsFetchTest(TestCase):
+    """get_entity risolve occupazione e cittadinanza con UNA sola wbgetentities."""
+
+    def _entity_payload(self):
+        def entity_claim(prop_qid):
+            return [{'mainsnak': {'snaktype': 'value', 'datavalue': {
+                'type': 'wikibase-entityid', 'value': {'id': prop_qid}}}}]
+        return {'entities': {'Q937': {
+            'labels': {'it': {'value': 'Albert Einstein'}},
+            'descriptions': {},
+            'claims': {'P106': entity_claim('Q169470'), 'P27': entity_claim('Q39')},
+            'sitelinks': {},
+        }}}
+
+    def _labels_payload(self):
+        return {'entities': {
+            'Q169470': {'labels': {'it': {'value': 'fisico'}}},
+            'Q39': {'labels': {'it': {'value': 'Svizzera'}}},
+        }}
+
+    def test_una_sola_chiamata_labels(self):
+        client = WikidataClient()
+        responses = [self._entity_payload(), self._labels_payload()]
+        with patch.object(client, '_get', side_effect=responses) as mock_get:
+            entity = client.get_entity('Q937')
+        # 1 chiamata EntityData + 1 sola wbgetentities per P106+P27 insieme.
+        self.assertEqual(mock_get.call_count, 2)
+        ids = mock_get.call_args_list[1][0][1]['ids']
+        self.assertEqual(set(ids.split('|')), {'Q169470', 'Q39'})
+        self.assertEqual(entity['occupation'], 'fisico')
+        self.assertEqual(entity['nationality'], 'Svizzera')
+
+    def test_errore_labels_azzera_entrambi(self):
+        client = WikidataClient()
+        responses = [self._entity_payload(), RuntimeError('timeout')]
+        with patch.object(client, '_get', side_effect=responses):
+            entity = client.get_entity('Q937')
+        self.assertIsNone(entity['occupation'])
+        self.assertIsNone(entity['nationality'])

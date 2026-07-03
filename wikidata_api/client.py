@@ -1,13 +1,68 @@
 import logging
 import re
+import threading
 import time
 import requests
 from datetime import date
 from django.conf import settings
+from django.core.cache import cache
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from . import sparql as sparql_templates
 
 
 logger = logging.getLogger(__name__)
+
+# Session condivisa a livello di modulo: riusa connessioni/TLS tra richieste
+# consecutive nello stesso processo. requests.Session non è formalmente
+# thread-safe, ma qui gli header sono impostati una sola volta, non ci sono
+# cookie (GET stateless) e il PoolManager urllib3 sottostante è thread-safe;
+# con i worker sync di Gunicorn non c'è comunque concorrenza intra-processo.
+_session = None
+_session_lock = threading.Lock()
+
+# Timestamp (monotonic) dell'ultima richiesta: il throttle si applica solo
+# tra richieste consecutive, mai prima della prima.
+_last_request_ts = 0.0
+_throttle_lock = threading.Lock()
+
+
+def _shared_session():
+    global _session
+    with _session_lock:
+        if _session is None:
+            ua = getattr(settings, 'WIKIDATA_USER_AGENT', 'Fantamorte/1.0')
+            s = requests.Session()
+            s.headers.update({'User-Agent': ua, 'Accept': 'application/json'})
+            retry = Retry(
+                total=1, connect=1, read=0,
+                status_forcelist=(502, 503, 504),
+                allowed_methods=frozenset(['GET']),
+                backoff_factor=0.5,
+                respect_retry_after_header=True,
+            )
+            s.mount('https://', HTTPAdapter(max_retries=retry, pool_maxsize=10))
+            _session = s
+    return _session
+
+
+def _reset_session_for_tests():
+    global _session, _last_request_ts
+    with _session_lock:
+        _session = None
+    with _throttle_lock:
+        _last_request_ts = 0.0
+
+
+def _throttle(delay):
+    global _last_request_ts
+    if delay <= 0:
+        return
+    with _throttle_lock:
+        wait = delay - (time.monotonic() - _last_request_ts)
+        if wait > 0:
+            time.sleep(wait)
+        _last_request_ts = time.monotonic()
 
 
 class WikidataClient:
@@ -15,24 +70,30 @@ class WikidataClient:
     SPARQL_URL = 'https://query.wikidata.org/sparql'
     IT_WIKI_API = 'https://it.wikipedia.org/w/api.php'
 
-    def __init__(self):
-        ua = getattr(settings, 'WIKIDATA_USER_AGENT', 'Fantamorte/1.0')
-        self.delay = getattr(settings, 'WIKIDATA_REQUEST_DELAY', 0.5)
-        self.session = requests.Session()
-        self.session.headers.update({'User-Agent': ua, 'Accept': 'application/json'})
+    # TTL della cache dei check gerarchici bonus: la gerarchia dei claim
+    # Wikidata è quasi immutabile, 7 giorni evitano ri-ASK costosi.
+    BONUS_CHECK_CACHE_TTL = 7 * 24 * 3600
 
-    def _get(self, url, params=None):
-        time.sleep(self.delay)
-        resp = self.session.get(url, params=params, timeout=15)
+    def __init__(self):
+        self.delay = getattr(settings, 'WIKIDATA_REQUEST_DELAY', 0.5)
+        # Timeout sovrascrivibili per-istanza: le viste interattive possono
+        # abbassarli per fallire in fretta (vedi PersonSearchView).
+        self.timeout = 15
+        self.sparql_timeout = 30
+        self.session = _shared_session()
+
+    def _get(self, url, params=None, timeout=None):
+        _throttle(self.delay)
+        resp = self.session.get(url, params=params, timeout=timeout or self.timeout)
         resp.raise_for_status()
         return resp.json()
 
-    def _sparql(self, query):
-        time.sleep(self.delay)
+    def _sparql(self, query, timeout=None):
+        _throttle(self.delay)
         resp = self.session.get(
             self.SPARQL_URL,
             params={'query': query, 'format': 'json'},
-            timeout=30,
+            timeout=timeout or self.sparql_timeout,
         )
         resp.raise_for_status()
         return resp.json()
@@ -126,16 +187,18 @@ class WikidataClient:
         wikipedia_url = f'https://it.wikipedia.org/wiki/{wiki_title.replace(" ", "_")}' if wiki_title else ''
 
         image_url = self._build_commons_image_url(claims.get('P18', []))
+        # Occupazione e cittadinanza risolte con UNA sola wbgetentities.
+        occ_qids = self._qids_from_claims(claims.get('P106', []), limit=4)
+        nat_qids = self._qids_from_claims(claims.get('P27', []), limit=2)
         try:
-            occupation = self._labels_for_entity_claims(claims.get('P106', []), limit=4)
+            labels = self._fetch_labels(list(dict.fromkeys(occ_qids + nat_qids)))
+            occupation = ', '.join(labels[q] for q in occ_qids if q in labels)
+            nationality = ', '.join(labels[q] for q in nat_qids if q in labels)
         except Exception:
             # None = non determinabile (es. timeout label lookup); il diff lo ignora.
-            logger.warning('Recupero occupation fallito per %s', wikidata_id, exc_info=True)
+            logger.warning('Recupero label occupation/nationality fallito per %s',
+                           wikidata_id, exc_info=True)
             occupation = None
-        try:
-            nationality = self._labels_for_entity_claims(claims.get('P27', []), limit=2)
-        except Exception:
-            logger.warning('Recupero nationality fallito per %s', wikidata_id, exc_info=True)
             nationality = None
 
         return {
@@ -187,8 +250,8 @@ class WikidataClient:
         from urllib.parse import quote
         return f'https://commons.wikimedia.org/wiki/Special:FilePath/{quote(filename)}?width=400'
 
-    def _labels_for_entity_claims(self, claim_list, limit=4, lang='it'):
-        """Risolve le label italiane delle entità referenziate da una lista di claims."""
+    def _qids_from_claims(self, claim_list, limit=4):
+        """Estrae i QID delle entità referenziate da una lista di claims."""
         qids = []
         for claim in claim_list[:limit]:
             snak = claim.get('mainsnak', {})
@@ -200,8 +263,15 @@ class WikidataClient:
             qid = dv.get('value', {}).get('id')
             if qid:
                 qids.append(qid)
+        return qids
+
+    def _fetch_labels(self, qids, lang='it'):
+        """Risolve le label di una lista di QID con una sola wbgetentities.
+
+        Ritorna un dict {qid: label}; i QID senza label vengono omessi.
+        """
         if not qids:
-            return ''
+            return {}
         params = {
             'action': 'wbgetentities',
             'ids': '|'.join(qids),
@@ -211,14 +281,13 @@ class WikidataClient:
         }
         data = self._get('https://www.wikidata.org/w/api.php', params)
         entities = data.get('entities', {})
-        labels = []
+        labels = {}
         for qid in qids:
-            ent = entities.get(qid, {})
-            lbls = ent.get('labels', {})
+            lbls = entities.get(qid, {}).get('labels', {})
             lbl = (lbls.get(lang) or lbls.get('en') or {}).get('value')
             if lbl:
-                labels.append(lbl)
-        return ', '.join(labels)
+                labels[qid] = lbl
+        return labels
 
     def _parse_date_claim(self, claim_list):
         if not claim_list:
@@ -296,15 +365,23 @@ class WikidataClient:
         # 2) Match gerarchico via SPARQL: il claim può puntare a una
         # istanza/sottoclasse/parte del target (es. P166=Q38104 "Nobel per
         # la fisica" per il bonus generico Q7191 "Premio Nobel").
+        # Il risultato è cachato: il property path (P31|P279|P361)* è la
+        # query più a rischio timeout su WDQS, meglio non ripeterla.
+        cache_key = f'wd_bonus:{wikidata_id}:{prop}:{value}'
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
         query = sparql_templates.PROPERTY_VALUE_CHECK_QUERY.format(
             qid=wikidata_id, prop=prop, value=value
         )
         try:
             result = self._sparql(query)
-            return result.get('boolean', False)
+            found = bool(result.get('boolean', False))
         except Exception:
             logger.warning('Check gerarchico %s %s=%s fallito', wikidata_id, prop, value, exc_info=True)
             return False
+        cache.set(cache_key, found, self.BONUS_CHECK_CACHE_TTL)
+        return found
 
     def detect_age_bonus(self, age, bonus_type):
         if bonus_type.detection_method != 'age' or not bonus_type.age_formula:
