@@ -96,11 +96,11 @@ class WikidataPersonAdmin(admin.ModelAdmin):
 
 @admin.register(BonusType)
 class BonusTypeAdmin(admin.ModelAdmin):
-    list_display = ('name', 'points', 'points_formula', 'detection_method',
+    list_display = ('name', 'league', 'points', 'points_formula', 'detection_method',
                     'wikidata_property', 'wikidata_value', 'age_formula',
                     'is_active', 'ordering')
     list_editable = ('ordering', 'is_active', 'points')
-    list_filter = ('detection_method', 'is_active')
+    list_filter = ('detection_method', 'is_active', 'league')
     search_fields = ('name',)
 
 

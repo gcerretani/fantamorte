@@ -242,3 +242,153 @@ class PagineGeneraliTest(ViewsBaseTestCase):
         resp = Client().get(reverse('healthz'))
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()['status'], 'ok')
+
+
+class CustomBonusTest(ViewsBaseTestCase):
+    """Bonus personalizzati per lega definiti con proprietà Wikidata."""
+
+    def _create_payload(self, **overrides):
+        data = {
+            'action': 'create_custom_bonus',
+            'bonus_name': 'Grammy Award',
+            'bonus_points': '25',
+            'bonus_wikidata_property': 'P166',
+            'bonus_wikidata_value': 'Q41254',
+            'bonus_description': 'Vincitore di un Grammy',
+        }
+        data.update(overrides)
+        return data
+
+    def test_admin_crea_bonus_personalizzato(self):
+        from .models import BonusType, LeagueBonus
+        self.client.login(username='owner', password='x')
+        self.client.post(reverse('league_admin', args=['lega-privata']), self._create_payload())
+        bt = BonusType.objects.get(name='Grammy Award')
+        self.assertEqual(bt.league, self.private_league)
+        self.assertEqual(bt.points, 25)
+        self.assertEqual(bt.detection_method, 'wikidata')
+        self.assertTrue(LeagueBonus.objects.filter(league=self.private_league, bonus_type=bt).exists())
+
+    def test_proprieta_invalida_rifiutata(self):
+        from .models import BonusType
+        self.client.login(username='owner', password='x')
+        self.client.post(reverse('league_admin', args=['lega-privata']),
+                         self._create_payload(bonus_wikidata_property='P166} UNION {evil'))
+        self.assertFalse(BonusType.objects.filter(name='Grammy Award').exists())
+
+    def test_valore_invalido_rifiutato(self):
+        from .models import BonusType
+        self.client.login(username='owner', password='x')
+        self.client.post(reverse('league_admin', args=['lega-privata']),
+                         self._create_payload(bonus_wikidata_value='Q41254 . ?x ?y ?z'))
+        self.assertFalse(BonusType.objects.filter(name='Grammy Award').exists())
+
+    def test_non_admin_non_crea(self):
+        from .models import BonusType
+        self.client.login(username='member', password='x')
+        resp = self.client.post(reverse('league_admin', args=['lega-privata']), self._create_payload())
+        self.assertEqual(resp.status_code, 403)
+        self.assertFalse(BonusType.objects.filter(name='Grammy Award').exists())
+
+    def test_bonus_custom_non_aggiungibile_in_altra_lega(self):
+        from .models import BonusType, LeagueBonus
+        custom = BonusType.objects.create(
+            name='Solo Privata', league=self.private_league, points=10,
+            detection_method='wikidata', wikidata_property='P166',
+        )
+        self.client.login(username='owner', password='x')
+        self.client.post(reverse('league_admin', args=['lega-pubblica']),
+                         {'action': 'set_bonus', 'add_bonus': str(custom.pk)})
+        self.assertFalse(LeagueBonus.objects.filter(
+            league=self.public_league, bonus_type=custom).exists())
+
+    def test_delete_custom_bonus_rimuove_anche_i_death_bonus(self):
+        from .models import BonusType, Death, DeathBonus
+        custom = BonusType.objects.create(
+            name='Da Eliminare', league=self.private_league, points=10,
+            detection_method='wikidata', wikidata_property='P166',
+        )
+        dead = WikipediaPerson.objects.create(wikidata_id='Q90001', name_it='Morto Test', is_dead=True)
+        death = Death.objects.create(person=dead, death_date=date(2021, 3, 1),
+                                     death_age=70, is_confirmed=True)
+        DeathBonus.objects.create(death=death, bonus_type=custom, points_awarded=10)
+        self.client.login(username='owner', password='x')
+        self.client.post(reverse('league_admin', args=['lega-privata']),
+                         {'action': 'delete_custom_bonus', 'bonus_type_id': str(custom.pk)})
+        self.assertFalse(BonusType.objects.filter(pk=custom.pk).exists())
+        self.assertFalse(DeathBonus.objects.filter(death=death).exists())
+
+
+class MaxTotalAgeTest(ViewsBaseTestCase):
+    """Vincolo per lega sulla somma delle età dei membri attivi."""
+
+    def setUp(self):
+        super().setUp()
+        from django.utils import timezone
+        today = timezone.now().date()
+        # Persona già in rosa: ~80 anni. Candidato: ~50 anni. Entrambi in
+        # cache Wikidata fresca, così AddPersonView non fa richieste di rete.
+        self.person.birth_date = date(today.year - 80, 1, 1)
+        self.person.last_checked = timezone.now()
+        self.person.save()
+        self.candidate = WikipediaPerson.objects.create(
+            wikidata_id='Q90100', name_it='Candidato Giovane',
+            birth_date=date(today.year - 50, 1, 1), is_dead=False,
+            last_checked=timezone.now(),
+        )
+        self.age_in_team = self.person.get_current_age()
+        self.age_candidate = self.candidate.get_current_age()
+
+    def _add(self):
+        return self.client.post(
+            reverse('add_person', args=[self.private_team.pk]),
+            {'wikidata_id': self.candidate.wikidata_id},
+        )
+
+    def test_aggiunta_oltre_il_limite_rifiutata(self):
+        self.private_league.max_total_age = self.age_in_team + self.age_candidate - 1
+        self.private_league.save()
+        self.client.login(username='member', password='x')
+        resp = self._add()
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('Limite età', resp.json()['error'])
+        self.assertEqual(self.private_team.get_active_members().count(), 1)
+
+    def test_aggiunta_entro_il_limite_accettata(self):
+        self.private_league.max_total_age = self.age_in_team + self.age_candidate
+        self.private_league.save()
+        self.client.login(username='member', password='x')
+        resp = self._add()
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self.private_team.get_active_members().count(), 2)
+
+    def test_zero_significa_nessun_limite(self):
+        self.private_league.max_total_age = 0
+        self.private_league.save()
+        self.client.login(username='member', password='x')
+        self.assertEqual(self._add().status_code, 200)
+
+    def test_sostituzione_oltre_il_limite_rifiutata(self):
+        from django.utils import timezone
+        from .models import Death, TeamMember
+        # Il membro in rosa muore: il sostituto porterebbe la somma oltre il limite.
+        self.person.is_dead = True
+        self.person.death_date = timezone.now().date()
+        self.person.save()
+        Death.objects.create(person=self.person, death_date=timezone.now().date(),
+                             death_age=80, is_confirmed=True, confirmed_at=timezone.now())
+        member = self.private_team.members.get(person=self.person)
+        old = WikipediaPerson.objects.create(
+            wikidata_id='Q90200', name_it='Sostituto Vecchio',
+            birth_date=date(1930, 1, 1), is_dead=False, last_checked=timezone.now(),
+        )
+        self.private_league.max_total_age = (old.get_current_age() or 0) - 1
+        self.private_league.save()
+        self.client.login(username='member', password='x')
+        self.client.post(
+            reverse('substitute_member', args=[self.private_team.pk, member.pk]),
+            {'wikidata_id': old.wikidata_id},
+        )
+        member.refresh_from_db()
+        self.assertIsNone(member.replaced_by)
+        self.assertFalse(TeamMember.objects.filter(team=self.private_team, person=old).exists())

@@ -163,7 +163,7 @@ class LeagueCreateView(LoginRequiredMixin, View):
         )
 
         LeagueMembership.objects.create(league=league, user=request.user, role=LeagueMembership.ROLE_OWNER)
-        for bt in BonusType.objects.filter(is_active=True):
+        for bt in BonusType.objects.filter(is_active=True, league__isnull=True):
             LeagueBonus.objects.create(league=league, bonus_type=bt, is_active=True)
 
         messages.success(request, f'Lega "{league.name}" creata! Configura ora calendario e regole.')
@@ -264,11 +264,15 @@ class LeagueAdminView(LoginRequiredMixin, View):
         league = get_object_or_404(League, slug=slug)
         if not league.is_admin(request.user):
             return HttpResponseForbidden('Permesso negato.')
+        from django.db.models import Q
         return render(request, self.template_name, {
             'league': league,
             'memberships': league.memberships.select_related('user').order_by('role', 'user__username'),
             'league_bonuses': league.league_bonuses.select_related('bonus_type').order_by('bonus_type__ordering'),
-            'all_bonus_types': BonusType.objects.all().order_by('ordering'),
+            # Bonus proponibili: quelli di sistema + i personalizzati di QUESTA lega
+            'all_bonus_types': BonusType.objects.filter(
+                Q(league__isnull=True) | Q(league=league)
+            ).order_by('ordering'),
             'is_owner': league.is_owner(request.user),
             'wiki_langs': WIKIPEDIA_LANGS,
             'league_search_langs': set(league.search_wikipedia_langs.split(',')) if league.search_wikipedia_langs else set(),
@@ -306,6 +310,7 @@ class LeagueAdminView(LoginRequiredMixin, View):
                 league.jolly_multiplier = int(request.POST.get('jolly_multiplier') or league.jolly_multiplier)
                 league.max_captains = int(request.POST.get('max_captains') or league.max_captains)
                 league.max_non_captains = int(request.POST.get('max_non_captains') or league.max_non_captains)
+                league.max_total_age = int(request.POST.get('max_total_age') or 0)
                 league.substitution_deadline_days = int(request.POST.get('substitution_deadline_days') or league.substitution_deadline_days)
             except (ValueError, TypeError):
                 messages.error(request, 'Valori numerici non validi.')
@@ -333,14 +338,66 @@ class LeagueAdminView(LoginRequiredMixin, View):
                 except (ValueError, TypeError):
                     lb.override_points = None
                 lb.save()
-            # Eventuali nuovi bonus type
+            # Eventuali nuovi bonus type (di sistema o personalizzati di questa lega)
+            from django.db.models import Q
             for bt_id in request.POST.getlist('add_bonus'):
                 try:
-                    bt = BonusType.objects.get(pk=int(bt_id))
+                    bt = BonusType.objects.filter(
+                        Q(league__isnull=True) | Q(league=league)
+                    ).get(pk=int(bt_id))
                 except (BonusType.DoesNotExist, ValueError, TypeError):
                     continue
                 LeagueBonus.objects.get_or_create(league=league, bonus_type=bt, defaults={'is_active': True})
             messages.success(request, 'Bonus aggiornati.')
+
+        elif action == 'create_custom_bonus':
+            name = request.POST.get('bonus_name', '').strip()
+            prop = request.POST.get('bonus_wikidata_property', '').strip().upper()
+            value = request.POST.get('bonus_wikidata_value', '').strip().upper()
+            description = request.POST.get('bonus_description', '').strip()
+            try:
+                points = int(request.POST.get('bonus_points', ''))
+            except (ValueError, TypeError):
+                messages.error(request, 'Punti del bonus non validi.')
+                return redirect('league_admin', slug=slug)
+            if not name:
+                messages.error(request, 'Il nome del bonus è obbligatorio.')
+                return redirect('league_admin', slug=slug)
+            if not re.fullmatch(r'P\d+', prop):
+                messages.error(request, 'Proprietà Wikidata non valida (formato: P166).')
+                return redirect('league_admin', slug=slug)
+            if value and not re.fullmatch(r'Q\d+', value):
+                messages.error(request, 'Valore Wikidata non valido (formato: Q7191, oppure vuoto '
+                                        'per "qualsiasi valore della proprietà").')
+                return redirect('league_admin', slug=slug)
+            if BonusType.objects.filter(league=league, name__iexact=name).exists():
+                messages.error(request, 'Esiste già un bonus personalizzato con questo nome.')
+                return redirect('league_admin', slug=slug)
+            bt = BonusType.objects.create(
+                name=name, league=league, description=description, points=points,
+                detection_method=BonusType.DETECTION_WIKIDATA,
+                wikidata_property=prop, wikidata_value=value,
+                is_active=True, ordering=100,
+            )
+            LeagueBonus.objects.create(league=league, bonus_type=bt, is_active=True)
+            messages.success(
+                request,
+                f'Bonus "{name}" creato ({prop}{"=" + value if value else ""}). Verrà rilevato '
+                'automaticamente sui prossimi decessi; per quelli già registrati usare '
+                '"Auto-rileva bonus" dal Django admin.',
+            )
+
+        elif action == 'delete_custom_bonus':
+            try:
+                bt = BonusType.objects.get(pk=int(request.POST.get('bonus_type_id', '')), league=league)
+            except (BonusType.DoesNotExist, ValueError, TypeError):
+                messages.error(request, 'Bonus personalizzato non trovato.')
+                return redirect('league_admin', slug=slug)
+            # Le righe DeathBonus di un bonus custom contano solo in questa
+            # lega: eliminarle insieme al tipo è sicuro.
+            bt.awarded.all().delete()
+            bt.delete()
+            messages.success(request, f'Bonus "{bt.name}" eliminato.')
 
         elif action == 'promote_admin':
             if not league.is_owner(request.user):
@@ -581,6 +638,7 @@ class TeamEditView(LoginRequiredMixin, View):
             'league': league,
             'members': members,
             'active_count': active_count,
+            'total_age': team.get_active_total_age(),
             'dead_members': dead_members,
             'months': MONTHS_LIST,
             'can_edit': _can_edit_team(team, request.user),
@@ -692,6 +750,16 @@ class AddPersonView(LoginRequiredMixin, View):
             if active_non_captain >= max_non_captains:
                 return JsonResponse({'error': f'La squadra ha già {max_non_captains} morituri.'}, status=400)
 
+        if league and league.max_total_age:
+            new_age = person.get_current_age() or 0
+            total_age = team.get_active_total_age()
+            if total_age + new_age > league.max_total_age:
+                return JsonResponse({'error': (
+                    f'Limite età superato: la rosa somma {total_age} anni e con '
+                    f'{person.name_it} ({new_age}) arriverebbe a {total_age + new_age} '
+                    f'su un massimo di {league.max_total_age}.'
+                )}, status=400)
+
         member = TeamMember.objects.create(team=team, person=person, is_captain=is_captain)
         return JsonResponse({
             'success': True,
@@ -774,6 +842,23 @@ class SubstituteMemberView(LoginRequiredMixin, View):
         if person.is_dead:
             messages.error(request, f'{person.name_it} è già morto/a.')
             return redirect('substitute_member', pk=pk, member_pk=member_pk)
+
+        if team.members.filter(person=person, replaced_by=None).exists():
+            messages.error(request, f'{person.name_it} è già nella squadra.')
+            return redirect('substitute_member', pk=pk, member_pk=member_pk)
+
+        league = team.league
+        if league and league.max_total_age:
+            new_age = person.get_current_age() or 0
+            old_age = member.person.get_current_age() or 0
+            projected = team.get_active_total_age() - old_age + new_age
+            if projected > league.max_total_age:
+                messages.error(
+                    request,
+                    f'Limite età superato: con {person.name_it} ({new_age} anni) la rosa '
+                    f'arriverebbe a {projected} anni su un massimo di {league.max_total_age}.',
+                )
+                return redirect('substitute_member', pk=pk, member_pk=member_pk)
 
         new_member = TeamMember.objects.create(
             team=team, person=person, is_captain=member.is_captain
@@ -893,7 +978,11 @@ class RulesView(TemplateView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx['bonus_types'] = BonusType.objects.filter(is_active=True).order_by('ordering', 'name')
+        # Il regolamento generico mostra solo i bonus di sistema, non i
+        # personalizzati delle singole leghe.
+        ctx['bonus_types'] = BonusType.objects.filter(
+            is_active=True, league__isnull=True,
+        ).order_by('ordering', 'name')
         return ctx
 
 

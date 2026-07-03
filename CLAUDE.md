@@ -85,7 +85,9 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
 
 - **`League`** ha `start_date`, `end_date`, `registration_opens/closes`,
   `base_points`, `captain_multiplier`, `jolly_multiplier`,
-  `max_captains`, `max_non_captains`, `jolly_enabled`,
+  `max_captains`, `max_non_captains`, `max_total_age` (somma massima delle
+  età dei membri attivi di una squadra, 0 = nessun limite; enforced in
+  AddPersonView e SubstituteMemberView), `jolly_enabled`,
   `substitution_deadline_days`, `visibility` (public/private), `invite_code`,
   `search_wikipedia_langs` (CSV di wiki, es. `itwiki,enwiki`; vuoto = tutta Wikidata).
 - **`LeagueMembership.role`** ∈ `owner|admin|member`.
@@ -104,7 +106,15 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
 - **`BonusType`** può avere `points` fissi oppure `points_formula` dinamica
   (es. `3*(60-age)`); l'eval è whitelistato (`age`, `max`, `min` + operatori
   aritmetici). Il `detection_method` può essere
-  `manual|wikidata|age|original|first_death|last_death`.
+  `manual|wikidata|age|original|first_death|last_death`. Il campo `league`
+  (nullable) distingue i bonus **di sistema** (NULL, proposti a tutte le
+  leghe) dai bonus **personalizzati di lega**, creabili dal pannello admin
+  della lega indicando una coppia proprietà/valore Wikidata (es. `P166=Q41254`
+  per il Grammy). La detection `wikidata` prova prima il match esatto sui
+  claim in cache, poi un match gerarchico via SPARQL che segue
+  `P31/P279/P361` (così `P166=Q38104` "Nobel per la fisica" soddisfa il
+  bonus generico `Q7191` "Premio Nobel"). I P/Q id sono validati con regex
+  prima di finire nella query.
 - **`Death`** ha `is_confirmed` (flag che fa scattare i punti, il push e le
   email). La transizione `False → True` viene tracciata da `_was_confirmed`
   nel pre-save signal. `check_deaths` **auto-conferma**: un decesso rilevato
