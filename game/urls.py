@@ -19,6 +19,7 @@ urlpatterns = [
     # Pagine generiche
     path('regolamento/', views.RulesView.as_view(), name='rules'),
     path('profilo/', views.ProfileView.as_view(), name='profile'),
+    path('statistiche/', views.StatsView.as_view(), name='stats'),
 
     # Squadre
     path('squadra/<int:pk>/', views.TeamDetailView.as_view(), name='team_detail'),

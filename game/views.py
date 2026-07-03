@@ -64,6 +64,55 @@ class HomeView(LoginRequiredMixin, TemplateView):
         return ctx
 
 
+class StatsView(LoginRequiredMixin, TemplateView):
+    """Statistiche cross-lega: storico personale + leaderboard all-time.
+
+    La leaderboard aggrega solo le leghe visibili all'utente (pubbliche o di
+    cui è membro), per non rivelare dati di leghe private altrui.
+    """
+    template_name = 'game/stats.html'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        user = self.request.user
+
+        member_league_ids = set(
+            LeagueMembership.objects.filter(user=user).values_list('league_id', flat=True)
+        )
+        visible_leagues = [
+            l for l in League.objects.all().order_by('-start_date')
+            if l.visibility == League.VISIBILITY_PUBLIC or l.pk in member_league_ids
+        ]
+
+        my_history = []
+        totals = {}  # manager_id -> aggregato all-time
+        for league in visible_leagues:
+            rankings = scoring.compute_league_rankings(league)
+            for pos, entry in enumerate(rankings, start=1):
+                team = entry['team']
+                manager = team.manager
+                agg = totals.setdefault(manager.pk, {
+                    'manager': manager, 'points': 0, 'leagues': 0, 'wins': 0,
+                })
+                agg['points'] += entry['score']
+                agg['leagues'] += 1
+                if pos == 1 and entry['score'] > 0:
+                    agg['wins'] += 1
+                if manager.pk == user.pk:
+                    my_history.append({
+                        'league': league,
+                        'team': team,
+                        'score': entry['score'],
+                        'position': pos,
+                        'teams_count': len(rankings),
+                    })
+
+        all_time = sorted(totals.values(), key=lambda a: -a['points'])[:50]
+        ctx['my_history'] = my_history
+        ctx['all_time'] = all_time
+        return ctx
+
+
 # ---------------- League views ----------------
 
 class LeagueListView(LoginRequiredMixin, TemplateView):
@@ -922,6 +971,20 @@ class ServiceWorkerView(View):
 
 class OfflineView(TemplateView):
     template_name = 'game/offline.html'
+
+
+class HealthCheckView(View):
+    """Endpoint di healthcheck per compose/monitoring: verifica anche il DB."""
+
+    def get(self, request):
+        from django.db import connection
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute('SELECT 1')
+        except Exception:
+            logger.exception('Healthcheck DB fallito')
+            return JsonResponse({'status': 'error', 'db': 'unreachable'}, status=503)
+        return JsonResponse({'status': 'ok'})
 
 
 # --- Push subscriptions API ---
