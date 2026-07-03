@@ -582,6 +582,43 @@ def _can_edit_team(team, user):
     return False
 
 
+def _get_or_refresh_person(wikidata_id):
+    """Ritorna ``(person, error_message)`` per un QID Wikidata.
+
+    Se la persona è in cache locale ed è stata verificata entro
+    ``wikidata_check_interval_hours`` non tocca la rete; altrimenti fa il
+    fetch da Wikidata e aggiorna (o crea) il record.
+    """
+    interval = SiteSettings.get().wikidata_check_interval_hours
+    threshold = timezone.now() - timedelta(hours=interval)
+    existing = WikipediaPerson.objects.filter(wikidata_id=wikidata_id).first()
+    if existing and existing.last_checked and existing.last_checked >= threshold:
+        return existing, None
+    try:
+        entity = WikidataClient().get_entity(wikidata_id)
+    except Exception as e:
+        return existing, f'Errore Wikidata: {e}'
+    person, _ = WikipediaPerson.objects.update_or_create(
+        wikidata_id=wikidata_id,
+        defaults={
+            'name_it': entity['name_it'],
+            'name_en': entity.get('name_en', ''),
+            'description_it': entity.get('description_it', ''),
+            'birth_date': entity.get('birth_date'),
+            'birth_year': entity.get('birth_year'),
+            'death_date': entity.get('death_date'),
+            'is_dead': entity.get('death_date') is not None or entity.get('death_year') is not None,
+            'image_url': entity.get('image_url', ''),
+            'occupation': entity.get('occupation') or '',
+            'nationality': entity.get('nationality') or '',
+            'claims_cache': entity.get('claims_cache', {}),
+            'wikipedia_url_it': entity.get('wikipedia_url_it', ''),
+            'last_checked': timezone.now(),
+        }
+    )
+    return person, None
+
+
 class TeamCreateView(LoginRequiredMixin, View):
     """Crea (o redirect a) la squadra dell'utente in una specifica lega."""
     template_name = 'game/team_edit.html'
@@ -703,34 +740,9 @@ class AddPersonView(LoginRequiredMixin, View):
         if not re.fullmatch(r'Q\d+', wikidata_id):
             return JsonResponse({'error': 'wikidata_id non valido'}, status=400)
 
-        interval = SiteSettings.get().wikidata_check_interval_hours
-        threshold = timezone.now() - timedelta(hours=interval)
-        existing = WikipediaPerson.objects.filter(wikidata_id=wikidata_id).first()
-        if existing and existing.last_checked and existing.last_checked >= threshold:
-            person = existing
-        else:
-            try:
-                entity = WikidataClient().get_entity(wikidata_id)
-            except Exception as e:
-                return JsonResponse({'error': f'Errore Wikidata: {e}'}, status=500)
-            person, _ = WikipediaPerson.objects.update_or_create(
-                wikidata_id=wikidata_id,
-                defaults={
-                    'name_it': entity['name_it'],
-                    'name_en': entity.get('name_en', ''),
-                    'description_it': entity.get('description_it', ''),
-                    'birth_date': entity.get('birth_date'),
-                    'birth_year': entity.get('birth_year'),
-                    'death_date': entity.get('death_date'),
-                    'is_dead': entity.get('death_date') is not None or entity.get('death_year') is not None,
-                    'image_url': entity.get('image_url', ''),
-                    'occupation': entity.get('occupation') or '',
-                    'nationality': entity.get('nationality') or '',
-                    'claims_cache': entity.get('claims_cache', {}),
-                    'wikipedia_url_it': entity.get('wikipedia_url_it', ''),
-                    'last_checked': timezone.now(),
-                }
-            )
+        person, err = _get_or_refresh_person(wikidata_id)
+        if err:
+            return JsonResponse({'error': err}, status=500)
 
         if person.is_dead:
             return JsonResponse({'error': f'{person.name_it} è già morto/a e non può essere aggiunto.'}, status=400)
@@ -812,32 +824,14 @@ class SubstituteMemberView(LoginRequiredMixin, View):
         if not wikidata_id:
             messages.error(request, 'Seleziona una persona da Wikidata.')
             return redirect('substitute_member', pk=pk, member_pk=member_pk)
-
-        client = WikidataClient()
-        try:
-            entity = client.get_entity(wikidata_id)
-        except Exception as e:
-            messages.error(request, f'Errore Wikidata: {e}')
+        if not re.fullmatch(r'Q\d+', wikidata_id):
+            messages.error(request, 'Identificativo Wikidata non valido.')
             return redirect('substitute_member', pk=pk, member_pk=member_pk)
 
-        person, _ = WikipediaPerson.objects.update_or_create(
-            wikidata_id=wikidata_id,
-            defaults={
-                'name_it': entity['name_it'],
-                'name_en': entity.get('name_en', ''),
-                'description_it': entity.get('description_it', ''),
-                'birth_date': entity.get('birth_date'),
-                'birth_year': entity.get('birth_year'),
-                'death_date': entity.get('death_date'),
-                'is_dead': entity.get('death_date') is not None,
-                'image_url': entity.get('image_url', ''),
-                'occupation': entity.get('occupation') or '',
-                'nationality': entity.get('nationality') or '',
-                'claims_cache': entity.get('claims_cache', {}),
-                'wikipedia_url_it': entity.get('wikipedia_url_it', ''),
-                'last_checked': timezone.now(),
-            }
-        )
+        person, err = _get_or_refresh_person(wikidata_id)
+        if err:
+            messages.error(request, err)
+            return redirect('substitute_member', pk=pk, member_pk=member_pk)
 
         if person.is_dead:
             messages.error(request, f'{person.name_it} è già morto/a.')

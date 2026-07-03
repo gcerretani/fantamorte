@@ -392,3 +392,61 @@ class MaxTotalAgeTest(ViewsBaseTestCase):
         member.refresh_from_db()
         self.assertIsNone(member.replaced_by)
         self.assertFalse(TeamMember.objects.filter(team=self.private_team, person=old).exists())
+
+
+class PersonRefreshTest(ViewsBaseTestCase):
+    """_get_or_refresh_person: freshness short-circuit e riconciliazione is_dead."""
+
+    def _kill_member_and_get_substitution_url(self):
+        from django.utils import timezone
+        self.person.is_dead = True
+        self.person.death_date = timezone.now().date()
+        self.person.save()
+        member = self.private_team.members.get(person=self.person)
+        return reverse('substitute_member', args=[self.private_team.pk, member.pk])
+
+    def test_sostituzione_con_persona_fresca_non_tocca_la_rete(self):
+        from django.utils import timezone
+        url = self._kill_member_and_get_substitution_url()
+        fresh = WikipediaPerson.objects.create(
+            wikidata_id='Q90300', name_it='Sostituto Fresco',
+            is_dead=False, last_checked=timezone.now(),
+        )
+        self.client.login(username='member', password='x')
+        with patch('game.views.WikidataClient') as mock_client:
+            mock_client.side_effect = AssertionError('rete non attesa')
+            self.client.post(url, {'wikidata_id': fresh.wikidata_id})
+        self.assertTrue(
+            self.private_team.members.filter(person=fresh, replaced_by=None).exists())
+
+    def test_sostituzione_qid_non_valido_rifiutato_senza_rete(self):
+        url = self._kill_member_and_get_substitution_url()
+        self.client.login(username='member', password='x')
+        with patch('game.views.WikidataClient') as mock_client:
+            mock_client.side_effect = AssertionError('rete non attesa')
+            self.client.post(url, {'wikidata_id': "Q1'; DROP--"})
+        self.assertEqual(self.private_team.members.filter(replaced_by=None).count(), 1)
+
+    def test_is_dead_da_solo_death_year(self):
+        """Una persona con solo l'anno di morte (senza data) è comunque morta."""
+        from game.views import _get_or_refresh_person
+        entity = {
+            'name_it': 'Solo Anno', 'name_en': '', 'description_it': '',
+            'birth_date': None, 'birth_year': 1900,
+            'death_date': None, 'death_year': 1980,
+            'image_url': '', 'occupation': '', 'nationality': '',
+            'claims_cache': {}, 'wikipedia_url_it': '',
+        }
+        with patch('game.views.WikidataClient') as mock_client:
+            mock_client.return_value.get_entity.return_value = entity
+            person, err = _get_or_refresh_person('Q90400')
+        self.assertIsNone(err)
+        self.assertTrue(person.is_dead)
+
+    def test_errore_wikidata_ritorna_messaggio(self):
+        from game.views import _get_or_refresh_person
+        with patch('game.views.WikidataClient') as mock_client:
+            mock_client.return_value.get_entity.side_effect = RuntimeError('boom')
+            person, err = _get_or_refresh_person('Q90500')
+        self.assertIsNone(person)
+        self.assertIn('Errore Wikidata', err)
