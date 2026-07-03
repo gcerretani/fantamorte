@@ -1367,14 +1367,8 @@ class TeamWhatIfView(LoginRequiredMixin, View):
         rows = []
         for m in active_members:
             person = m.person
-            if person.death_age is not None:
-                age = person.death_age
-            elif person.birth_date:
-                today = timezone.now().date()
-                age = today.year - person.birth_date.year - (
-                    (today.month, today.day) < (person.birth_date.month, person.birth_date.day)
-                )
-            else:
+            age = person.get_current_age()
+            if age is None:
                 age = 80  # fallback ragionevole se mancano dati
             points = scoring.simulate_team_points_for_person(team, person, age, death_month=month)
             rows.append({

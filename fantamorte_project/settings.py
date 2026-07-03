@@ -1,3 +1,4 @@
+import sys
 import time
 from pathlib import Path
 import environ
@@ -231,6 +232,13 @@ LOGGING = {
         },
     },
 }
+
+# --- Test ---
+# L'hashing PBKDF2 delle password domina il tempo di esecuzione della suite
+# (ogni create_user + login costa centinaia di ms): nel database di test
+# effimero MD5 è più che sufficiente.
+if 'test' in sys.argv:
+    PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
 
 # Versione della cache del service worker: cambia ad ogni deploy per
 # invalidare la cache lato client (vedi templates/game/sw.js). Se non

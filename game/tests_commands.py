@@ -207,6 +207,98 @@ class CheckDeathsDryRunTest(CheckDeathsTestCase):
         mock_email.assert_not_called()
 
 
+class MarkOriginalsTest(TestCase):
+    """Test del management command `mark_originals`.
+
+    Una giocata è originale se la persona compare nella rosa iniziale di un
+    solo manager della lega. I membri creati come sostituti (che hanno un
+    `replaces`) non contano né vengono marcati.
+    """
+
+    def setUp(self):
+        self.manager_a = User.objects.create_user('manager_a', password='x')
+        self.manager_b = User.objects.create_user('manager_b', password='x')
+        today = timezone.now().date()
+        self.league = League.objects.create(
+            name='Lega Originali', slug='lega-originali', owner=self.manager_a,
+            start_date=today - timedelta(days=10),
+            end_date=today + timedelta(days=355),
+            registration_opens=today - timedelta(days=40),
+            registration_closes=today - timedelta(days=11),
+        )
+        self.team_a = Team.objects.create(name='Team A', manager=self.manager_a, league=self.league)
+        self.team_b = Team.objects.create(name='Team B', manager=self.manager_b, league=self.league)
+
+        self.unica = WikipediaPerson.objects.create(wikidata_id='Q100', name_it='Scelta Unica')
+        self.condivisa = WikipediaPerson.objects.create(wikidata_id='Q200', name_it='Scelta Condivisa')
+        self.subentrata = WikipediaPerson.objects.create(wikidata_id='Q300', name_it='Subentrata Unica')
+
+        self.member_unica = TeamMember.objects.create(team=self.team_a, person=self.unica)
+        self.member_condivisa_a = TeamMember.objects.create(team=self.team_a, person=self.condivisa)
+        self.member_condivisa_b = TeamMember.objects.create(team=self.team_b, person=self.condivisa)
+
+    def test_scelta_unica_marcata_condivisa_no(self):
+        call_command('mark_originals', league='lega-originali')
+
+        self.member_unica.refresh_from_db()
+        self.member_condivisa_a.refresh_from_db()
+        self.member_condivisa_b.refresh_from_db()
+        self.assertTrue(self.member_unica.is_original)
+        self.assertFalse(self.member_condivisa_a.is_original)
+        self.assertFalse(self.member_condivisa_b.is_original)
+
+    def test_sostituto_escluso_dal_conteggio_e_non_marcato(self):
+        # member_condivisa_b viene sostituito con `subentrata`, scelta da nessun altro:
+        # il nuovo membro non fa parte della rosa iniziale e non va marcato.
+        new_member = TeamMember.objects.create(team=self.team_b, person=self.subentrata)
+        self.member_condivisa_b.replaced_by = new_member
+        self.member_condivisa_b.save()
+
+        call_command('mark_originals', league='lega-originali')
+
+        new_member.refresh_from_db()
+        self.member_unica.refresh_from_db()
+        self.assertFalse(new_member.is_original)
+        self.assertTrue(self.member_unica.is_original)
+
+    def test_reset_azzera_i_flag_stantii(self):
+        # Flag impostato a mano su una scelta condivisa: senza --reset resterebbe.
+        TeamMember.objects.filter(pk=self.member_condivisa_a.pk).update(is_original=True)
+
+        call_command('mark_originals', league='lega-originali', reset=True)
+
+        self.member_condivisa_a.refresh_from_db()
+        self.member_unica.refresh_from_db()
+        self.assertFalse(self.member_condivisa_a.is_original)
+        self.assertTrue(self.member_unica.is_original)
+
+    def test_senza_slug_processa_solo_le_leghe_in_corso(self):
+        today = timezone.now().date()
+        finished = League.objects.create(
+            name='Lega Finita', slug='lega-finita', owner=self.manager_a,
+            start_date=today - timedelta(days=400), end_date=today - timedelta(days=30),
+            registration_opens=today - timedelta(days=430),
+            registration_closes=today - timedelta(days=401),
+        )
+        finished_team = Team.objects.create(name='Vecchia', manager=self.manager_a, league=finished)
+        finished_member = TeamMember.objects.create(team=finished_team, person=self.subentrata)
+
+        call_command('mark_originals')
+
+        self.member_unica.refresh_from_db()
+        finished_member.refresh_from_db()
+        self.assertTrue(self.member_unica.is_original)
+        self.assertFalse(finished_member.is_original)
+
+    def test_slug_inesistente_segnala_nessuna_lega(self):
+        from io import StringIO
+        err = StringIO()
+        call_command('mark_originals', league='non-esiste', stderr=err)
+        self.assertIn('Nessuna lega trovata', err.getvalue())
+        self.member_unica.refresh_from_db()
+        self.assertFalse(self.member_unica.is_original)
+
+
 class BonusTypeComputePointsTest(TestCase):
     """Test di `BonusType.compute_points`, la whitelist di eval usata per le formule."""
 

@@ -44,9 +44,10 @@ fantamorte/
 │   ├── middleware.py        # LoginRequiredEverywhereMiddleware
 │   ├── context_processors.py
 │   ├── tests.py             # Test di scoring + email + reminder + tema
-│   ├── tests_commands.py    # Test management command (check_deaths)
+│   ├── tests_commands.py    # Test management command (check_deaths, mark_originals)
 │   ├── tests_middleware.py  # Test LoginRequiredEverywhereMiddleware
-│   ├── tests_views.py       # Test permessi/integrazione view (in arrivo)
+│   ├── tests_views.py       # Test permessi/integrazione view (CRUD leghe/squadre, push, PWA, ...)
+│   ├── tests_admin.py       # Test delle admin actions del Django admin
 │   ├── management/commands/ # check_deaths, mark_originals, send_substitution_reminders, generate_vapid_keys
 │   └── migrations/
 ├── wikidata_api/            # Client SPARQL/Wikipedia (puro utility, niente modelli)
@@ -308,15 +309,25 @@ e preferenze tema:
 
 Altri file di test:
 - `game/tests_commands.py`: management command `check_deaths` (auto-conferma,
-  `--no-autoconfirm`, `--force`, `--dry-run`)
+  `--no-autoconfirm`, `--force`, `--dry-run`) e `mark_originals` (scelte
+  uniche vs condivise, sostituti esclusi, `--reset`, filtro `--league`)
 - `game/tests_middleware.py`: `LoginRequiredEverywhereMiddleware` (path
   pubblici vs protetti)
-- `game/tests_views.py`: permessi/integrazione delle view (in arrivo,
-  copertura ancora parziale)
+- `game/tests_views.py`: permessi/integrazione delle view — leghe private e
+  IDOR, pannello admin lega (regole, bonus custom, promozioni/rimozioni
+  membri, trasferimento proprietà, codice invito), creazione lega e squadra,
+  aggiunta persona (limiti capitani/morituri/età, cache Wikidata, lock),
+  flusso sostituzione (deadline, catena `replaced_by`, fascia capitano),
+  ricerca persona (cache, fallback SPARQL), profilo, API push
+  (subscribe/unsubscribe/test, CSRF), PWA (manifest, sw.js), what-if,
+  diff/apply Wikidata, home/statistiche
+- `game/tests_admin.py`: admin actions del Django admin (conferma/revoca
+  decessi con e senza notifiche, auto-rilevazione bonus, refresh da Wikidata)
 - `wikidata_api/tests.py`: client Wikidata con chiamate HTTP mockate
 
-**Aree ancora poco coperte**: view (integrazione, in corso in
-`tests_views.py`), admin actions.
+Tutte le chiamate esterne (Wikidata, Web Push, email) sono mockate: la suite
+non tocca mai la rete. Nei test le password usano l'hasher MD5 (vedi
+`settings.py`): l'intera suite gira in pochi secondi.
 
 Esegui i test con:
 ```bash
@@ -372,7 +383,6 @@ docker compose exec web python manage.py migrate
 - Inviti via email per leghe private (oggi codice condiviso + link invito
   diretto; le email transazionali di decesso/reminder sono già implementate
   in `game/email.py`)
-- Coprire le admin actions con test
 - Indici DB su `Death.death_date`, `Team.league`, `LeagueMembership.user`
   se le leghe diventano numerose
 - API REST con DRF se serve un'app mobile nativa
