@@ -9,8 +9,6 @@
       Gestore: <strong>{{ team.manager.username }}</strong>
       {% if team.league %}
         &mdash; Lega: <a href="{% url 'league_detail' team.league.slug %}">{{ team.league.name }}</a>
-      {% elif team.season %}
-        &mdash; Stagione: <strong>{{ team.season.year }}</strong>
       {% endif %}
       {% if team.jolly_month %}
         &mdash; Mese jolly: <span class="badge badge-jolly">{{ team.get_jolly_month_display }}</span>

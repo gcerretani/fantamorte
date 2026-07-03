@@ -520,8 +520,6 @@ def _can_edit_team(team, user):
         return False
     if team.league_id:
         return team.league.is_registration_open() and not team.league.is_locked
-    if team.season_id:
-        return team.season.is_registration_open()
     return False
 
 
@@ -579,7 +577,6 @@ class TeamEditView(LoginRequiredMixin, View):
         return render(request, self.template_name, {
             'team': team,
             'league': league,
-            'season': team.season,  # legacy
             'members': members,
             'active_count': active_count,
             'dead_members': dead_members,
@@ -719,8 +716,7 @@ class SubstituteMemberView(LoginRequiredMixin, View):
             messages.error(request, 'Questo membro è già stato sostituito.')
             return redirect('team_edit', pk=pk)
         if not member.can_be_substituted() and not request.user.is_staff:
-            days = (team.league.substitution_deadline_days if team.league_id else
-                    (team.season.substitution_deadline_days if team.season_id else 7))
+            days = team.league.substitution_deadline_days if team.league_id else 7
             messages.error(
                 request,
                 f'I tempi per la sostituzione sono scaduti ({days} giorni).'
@@ -799,7 +795,7 @@ class PersonDetailView(LoginRequiredMixin, DetailView):
         if not person.summary_it and person.wikipedia_url_it:
             _refresh_person_summary(person)
         members = TeamMember.objects.filter(person=person).select_related(
-            'team__manager', 'team__league', 'team__season',
+            'team__manager', 'team__league',
         )
         # Le squadre di leghe private restano visibili solo ai membri.
         ctx['team_members'] = [

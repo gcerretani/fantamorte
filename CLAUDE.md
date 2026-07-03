@@ -78,9 +78,7 @@ User ─┬─ owns ──────────► League ◄── membershi
       │                     │
       └─ teams ────► Team ──┘
                       │
-                      └─ members ──► TeamMember ──► WikipediaPerson ──► Death ─┬─► DeathBonus ──► BonusType
-                                                                                │
-                                                                                └─► Season (legacy: indicizza per anno)
+                      └─ members ──► TeamMember ──► WikipediaPerson ──► Death ──► DeathBonus ──► BonusType
 
 LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
 ```
@@ -94,7 +92,6 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
 - **`Team`** ha FK a `League` (vincolo unique `(manager, league)` →
   un utente ha **una squadra per lega**). Ha anche `jolly_month` (mese del
   jolly, intero 1-12) e `is_locked` (squadra bloccata: nessuna modifica).
-  Mantiene un FK opzionale a `Season` solo per retro-compatibilità.
 - **`TeamMember.is_original`** flag che abilita il bonus "giocata originale".
   Calcolato a inizio stagione dal command `mark_originals`. Il campo
   `replaced_by` crea una catena per tracciare le sostituzioni (solo
@@ -117,9 +114,6 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
   senza notifiche); per escludere definitivamente la persona dai check
   automatici successivi occorre anche impostare `data_frozen=True` sulla
   `WikipediaPerson`.
-- **`Season`** è ancora usata da `Death` come "indice per anno"
-  (richiesto da `check_deaths` per il filtro SPARQL). **Non** detta
-  più le regole di gioco — quelle stanno in `League`.
 - **`SiteSettings`** è un singleton (via Django admin) per configurazione
   globale, ad es. `wikidata_check_interval_hours`.
 - **`UserProfile`** tiene le preferenze per-utente: `push_notifications_enabled`,
@@ -230,7 +224,9 @@ interattive).
 /api/leghe/<slug>/wikidata-apply/   JSON POST: applica campi selezionati (admin)
 
 /profilo/                       preferenze utente (push/email/dark mode)
+/statistiche/                   statistiche cross-lega (storico + leaderboard all-time)
 /regolamento/                   regolamento generico
+/healthz/                       healthcheck (pubblico, verifica anche il DB)
 
 /api/push/{subscribe,unsubscribe,test}/
 
@@ -361,13 +357,13 @@ docker compose exec web python manage.py migrate
 
 ## Aree migliorabili / TODO suggeriti
 
-- Inviti via email per leghe private (oggi solo codice condiviso; le email
-  transazionali di decesso/reminder sono già implementate in `game/email.py`)
-- Statistiche cross-lega (storico per utente, leaderboard "all-time")
-- Completare `game/tests_views.py` (permessi/integrazione view) e coprire le
-  admin actions con test
-- Possibile rimozione completa di `Season` (richiede di rivedere
-  `check_deaths` e `Death.season`); valutare quando ci sarà tempo
+- Inviti via email per leghe private (oggi codice condiviso + link invito
+  diretto; le email transazionali di decesso/reminder sono già implementate
+  in `game/email.py`)
+- Coprire le admin actions con test
+- Bonus primo/ultimo morto per-lega: oggi `DeathBonus` è globale per Death,
+  quindi se due leghe condividono la stessa persona il bonus assegnato in una
+  lega risulta visibile anche nell'altra (se quella lega ha il bonus attivo)
 - Indici DB su `Death.death_date`, `Team.league`, `LeagueMembership.user`
   se le leghe diventano numerose
 - API REST con DRF se serve un'app mobile nativa

@@ -10,7 +10,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from game.models import (
-    BonusType, Death, DeathBonus, League, Season, SiteSettings, WikipediaPerson,
+    BonusType, Death, DeathBonus, League, SiteSettings, WikipediaPerson,
 )
 from wikidata_api.client import WikidataClient
 
@@ -116,21 +116,11 @@ class Command(BaseCommand):
             person.last_checked = timezone.now()
             person.save()
 
-            # Trova / crea una Season corrispondente all'anno (per indicizzare la Death)
             year_for_death = (death_date or date_cls(death_year, 1, 1)).year
-            season, _ = Season.objects.get_or_create(
-                year=year_for_death,
-                defaults={
-                    'is_active': False,
-                    'registration_opens': date_cls(year_for_death, 1, 1),
-                    'registration_closes': date_cls(year_for_death, 12, 31),
-                },
-            )
 
             death, created = Death.objects.get_or_create(
                 person=person,
                 defaults={
-                    'season': season,
                     'death_date': death_date or date_cls(year_for_death, 12, 31),
                     'death_age': person.get_age_at_death(),
                     'source': Death.SOURCE_WIKIDATA,

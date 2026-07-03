@@ -15,7 +15,7 @@ from django.core.management import call_command
 from django.test import TestCase
 from django.utils import timezone
 
-from .models import Death, League, Season, Team, TeamMember, WikipediaPerson
+from .models import Death, League, Team, TeamMember, WikipediaPerson
 
 User = get_user_model()
 
@@ -124,13 +124,8 @@ class CheckDeathsPromotionTest(CheckDeathsTestCase):
     def test_death_preesistente_non_confermata_viene_promossa(
         self, mock_client_class, mock_email, mock_push,
     ):
-        season = Season.objects.create(
-            year=self.death_date.year, is_active=False,
-            registration_opens=date(self.death_date.year, 1, 1),
-            registration_closes=date(self.death_date.year, 1, 31),
-        )
         existing = Death.objects.create(
-            person=self.person, season=season,
+            person=self.person,
             death_date=self.death_date, death_age=80, is_confirmed=False,
         )
         self._mock_client(mock_client_class)

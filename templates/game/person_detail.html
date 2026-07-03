@@ -56,7 +56,7 @@
     {% for tm in team_members %}
       <li>
         <a href="{% url 'team_detail' tm.team.pk %}">{{ tm.team.name }}</a>
-        ({% if tm.team.league %}{{ tm.team.league.name }}{% elif tm.team.season %}{{ tm.team.season.year }}{% endif %}
+        ({% if tm.team.league %}{{ tm.team.league.name }}{% endif %}
         &mdash; {{ tm.team.manager.username }})
         {% if tm.is_captain %}<span class="badge badge-captain">capitano</span>{% endif %}
         {% if tm.is_original %}<span class="badge text-bg-info">originale</span>{% endif %}

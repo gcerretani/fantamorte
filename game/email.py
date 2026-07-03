@@ -76,23 +76,12 @@ def broadcast_death_email(death: Death) -> int:
         start_date__lte=death.death_date, end_date__gte=death.death_date,
     ))
 
-    if leagues:
-        memberships = LeagueMembership.objects.filter(
-            league__in=leagues,
-            user__profile__email_notifications_enabled=True,
-        ).select_related('user', 'league')
-        # (user_id, league) couples → un'email per coppia per dare il contesto della lega
-        recipients = [(m.user, m.league) for m in memberships if m.user.email]
-    else:
-        # Fallback stagione legacy
-        if death.season_id:
-            teams = Team.objects.filter(
-                season_id=death.season_id,
-                manager__profile__email_notifications_enabled=True,
-            ).select_related('manager')
-            recipients = [(t.manager, None) for t in teams if t.manager.email]
-        else:
-            recipients = []
+    memberships = LeagueMembership.objects.filter(
+        league__in=leagues,
+        user__profile__email_notifications_enabled=True,
+    ).select_related('user', 'league')
+    # (user_id, league) couples → un'email per coppia per dare il contesto della lega
+    recipients = [(m.user, m.league) for m in memberships if m.user.email]
 
     if not recipients:
         return 0
