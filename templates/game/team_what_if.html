@@ -1,0 +1,71 @@
+{% extends 'base.html' %}
+{% block title %}Simulatore — {{ team.name }} — Fantamorte{% endblock %}
+{% block content %}
+
+<div class="mb-3">
+  <a href="{% url 'team_detail' team.pk %}" class="text-muted small">&larr; {{ team.name }}</a>
+  <h2 class="mb-1">Simulatore "What if"</h2>
+  <p class="text-muted">
+    Stima dei punti che la squadra otterrebbe se ciascun membro vivo morisse oggi nel mese selezionato.
+    Utile per scegliere capitano e mese jolly informati.
+  </p>
+</div>
+
+<form method="get" class="row g-2 align-items-end mb-3">
+  <div class="col-auto">
+    <label for="monthSel" class="form-label small mb-1">Mese del decesso ipotetico</label>
+    <select id="monthSel" name="month" class="form-select form-select-sm">
+      {% for m, label in months %}
+        <option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <button class="btn btn-dark btn-sm" type="submit">Aggiorna</button>
+  </div>
+  {% if team.jolly_month %}
+    <div class="col-auto">
+      <small class="text-muted">Mese jolly attuale: <strong>{{ team.get_jolly_month_display }}</strong></small>
+    </div>
+  {% endif %}
+</form>
+
+<div class="table-responsive">
+  <table class="table align-middle">
+    <caption class="visually-hidden">Punti simulati per ogni membro vivo della squadra</caption>
+    <thead>
+      <tr>
+        <th scope="col">#</th>
+        <th scope="col">Persona</th>
+        <th scope="col">Età stimata</th>
+        <th scope="col">Capitano</th>
+        <th scope="col">Originale</th>
+        <th scope="col" class="text-end">Punti se morisse oggi</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+        <tr {% if r.points_now == 0 %}class="text-muted"{% endif %}>
+          <th scope="row">{{ forloop.counter }}</th>
+          <td>
+            <a href="#" data-fm-person-pk="{{ r.person.pk }}">{{ r.person.name_it }}</a>
+            {% if r.is_jolly_month %}<span class="badge badge-jolly ms-1">jolly</span>{% endif %}
+          </td>
+          <td>{{ r.simulated_age }}</td>
+          <td>{% if r.member.is_captain %}<span class="badge badge-captain">C</span>{% endif %}</td>
+          <td>{% if r.member.is_original %}<span class="badge bg-info">★</span>{% endif %}</td>
+          <td class="text-end fw-bold">{{ r.points_now }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6" class="text-center text-muted">Nessun membro attivo da simulare.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<p class="small text-muted">
+  La stima usa i bonus configurati per la lega ma non considera i bonus che dipendono da Wikidata
+  (es. cause di morte specifiche). I valori reali possono essere più alti.
+</p>
+
+{% endblock %}

@@ -3,6 +3,10 @@
 Ogni team ha (o avrà) un puntatore alla league. Le morti che contano sono
 quelle confermate avvenute tra `league.start_date` e `league.end_date`.
 """
+import time
+
+from django.core.cache import cache
+
 from .models import Death, BonusType, LeagueBonus
 
 
@@ -40,7 +44,8 @@ def _bonus_points_in_league(bonus, league, lb_map=None):
     """Punti effettivi di un DeathBonus all'interno di una lega.
 
     Tiene conto degli override (LeagueBonus.override_points / override_formula)
-    se presenti, altrimenti dei valori del BonusType.
+    se presenti, altrimenti dei valori del BonusType. Se passato `lb_map`
+    (dict bonus_type_id -> LeagueBonus) lo usa per evitare query.
     """
     bt = bonus.bonus_type
     age = bonus.death.death_age
@@ -59,6 +64,33 @@ def _bonus_points_in_league(bonus, league, lb_map=None):
     if bonus.points_awarded is not None:
         return bonus.points_awarded
     return bt.points
+
+
+# ---------- cache invalidazione ----------
+
+_RANKINGS_VERSION_KEY = 'league_rankings_version:{league_id}'
+_RANKINGS_DATA_KEY = 'league_rankings:{league_id}:v{version}'
+_RANKINGS_TTL = 300  # 5 minuti, più che sufficienti come safety net
+
+
+def _rankings_version(league_id):
+    key = _RANKINGS_VERSION_KEY.format(league_id=league_id)
+    v = cache.get(key)
+    if v is None:
+        v = int(time.time())
+        cache.set(key, v, None)
+    return v
+
+
+def invalidate_league_rankings(league_id):
+    """Bumpa la versione della cache dei rankings per una lega.
+
+    Pensata per essere chiamata da signal quando cambiano dati che influenzano
+    il punteggio (Death, DeathBonus, LeagueBonus, TeamMember, Team).
+    """
+    if league_id is None:
+        return
+    cache.set(_RANKINGS_VERSION_KEY.format(league_id=league_id), int(time.time() * 1000), None)
 
 
 def _confirmed_deaths_for_league(league):
@@ -146,8 +178,7 @@ def compute_team_total_score(team):
     return total
 
 
-def compute_league_rankings(league):
-    """Classifica completa di una lega."""
+def _compute_league_rankings_uncached(league):
     teams = league.teams.select_related('manager').prefetch_related('members__person')
     deaths_list = list(_confirmed_deaths_for_league(league))
     lb_map = _league_bonus_map(league)
@@ -156,8 +187,9 @@ def compute_league_rankings(league):
     for team in teams:
         score = 0
         items = []
+        members_by_person = {m.person_id: m for m in team.members.all()}
         for death in deaths_list:
-            member = _find_member(team, death.person_id)
+            member = members_by_person.get(death.person_id)
             if member is None:
                 continue
             pts = _points_for_member_death(member, team, death, league, lb_map)
@@ -174,4 +206,50 @@ def compute_league_rankings(league):
             })
         rankings.append({'team': team, 'score': score, 'deaths': items})
     rankings.sort(key=lambda x: -x['score'])
+    return rankings
+
+
+def simulate_team_points_for_person(team, person, death_age, death_month=None):
+    """Simula i punti che `team` farebbe se `person` morisse oggi con l'età data.
+
+    Pensata per il simulatore "what-if". Non persiste nulla. Se `person` non
+    è in squadra ritorna 0.
+
+    death_month (1-12) abilita il moltiplicatore jolly se coincide col mese
+    jolly del team. Se None, non considera il jolly.
+    """
+    league = _league_of(team)
+    member = team.members.filter(person=person, replaced_by__isnull=True).first()
+    if member is None:
+        return 0
+
+    raw = _base_points(league)
+    if member.is_original and league is not None:
+        for lb in _league_bonus_map(league).values():
+            if lb.is_active and lb.bonus_type.detection_method == BonusType.DETECTION_ORIGINAL:
+                raw += lb.compute_points(age=death_age)
+
+    multiplier = 1
+    if member.is_captain:
+        multiplier *= _captain_multiplier(league)
+    if death_month is not None and team.jolly_month and death_month == team.jolly_month:
+        multiplier *= _jolly_multiplier(league)
+    return raw * multiplier
+
+
+def compute_league_rankings(league, use_cache=True):
+    """Classifica completa di una lega.
+
+    Cachata per `_RANKINGS_TTL` secondi e invalidata via versioning quando
+    cambiano Death/DeathBonus/LeagueBonus/TeamMember/Team (vedi signals).
+    """
+    if not use_cache:
+        return _compute_league_rankings_uncached(league)
+    version = _rankings_version(league.id)
+    key = _RANKINGS_DATA_KEY.format(league_id=league.id, version=version)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    rankings = _compute_league_rankings_uncached(league)
+    cache.set(key, rankings, _RANKINGS_TTL)
     return rankings

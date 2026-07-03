@@ -1,10 +1,14 @@
-"""Signal handlers per profili utente e notifiche push sui decessi."""
+"""Signal handlers per profili utente, notifiche push sui decessi e
+invalidazione della cache della classifica di lega."""
 from django.conf import settings
 from django.contrib.auth.models import User
-from django.db.models.signals import post_save, pre_save
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
-from .models import Death, UserProfile
+from .models import (
+    Death, DeathBonus, League, LeagueBonus, Team, TeamMember, UserProfile,
+)
+from .scoring import invalidate_league_rankings
 
 
 @receiver(post_save, sender=User)
@@ -49,3 +53,44 @@ def notify_on_death_confirmed(sender, instance, created, **kwargs):
         broadcast_death_email(instance)
     except Exception:
         logger.exception('Errore invio email per Death %s', instance.pk)
+
+
+def _invalidate_for_leagues_with_death(death):
+    """Invalida la cache rankings di tutte le leghe che contengono questo death."""
+    league_ids = League.objects.filter(
+        start_date__lte=death.death_date, end_date__gte=death.death_date,
+    ).values_list('id', flat=True)
+    for lid in league_ids:
+        invalidate_league_rankings(lid)
+
+
+@receiver(post_save, sender=Death)
+@receiver(post_delete, sender=Death)
+def _invalidate_rankings_on_death_change(sender, instance, **kwargs):
+    _invalidate_for_leagues_with_death(instance)
+
+
+@receiver(post_save, sender=DeathBonus)
+@receiver(post_delete, sender=DeathBonus)
+def _invalidate_rankings_on_death_bonus_change(sender, instance, **kwargs):
+    _invalidate_for_leagues_with_death(instance.death)
+
+
+@receiver(post_save, sender=LeagueBonus)
+@receiver(post_delete, sender=LeagueBonus)
+def _invalidate_rankings_on_league_bonus_change(sender, instance, **kwargs):
+    invalidate_league_rankings(instance.league_id)
+
+
+@receiver(post_save, sender=Team)
+@receiver(post_delete, sender=Team)
+def _invalidate_rankings_on_team_change(sender, instance, **kwargs):
+    invalidate_league_rankings(instance.league_id)
+
+
+@receiver(post_save, sender=TeamMember)
+@receiver(post_delete, sender=TeamMember)
+def _invalidate_rankings_on_team_member_change(sender, instance, **kwargs):
+    league_id = getattr(instance.team, 'league_id', None)
+    if league_id:
+        invalidate_league_rankings(league_id)

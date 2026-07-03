@@ -652,3 +652,106 @@ class SubstitutionReminderTest(TestCase):
         self.member.save()
         self._run_command()
         self.assertFalse(SubstitutionReminder.objects.exists())
+
+
+class RankingsCacheTest(ScoringBaseTestCase):
+
+    def setUp(self):
+        super().setUp()
+        from django.core.cache import cache
+        cache.clear()
+        TeamMember.objects.create(team=self.team, person=self.berlusconi)
+
+    def test_seconda_chiamata_legge_da_cache(self):
+        from .scoring import _RANKINGS_DATA_KEY, _rankings_version
+        from django.core.cache import cache
+
+        first = compute_league_rankings(self.league)
+        version = _rankings_version(self.league.id)
+        key = _RANKINGS_DATA_KEY.format(league_id=self.league.id, version=version)
+        self.assertIsNotNone(cache.get(key))
+        # Manomettiamo la cache: la seconda chiamata deve restituirla così com'è
+        cache.set(key, [{'fake': True}], 300)
+        second = compute_league_rankings(self.league)
+        self.assertEqual(second, [{'fake': True}])
+        self.assertNotEqual(first, second)
+
+    def test_invalidazione_su_nuovo_decesso_confermato(self):
+        first = compute_league_rankings(self.league)
+        first_score = first[0]['score']
+        # Aggiungo Fellini in squadra e creo un nuovo decesso confermato
+        TeamMember.objects.create(team=self.team, person=self.giovanni_paolo_ii)
+        # Il decesso esiste già da setUp (ScoringBaseTestCase), ma il signal su
+        # TeamMember bumpa la versione → la prossima call deve ricalcolare.
+        second = compute_league_rankings(self.league)
+        self.assertGreater(second[0]['score'], first_score)
+
+
+class SitemapStaticTest(TestCase):
+    """Sanity check: la cache locmem default funziona e non genera errori."""
+
+    def test_cache_get_set_default(self):
+        from django.core.cache import cache
+        cache.set('fm-test', 42, 30)
+        self.assertEqual(cache.get('fm-test'), 42)
+
+
+class WhatIfSimulatorTest(ScoringBaseTestCase):
+
+    def setUp(self):
+        super().setUp()
+        TeamMember.objects.create(team=self.team, person=self.berlusconi, is_captain=True)
+
+    def test_simula_punti_per_persona_in_squadra(self):
+        from .scoring import simulate_team_points_for_person
+        # Persona viva nessun bonus configurato → solo base × moltiplicatore capitano
+        pts = simulate_team_points_for_person(self.team, self.berlusconi, death_age=86)
+        self.assertEqual(pts, self.league.base_points * self.league.captain_multiplier)
+
+    def test_jolly_si_attiva_solo_nel_mese_giusto(self):
+        from .scoring import simulate_team_points_for_person
+        self.team.jolly_month = 6
+        self.team.save()
+        pts_giugno = simulate_team_points_for_person(self.team, self.berlusconi, 86, death_month=6)
+        pts_marzo = simulate_team_points_for_person(self.team, self.berlusconi, 86, death_month=3)
+        self.assertGreater(pts_giugno, pts_marzo)
+
+    def test_persona_non_in_squadra_zero_punti(self):
+        from .scoring import simulate_team_points_for_person
+        pts = simulate_team_points_for_person(self.team, self.fellini, 73)
+        self.assertEqual(pts, 0)
+
+
+class CSVAndIcalExportTest(ScoringBaseTestCase):
+
+    def setUp(self):
+        super().setUp()
+        TeamMember.objects.create(team=self.team, person=self.berlusconi)
+        from .models import LeagueMembership
+        LeagueMembership.objects.get_or_create(
+            league=self.league, user=self.owner, defaults={'role': 'owner'},
+        )
+        self.client.force_login(self.owner)
+
+    def test_export_classifica_csv(self):
+        resp = self.client.get(f'/leghe/{self.league.slug}/classifica.csv')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp['Content-Type'], 'text/csv; charset=utf-8')
+        body = resp.content.decode('utf-8')
+        self.assertIn('posizione', body)
+        self.assertIn('Squadra Test', body)
+
+    def test_export_decessi_csv(self):
+        resp = self.client.get(f'/leghe/{self.league.slug}/decessi.csv')
+        self.assertEqual(resp.status_code, 200)
+        body = resp.content.decode('utf-8')
+        self.assertIn('Silvio Berlusconi', body)
+
+    def test_calendar_ics(self):
+        resp = self.client.get(f'/leghe/{self.league.slug}/calendar.ics')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp['Content-Type'].startswith('text/calendar'))
+        body = resp.content.decode('utf-8')
+        self.assertIn('BEGIN:VCALENDAR', body)
+        self.assertIn('END:VCALENDAR', body)
+        self.assertIn('Inizio stagione', body)
