@@ -5,35 +5,6 @@ from django.contrib.auth.models import User
 from django.utils import timezone
 
 
-class Season(models.Model):
-    year = models.IntegerField(unique=True)
-    is_active = models.BooleanField(default=False)
-    registration_opens = models.DateField()
-    registration_closes = models.DateField()
-    substitution_deadline_days = models.PositiveIntegerField(
-        default=7,
-        help_text='Giorni a disposizione per sostituire un giocatore deceduto, dalla conferma del decesso.'
-    )
-    notes = models.TextField(blank=True)
-
-    class Meta:
-        ordering = ['-year']
-
-    def __str__(self):
-        return str(self.year)
-
-    def is_registration_open(self):
-        today = timezone.now().date()
-        return self.registration_opens <= today <= self.registration_closes
-
-    def is_running(self):
-        from datetime import date
-        today = timezone.now().date()
-        start = date(self.year, 1, 1)
-        end = date(self.year, 12, 31)
-        return start <= today <= end
-
-
 class WikipediaPerson(models.Model):
     wikidata_id = models.CharField(max_length=20, unique=True)
     name_it = models.CharField(max_length=300)
@@ -132,7 +103,7 @@ class BonusType(models.Model):
             return self.points
         # eval whitelist: solo cifre, operatori e variabile age
         allowed = set('0123456789+-*/(). agemax(),min')
-        if not all(c in allowed for c in formula):
+        if not all(c in allowed for c in formula) or '**' in formula:
             return self.points
         try:
             value = eval(formula, {'__builtins__': {}}, {'age': age or 0, 'max': max, 'min': min})
@@ -155,8 +126,6 @@ class Team(models.Model):
         'League', on_delete=models.CASCADE, related_name='teams',
         null=True, blank=True,
     )
-    # Mantenuto per retro-compatibilità: una lega "auto-generata" copre la stagione legacy.
-    season = models.ForeignKey(Season, on_delete=models.SET_NULL, related_name='teams', null=True, blank=True)
     jolly_month = models.IntegerField(choices=MONTHS_IT, null=True, blank=True)
     is_locked = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -170,8 +139,6 @@ class Team(models.Model):
     def __str__(self):
         if self.league_id:
             return f'{self.name} ({self.league.name})'
-        if self.season_id:
-            return f'{self.name} ({self.season.year})'
         return self.name
 
     def get_captain(self):
@@ -213,8 +180,7 @@ class TeamMember(models.Model):
     def get_substitution_deadline(self):
         """Restituisce la deadline (datetime) entro cui questo membro può essere sostituito.
 
-        Si basa sulla data di conferma del decesso e sulla configurazione della lega
-        (con fallback alla stagione, per retro-compatibilità).
+        Si basa sulla data di conferma del decesso e sulla configurazione della lega.
         """
         if not self.person.is_dead:
             return None
@@ -223,8 +189,6 @@ class TeamMember(models.Model):
             return None
         if self.team.league_id:
             days = self.team.league.substitution_deadline_days or 0
-        elif self.team.season_id:
-            days = self.team.season.substitution_deadline_days or 0
         else:
             days = 7
         if days <= 0:
@@ -259,7 +223,6 @@ class Death(models.Model):
     person = models.OneToOneField(
         WikipediaPerson, on_delete=models.CASCADE, related_name='death'
     )
-    season = models.ForeignKey(Season, on_delete=models.CASCADE, related_name='deaths')
     death_date = models.DateField()
     death_age = models.IntegerField(null=True, blank=True)
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default=SOURCE_WIKIDATA)
@@ -380,6 +343,10 @@ class League(models.Model):
     )
 
     is_locked = models.BooleanField(default=False, help_text='Se True, la composizione delle squadre è bloccata.')
+    search_wikipedia_langs = models.TextField(
+        blank=True, default='',
+        help_text='Lingue Wikipedia accettate (es. itwiki,enwiki). Vuoto = tutta Wikidata.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -485,7 +452,7 @@ class LeagueBonus(models.Model):
         formula = (self.override_formula or self.bonus_type.points_formula or '').strip()
         if formula:
             allowed = set('0123456789+-*/(). agemax(),min')
-            if all(c in allowed for c in formula):
+            if all(c in allowed for c in formula) and '**' not in formula:
                 try:
                     return int(eval(formula, {'__builtins__': {}}, {'age': age or 0, 'max': max, 'min': min}))
                 except Exception:

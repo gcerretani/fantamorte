@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.utils import timezone
 from django.contrib import messages
 from .models import (
-    Season, WikipediaPerson, BonusType, Team, TeamMember,
+    WikipediaPerson, BonusType, Team, TeamMember,
     Death, DeathBonus, UserProfile, PushSubscription,
     League, LeagueMembership, LeagueBonus, SiteSettings,
 )
@@ -60,30 +60,6 @@ class TeamMemberInline(admin.TabularInline):
     raw_id_fields = ('person', 'replaced_by')
     readonly_fields = ('added_at',)
     fk_name = 'team'
-
-
-@admin.register(Season)
-class SeasonAdmin(admin.ModelAdmin):
-    list_display = (
-        'year', 'is_active', 'registration_opens', 'registration_closes',
-        'substitution_deadline_days', 'death_count',
-    )
-    list_filter = ('is_active',)
-    list_editable = ('substitution_deadline_days',)
-    actions = ['set_active']
-
-    def death_count(self, obj):
-        return obj.deaths.filter(is_confirmed=True).count()
-    death_count.short_description = 'Morti confermati'
-
-    @admin.action(description='Imposta come stagione attiva')
-    def set_active(self, request, queryset):
-        if queryset.count() != 1:
-            self.message_user(request, 'Seleziona esattamente una stagione.', messages.ERROR)
-            return
-        Season.objects.update(is_active=False)
-        queryset.update(is_active=True)
-        self.message_user(request, f'Stagione {queryset.first().year} impostata come attiva.')
 
 
 @admin.register(WikipediaPerson)
@@ -149,12 +125,12 @@ class TeamAdmin(admin.ModelAdmin):
 
 @admin.register(Death)
 class DeathAdmin(admin.ModelAdmin):
-    list_display = ('person', 'death_date', 'death_age', 'season', 'source', 'is_confirmed', 'confirmed_by')
-    list_filter = ('season', 'is_confirmed', 'source')
+    list_display = ('person', 'death_date', 'death_age', 'source', 'is_confirmed', 'confirmed_by')
+    list_filter = ('is_confirmed', 'source')
     search_fields = ('person__name_it',)
     readonly_fields = ('created_at',)
     inlines = [DeathBonusInline]
-    actions = ['confirm_deaths', 'detect_bonuses_action']
+    actions = ['confirm_deaths', 'unconfirm_deaths', 'detect_bonuses_action']
 
     @admin.action(description='Conferma morti selezionati')
     def confirm_deaths(self, request, queryset):
@@ -168,6 +144,16 @@ class DeathAdmin(admin.ModelAdmin):
             death.person.save()
             count += 1
         self.message_user(request, f'{count} decessi confermati.')
+
+    @admin.action(description='Revoca conferma morti selezionati')
+    def unconfirm_deaths(self, request, queryset):
+        # update() non passa dai signal: nessuna notifica alla revoca.
+        # Per escludere la persona dai check automatici successivi impostare
+        # anche data_frozen=True sulla WikipediaPerson.
+        count = queryset.filter(is_confirmed=True).update(
+            is_confirmed=False, confirmed_at=None, confirmed_by=None,
+        )
+        self.message_user(request, f'{count} conferme revocate.')
 
     @admin.action(description='Auto-rileva bonus da Wikidata')
     def detect_bonuses_action(self, request, queryset):

@@ -74,18 +74,9 @@ def broadcast_death_notification(death: Death) -> int:
     leagues = list(League.objects.filter(
         start_date__lte=death.death_date, end_date__gte=death.death_date,
     ))
-    if not leagues:
-        # Fallback: stagione legacy
-        if death.season_id:
-            user_ids = set(
-                Team.objects.filter(season_id=death.season_id).values_list('manager_id', flat=True)
-            )
-        else:
-            user_ids = set()
-    else:
-        user_ids = set(
-            LeagueMembership.objects.filter(league__in=leagues).values_list('user_id', flat=True)
-        )
+    user_ids = set(
+        LeagueMembership.objects.filter(league__in=leagues).values_list('user_id', flat=True)
+    )
 
     if not user_ids:
         return 0
@@ -153,6 +144,4 @@ def _build_body(death: Death) -> str:
     league = leagues.first() if leagues else None
     if league:
         parts.append(f'Hai {league.substitution_deadline_days} giorni per sostituirlo (lega {league.name}).')
-    elif death.season_id:
-        parts.append(f'Hai {death.season.substitution_deadline_days} giorni per sostituire il giocatore.')
     return ' '.join(parts)

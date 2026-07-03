@@ -1,3 +1,5 @@
+import logging
+import re
 import time
 import requests
 from datetime import date
@@ -5,11 +7,13 @@ from django.conf import settings
 from . import sparql as sparql_templates
 
 
+logger = logging.getLogger(__name__)
+
+
 class WikidataClient:
     ENTITY_URL = 'https://www.wikidata.org/wiki/Special:EntityData/{}.json'
     SPARQL_URL = 'https://query.wikidata.org/sparql'
     IT_WIKI_API = 'https://it.wikipedia.org/w/api.php'
-    IT_WIKI_SEARCH_API = 'https://it.wikipedia.org/w/api.php'
 
     def __init__(self):
         ua = getattr(settings, 'WIKIDATA_USER_AGENT', 'Fantamorte/1.0')
@@ -33,41 +37,77 @@ class WikidataClient:
         resp.raise_for_status()
         return resp.json()
 
-    def search_by_italian_name(self, name):
-        data = self._get(self.IT_WIKI_SEARCH_API, {
-            'action': 'query',
-            'list': 'search',
-            'srsearch': name,
-            'srlimit': 10,
-            'srprop': 'snippet',
-            'format': 'json',
-        })
-        titles = [r['title'] for r in data.get('query', {}).get('search', [])]
-        if not titles:
-            return []
+    def search_by_italian_name(self, name, require_wikis=None):
+        """Cerca persone su Wikidata per nome.
 
-        prop_data = self._get(self.IT_WIKI_API, {
-            'action': 'query',
-            'titles': '|'.join(titles),
-            'prop': 'pageprops',
-            'ppprop': 'wikibase_item',
+        Ritorna `(results, sparql_failed)`: una lista di dict e un flag che
+        indica se il filtro SPARQL ha fallito (in tal caso i risultati non sono
+        filtrati per umano/lingua).
+        """
+        # Step 1: search Wikidata entities by Italian label/alias
+        data = self._get('https://www.wikidata.org/w/api.php', {
+            'action': 'wbsearchentities',
+            'search': name,
+            'language': 'it',
+            'type': 'item',
+            'limit': 20,
             'format': 'json',
         })
+        candidates = data.get('search', [])
+        if not candidates:
+            return [], False
+
+        # Step 2: SPARQL to filter P31=Q5 (human) and get itwiki title in one shot.
+        # This is much lighter than wbgetentities with props=claims.
+        values = ' '.join(f'wd:{c["id"]}' for c in candidates)
+        if require_wikis:
+            union_clauses = ' UNION '.join(
+                f'{{ ?wp schema:about ?item ; schema:isPartOf <https://{w[:-4]}.wikipedia.org/> . }}'
+                for w in require_wikis
+            )
+            wiki_filter = f'  FILTER EXISTS {{ {union_clauses} }}'
+        else:
+            wiki_filter = ''
+        query = sparql_templates.HUMAN_SEARCH_QUERY.format(values=values, wiki_filter=wiki_filter)
+        try:
+            sparql_data = self._sparql(query)
+        except Exception:
+            logger.warning(
+                'SPARQL timeout/error during search for %r, returning unfiltered wbsearchentities results', name
+            )
+            fallback = [
+                {
+                    'wikidata_id': c['id'],
+                    'name_it': c.get('label', c['id']),
+                    'description': c.get('description', ''),
+                    'wikipedia_url_it': '',
+                }
+                for c in candidates
+            ]
+            return fallback, True
+
+        human_map = {}  # qid -> itwiki_title
+        for binding in sparql_data.get('results', {}).get('bindings', []):
+            qid = binding['item']['value'].split('/')[-1]
+            human_map[qid] = binding.get('itwikiTitle', {}).get('value', '')
 
         results = []
-        pages = prop_data.get('query', {}).get('pages', {})
-        for page in pages.values():
-            qid = page.get('pageprops', {}).get('wikibase_item')
-            if qid:
-                results.append({
-                    'wikidata_id': qid,
-                    'name_it': page.get('title', ''),
-                    'description': '',
-                    'wikipedia_url_it': f'https://it.wikipedia.org/wiki/{page.get("title", "").replace(" ", "_")}',
-                })
-        return results
+        for candidate in candidates:
+            qid = candidate['id']
+            if qid not in human_map:
+                continue
+            wiki_title = human_map[qid]
+            results.append({
+                'wikidata_id': qid,
+                'name_it': candidate.get('label', qid),
+                'description': candidate.get('description', ''),
+                'wikipedia_url_it': f'https://it.wikipedia.org/wiki/{wiki_title.replace(" ", "_")}' if wiki_title else '',
+            })
+        return results, False
 
     def get_entity(self, wikidata_id):
+        if not re.fullmatch(r'Q\d+', str(wikidata_id)):
+            raise ValueError(f'QID Wikidata non valido: {wikidata_id!r}')
         data = self._get(self.ENTITY_URL.format(wikidata_id))
         entity = data.get('entities', {}).get(wikidata_id, {})
         labels = entity.get('labels', {})
@@ -86,8 +126,17 @@ class WikidataClient:
         wikipedia_url = f'https://it.wikipedia.org/wiki/{wiki_title.replace(" ", "_")}' if wiki_title else ''
 
         image_url = self._build_commons_image_url(claims.get('P18', []))
-        occupation = self._labels_for_entity_claims(claims.get('P106', []), limit=4)
-        nationality = self._labels_for_entity_claims(claims.get('P27', []), limit=2)
+        try:
+            occupation = self._labels_for_entity_claims(claims.get('P106', []), limit=4)
+        except Exception:
+            # None = non determinabile (es. timeout label lookup); il diff lo ignora.
+            logger.warning('Recupero occupation fallito per %s', wikidata_id, exc_info=True)
+            occupation = None
+        try:
+            nationality = self._labels_for_entity_claims(claims.get('P27', []), limit=2)
+        except Exception:
+            logger.warning('Recupero nationality fallito per %s', wikidata_id, exc_info=True)
+            nationality = None
 
         return {
             'name_it': name_it,
@@ -153,26 +202,23 @@ class WikidataClient:
                 qids.append(qid)
         if not qids:
             return ''
-        try:
-            params = {
-                'action': 'wbgetentities',
-                'ids': '|'.join(qids),
-                'props': 'labels',
-                'languages': f'{lang}|en',
-                'format': 'json',
-            }
-            data = self._get('https://www.wikidata.org/w/api.php', params)
-            entities = data.get('entities', {})
-            labels = []
-            for qid in qids:
-                ent = entities.get(qid, {})
-                lbls = ent.get('labels', {})
-                lbl = (lbls.get(lang) or lbls.get('en') or {}).get('value')
-                if lbl:
-                    labels.append(lbl)
-            return ', '.join(labels)
-        except Exception:
-            return ''
+        params = {
+            'action': 'wbgetentities',
+            'ids': '|'.join(qids),
+            'props': 'labels',
+            'languages': f'{lang}|en',
+            'format': 'json',
+        }
+        data = self._get('https://www.wikidata.org/w/api.php', params)
+        entities = data.get('entities', {})
+        labels = []
+        for qid in qids:
+            ent = entities.get(qid, {})
+            lbls = ent.get('labels', {})
+            lbl = (lbls.get(lang) or lbls.get('en') or {}).get('value')
+            if lbl:
+                labels.append(lbl)
+        return ', '.join(labels)
 
     def _parse_date_claim(self, claim_list):
         if not claim_list:

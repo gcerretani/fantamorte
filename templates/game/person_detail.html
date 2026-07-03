@@ -20,10 +20,10 @@
     {% endif %}
     <ul class="list-unstyled small">
       {% if person.birth_date or person.birth_year %}
-        <li><strong>Nato/a</strong>: {{ person.birth_date|default:person.birth_year }}</li>
+        <li><strong>Nato/a</strong>: {% if person.birth_date %}{{ person.birth_date|date:"d/m/Y" }}{% else %}{{ person.birth_year }}{% endif %}</li>
       {% endif %}
       {% if person.is_dead %}
-        <li><strong>Deceduto/a</strong>: {{ person.death_date|default:person.death_year }}
+        <li><strong>Deceduto/a</strong>: {% if person.death_date %}{{ person.death_date|date:"d/m/Y" }}{% else %}{{ person.death_year }}{% endif %}
           {% with age=person.get_age_at_death %}{% if age %} ({{ age }} anni){% endif %}{% endwith %}
         </li>
       {% else %}
@@ -57,9 +57,10 @@
     {% for tm in team_members %}
       <li>
         <a href="{% url 'team_detail' tm.team.pk %}">{{ tm.team.name }}</a>
-        ({{ tm.team.season.year }} &mdash; {{ tm.team.manager.username }})
+        ({% if tm.team.league %}{{ tm.team.league.name }}{% endif %}
+        &mdash; {{ tm.team.manager.username }})
         {% if tm.is_captain %}<span class="badge badge-captain">capitano</span>{% endif %}
-        {% if tm.is_original %}<span class="badge bg-info">originale</span>{% endif %}
+        {% if tm.is_original %}<span class="badge text-bg-info">originale</span>{% endif %}
         {% if tm.replaced_by %}<small class="text-muted">— sostituito/a</small>{% endif %}
       </li>
     {% endfor %}

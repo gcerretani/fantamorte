@@ -1,14 +1,25 @@
+import time
 from pathlib import Path
 import environ
+from django.contrib.messages import constants as messages_constants
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-env = environ.Env(DEBUG=(bool, True))
+env = environ.Env(DEBUG=(bool, False))
 environ.Env.read_env(BASE_DIR / '.env', overwrite=False)
 
-SECRET_KEY = env('SECRET_KEY', default='django-insecure-dev-key-change-in-production')
 DEBUG = env('DEBUG')
-ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['*'])
+
+# In produzione (DEBUG=False) la SECRET_KEY è obbligatoria: nessun default,
+# l'app deve fallire subito all'avvio se manca invece di partire insicura.
+if DEBUG:
+    SECRET_KEY = env('SECRET_KEY', default='django-insecure-dev-key-change-in-production')
+else:
+    SECRET_KEY = env('SECRET_KEY')
+
+# In sviluppo (DEBUG=True) va bene un default comodo; in produzione
+# ALLOWED_HOSTS va sempre configurato esplicitamente via env.
+ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1'] if DEBUG else [])
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -44,6 +55,25 @@ MIDDLEWARE = [
     'allauth.account.middleware.AccountMiddleware',
     'game.middleware.LoginRequiredEverywhereMiddleware',
 ]
+
+# --- Sicurezza in produzione ---
+# Il redirect HTTP -> HTTPS è delegato al reverse proxy (nginx), qui solo
+# gli header/cookie di sicurezza che dipendono da una connessione già HTTPS.
+if not DEBUG:
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_HSTS_SECONDS = env.int('SECURE_HSTS_SECONDS', default=31536000)
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool('SECURE_HSTS_INCLUDE_SUBDOMAINS', default=True)
+    SECURE_HSTS_PRELOAD = env.bool('SECURE_HSTS_PRELOAD', default=False)
+
+# Le classi Bootstrap sono alert-<tag>: i tag Django di default 'error' e
+# 'debug' non esistono in Bootstrap, li rimappiamo su danger/secondary.
+MESSAGE_TAGS = {
+    messages_constants.ERROR: 'danger',
+    messages_constants.DEBUG: 'secondary',
+}
 
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
@@ -92,6 +122,7 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = 'static/'
+STATICFILES_DIRS = [BASE_DIR / 'static']
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # In produzione usa il manifest storage per cache busting automatico (hash nei
@@ -108,7 +139,7 @@ LOGOUT_REDIRECT_URL = '/'
 # --- django-allauth ---
 ACCOUNT_LOGIN_METHODS = {'username', 'email'}
 ACCOUNT_SIGNUP_FIELDS = ['email*', 'username*', 'password1*', 'password2*']
-ACCOUNT_EMAIL_VERIFICATION = env('ACCOUNT_EMAIL_VERIFICATION', default='optional')
+ACCOUNT_EMAIL_VERIFICATION = env('ACCOUNT_EMAIL_VERIFICATION', default='mandatory')
 ACCOUNT_UNIQUE_EMAIL = True
 ACCOUNT_DEFAULT_HTTP_PROTOCOL = env('ACCOUNT_DEFAULT_HTTP_PROTOCOL', default='https')
 SOCIALACCOUNT_LOGIN_ON_GET = True
@@ -162,3 +193,46 @@ WIKIDATA_REQUEST_DELAY = env.float('WIKIDATA_REQUEST_DELAY', default=0.5)
 
 # Mostra il pulsante VAPID disponibile al template
 TEMPLATES[0]['OPTIONS']['context_processors'].append('game.context_processors.public_settings')
+
+# --- Logging ---
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'console': {
+            'format': '%(asctime)s %(levelname)s %(name)s %(message)s',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'console',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': env('DJANGO_LOG_LEVEL', default='INFO'),
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'game': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'wikidata_api': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}
+
+# Versione della cache del service worker: cambia ad ogni deploy per
+# invalidare la cache lato client (vedi templates/game/sw.js). Se non
+# impostata via env (es. hash del commit), usa il timestamp di avvio.
+SW_CACHE_VERSION = env('SW_CACHE_VERSION', default='') or str(int(time.time()))

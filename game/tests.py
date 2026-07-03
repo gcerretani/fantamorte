@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from .models import (
     BonusType, Death, DeathBonus, League, LeagueBonus,
-    Season, SubstitutionReminder, Team, TeamMember, UserProfile, WikipediaPerson,
+    SubstitutionReminder, Team, TeamMember, UserProfile, WikipediaPerson,
 )
 from .scoring import (
     compute_league_rankings,
@@ -36,11 +36,6 @@ class ScoringBaseTestCase(TestCase):
             captain_multiplier=2,
             jolly_multiplier=2,
             jolly_enabled=True,
-        )
-        self.season = Season.objects.create(
-            year=2024, is_active=True,
-            registration_opens=date(2023, 12, 1),
-            registration_closes=date(2024, 1, 31),
         )
         self.team = Team.objects.create(
             name='Squadra Test',
@@ -71,21 +66,18 @@ class ScoringBaseTestCase(TestCase):
         # Decessi confermati con età reale
         self.death_berlusconi = Death.objects.create(
             person=self.berlusconi,
-            season=self.season,
             death_date=date(2023, 6, 12),  # giugno → usato per test jolly
             death_age=86,
             is_confirmed=True,
         )
         self.death_gp2 = Death.objects.create(
             person=self.giovanni_paolo_ii,
-            season=self.season,
             death_date=date(2005, 4, 2),
             death_age=84,
             is_confirmed=True,
         )
         self.death_fellini = Death.objects.create(
             person=self.fellini,
-            season=self.season,
             death_date=date(1993, 10, 31),
             death_age=73,
             is_confirmed=True,
@@ -108,7 +100,7 @@ class PuntiBaseTest(ScoringBaseTestCase):
             wikidata_id='Q99999', name_it='Mario Rossi', is_dead=False,
         )
         Death.objects.create(
-            person=persona, season=self.season,
+            person=persona,
             death_date=date(2024, 3, 15), death_age=70, is_confirmed=False,
         )
         TeamMember.objects.create(team=self.team, person=persona)
@@ -517,18 +509,13 @@ class DeathEmailTest(TestCase):
             birth_date=date(1940, 1, 1), is_dead=False,
         )
         TeamMember.objects.create(team=self.team_alice, person=self.person)
-        self.season = Season.objects.create(
-            year=2025, is_active=True,
-            registration_opens=date(2024, 12, 1),
-            registration_closes=date(2025, 1, 31),
-        )
 
     def test_email_inviata_solo_a_chi_ha_optin(self):
         from .email import broadcast_death_email
         self.person.is_dead = True
         self.person.save()
         death = Death.objects.create(
-            person=self.person, season=self.season,
+            person=self.person,
             death_date=date(2025, 6, 1),
             death_age=85, is_confirmed=True,
         )
@@ -543,7 +530,7 @@ class DeathEmailTest(TestCase):
         self.person.is_dead = True
         self.person.save()
         death = Death.objects.create(
-            person=self.person, season=self.season,
+            person=self.person,
             death_date=date(2025, 6, 1),
             death_age=85, is_confirmed=True,
         )
@@ -559,7 +546,7 @@ class DeathEmailTest(TestCase):
         self.person.is_dead = True
         self.person.save()
         death = Death.objects.create(
-            person=self.person, season=self.season,
+            person=self.person,
             death_date=date(2025, 6, 1),
             death_age=85, is_confirmed=False,
         )
@@ -575,7 +562,7 @@ class DeathEmailTest(TestCase):
         self.person.is_dead = True
         self.person.save()
         death = Death.objects.create(
-            person=self.person, season=self.season,
+            person=self.person,
             death_date=date(2025, 6, 1),
             death_age=85, is_confirmed=True,
         )
@@ -608,16 +595,11 @@ class SubstitutionReminderTest(TestCase):
             birth_date=date(1930, 1, 1), is_dead=True,
         )
         self.member = TeamMember.objects.create(team=self.team, person=self.person)
-        self.season = Season.objects.create(
-            year=today.year, is_active=True,
-            registration_opens=today - timedelta(days=60),
-            registration_closes=today - timedelta(days=20),
-        )
         # Decesso con confirmed_at impostato a "5 giorni fa" → deadline a +2 giorni
         # da oggi, quindi rientra nella soglia T-3 ma non in T-1.
         confirmed = timezone.now() - timedelta(days=5)
         self.death = Death.objects.create(
-            person=self.person, season=self.season,
+            person=self.person,
             death_date=confirmed.date(),
             death_age=95, is_confirmed=True, confirmed_at=confirmed,
         )

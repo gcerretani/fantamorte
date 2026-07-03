@@ -6,8 +6,18 @@
   <div class="col-md-8">
     <h2>{% if creating %}Crea la tua squadra{% else %}Modifica: {{ team.name }}{% endif %}</h2>
 
+    {% if not can_edit %}
+    <div class="alert alert-info">
+      {% if league.is_locked %}
+        La squadra non è modificabile perché la lega <strong>{{ league.name }}</strong> è stata bloccata dall'amministratore.
+      {% else %}
+        La squadra non è modificabile: le registrazioni per questa lega sono chiuse.
+      {% endif %}
+    </div>
+    {% endif %}
+
     {% if can_edit %}
-    <form method="post" class="mb-4">
+    <form method="post" id="teamForm" class="mb-4">
       {% csrf_token %}
       <div class="row g-2 align-items-end">
         <div class="col-md-5">
@@ -23,16 +33,18 @@
             {% endfor %}
           </select>
         </div>
+        {% if creating %}
         <div class="col-md-3">
           <button type="submit" class="btn btn-dark w-100">Salva</button>
         </div>
+        {% endif %}
       </div>
     </form>
     {% endif %}
 
     {% if not creating %}
     <div class="d-flex justify-content-between align-items-center mb-2">
-      <h5 class="mb-0">Rosa ({{ members|length }} / {{ max_captains|add:max_non_captains|default:12 }})</h5>
+      <h5 class="mb-0">Rosa ({{ active_count }} / {{ max_captains|add:max_non_captains|default:12 }})</h5>
       {% if can_edit %}
       <button class="btn btn-outline-success btn-sm" data-bs-toggle="collapse" data-bs-target="#addForm">+ Aggiungi</button>
       {% endif %}
@@ -42,9 +54,13 @@
     <div class="collapse mb-3" id="addForm">
       <div class="card card-body">
         <div class="mb-2">
-          <input type="text" id="searchInput" class="form-control" placeholder="Cerca su Wikipedia italiana...">
+          <input type="text" id="searchInput" class="form-control" placeholder="{% if league.search_wikipedia_langs %}Cerca su Wikipedia…{% else %}Cerca su Wikidata…{% endif %}">
         </div>
         <div id="searchResults" class="list-group mb-2"></div>
+        <div id="searchWarning" class="d-none alert alert-warning py-2 px-3 small mb-2" role="alert"></div>
+        <div id="searchSpinner" class="d-none text-center text-muted small py-1">
+          <span class="spinner-border spinner-border-sm me-1"></span>Ricerca in corso…
+        </div>
         <div class="d-flex gap-2 align-items-center">
           <input type="hidden" id="selectedQid" name="wikidata_id">
           <span id="selectedName" class="text-muted small flex-grow-1">Nessuna persona selezionata</span>
@@ -52,72 +68,76 @@
             <input class="form-check-input" type="checkbox" id="isCaptain" value="1">
             <label class="form-check-label" for="isCaptain">Capitano</label>
           </div>
-          <button id="addBtn" class="btn btn-success btn-sm" disabled>Aggiungi</button>
+          <button id="addBtn" type="button" class="btn btn-success btn-sm" disabled>Aggiungi</button>
+        </div>
+        <div id="addError" class="alert alert-danger alert-dismissible d-none mt-2 mb-0 py-2 px-3 small" role="alert">
+          <span id="addErrorMsg"></span>
+          <button type="button" class="btn-close btn-close-sm" aria-label="Chiudi" onclick="document.getElementById('addError').classList.add('d-none')"></button>
         </div>
       </div>
     </div>
     {% endif %}
 
-    <form method="post">
-      {% csrf_token %}
-      <input type="hidden" name="name" value="{{ team.name }}">
-      <input type="hidden" name="jolly_month" value="{{ team.jolly_month }}">
-      <table class="table table-sm align-middle">
-        <thead class="table-dark">
-          <tr>
-            <th>Persona</th>
-            <th>Nascita</th>
-            <th>Stato</th>
-            {% if can_edit %}<th>Capitano</th>{% endif %}
-          </tr>
-        </thead>
-        <tbody>
-          {% for member in members %}
-            {% if member.is_active %}
-            <tr {% if member.person.is_dead %}class="table-danger"{% endif %}>
-              <td>
-                <a href="#" class="text-decoration-none" data-fm-person-pk="{{ member.person.pk }}">
-                  {{ member.person.name_it }}
-                </a>
-                {% if member.is_captain %}
-                  <span class="badge badge-captain">C</span>
-                {% endif %}
-                {% if member.is_original %}
-                  <span class="badge bg-info" title="Giocata originale">★</span>
-                {% endif %}
-              </td>
-              <td><small>{% if member.person.birth_date %}{{ member.person.birth_date.year }}{% elif member.person.birth_year %}{{ member.person.birth_year }}{% endif %}</small></td>
-              <td>
-                {% if member.person.is_dead %}
-                  <span class="text-danger">&#9760; {{ member.person.death_date }}</span>
-                  {% with deadline=member.get_substitution_deadline %}
-                    {% if deadline %}
-                      <br><small class="text-muted">scade <span class="fm-countdown" data-fm-countdown="{{ deadline|date:'U' }}">…</span></small>
-                    {% endif %}
-                    {% if can_edit and member.can_be_substituted %}
-                      <a href="{% url 'substitute_member' team.pk member.pk %}" class="btn btn-warning btn-sm ms-1">Sostituisci</a>
-                    {% elif can_edit and deadline %}
-                      <span class="badge bg-secondary ms-1" title="Tempi scaduti">scaduto</span>
-                    {% endif %}
-                  {% endwith %}
-                {% else %}
-                  <span class="text-success">Vivo/a</span>
-                {% endif %}
-              </td>
-              {% if can_edit %}
-              <td>
-                <input type="radio" name="captain_id" value="{{ member.pk }}" {% if member.is_captain %}checked{% endif %}>
-              </td>
+    {% if active_count %}
+    <table class="table table-sm align-middle">
+      <thead class="table-dark">
+        <tr>
+          <th>Persona</th>
+          <th>Nascita</th>
+          <th>Stato</th>
+          {% if can_edit %}<th>Capitano</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for member in members %}
+          {% if member.is_active %}
+          <tr {% if member.person.is_dead %}class="table-danger"{% endif %}>
+            <td>
+              <a href="#" class="text-decoration-none" data-fm-person-pk="{{ member.person.pk }}">
+                {{ member.person.name_it }}
+              </a>
+              {% if member.is_captain %}
+                <span class="badge badge-captain">C</span>
               {% endif %}
-            </tr>
+              {% if member.is_original %}
+                <span class="badge bg-info" title="Giocata originale">★</span>
+              {% endif %}
+            </td>
+            <td><small>{% if member.person.birth_date %}{{ member.person.birth_date.year }}{% elif member.person.birth_year %}{{ member.person.birth_year }}{% endif %}</small></td>
+            <td>
+              {% if member.person.is_dead %}
+                <span class="text-danger">&#9760; {{ member.person.death_date }}</span>
+                {% with deadline=member.get_substitution_deadline %}
+                  {% if deadline %}
+                    <br><small class="text-muted">scade <span class="fm-countdown" data-fm-countdown="{{ deadline|date:'U' }}">…</span></small>
+                  {% endif %}
+                  {% if can_edit and member.can_be_substituted %}
+                    <a href="{% url 'substitute_member' team.pk member.pk %}" class="btn btn-warning btn-sm ms-1">Sostituisci</a>
+                  {% elif can_edit and deadline %}
+                    <span class="badge bg-secondary ms-1" title="Tempi scaduti">scaduto</span>
+                  {% endif %}
+                {% endwith %}
+              {% else %}
+                <span class="text-success">Vivo/a</span>
+              {% endif %}
+            </td>
+            {% if can_edit %}
+            <td>
+              <input type="radio" name="captain_id" value="{{ member.pk }}" form="teamForm" {% if member.is_captain %}checked{% endif %}>
+            </td>
             {% endif %}
-          {% endfor %}
-        </tbody>
-      </table>
-      {% if can_edit %}
-        <button type="submit" class="btn btn-outline-dark btn-sm">Salva capitano</button>
-      {% endif %}
-    </form>
+          </tr>
+          {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="text-muted">La rosa è vuota: cerca un personaggio qui sopra per aggiungerlo.</p>
+    {% endif %}
+
+    {% if can_edit %}
+      <button type="submit" form="teamForm" class="btn btn-outline-dark btn-sm">Salva</button>
+    {% endif %}
 
     {% if dead_members %}
     <div class="alert alert-warning mt-3">
@@ -133,17 +153,43 @@
 {% if can_edit %}
 <script>
 const teamPk = "{{ team.pk }}";
+const leagueSlug = "{{ league.slug }}";
 const csrfToken = "{{ csrf_token }}";
 let searchTimeout;
+let searchAbortController = null;
+
+function showAddError(msg) {
+  const el = document.getElementById('addError');
+  document.getElementById('addErrorMsg').textContent = msg;
+  el.classList.remove('d-none');
+}
 
 document.getElementById('searchInput').addEventListener('input', function() {
   clearTimeout(searchTimeout);
+  document.getElementById('addError').classList.add('d-none');
   const q = this.value.trim();
-  if (q.length < 2) { document.getElementById('searchResults').innerHTML = ''; return; }
+  if (q.length < 2) {
+    if (searchAbortController) searchAbortController.abort();
+    document.getElementById('searchResults').innerHTML = '';
+    document.getElementById('searchSpinner').classList.add('d-none');
+    return;
+  }
   searchTimeout = setTimeout(() => {
-    fetch(`/api/search-person/?q=${encodeURIComponent(q)}`)
+    if (searchAbortController) searchAbortController.abort();
+    searchAbortController = new AbortController();
+    document.getElementById('searchResults').innerHTML = '';
+    document.getElementById('searchSpinner').classList.remove('d-none');
+    fetch(`/api/search-person/?q=${encodeURIComponent(q)}&league=${encodeURIComponent(leagueSlug)}`, { signal: searchAbortController.signal })
       .then(r => r.json())
       .then(data => {
+        document.getElementById('searchSpinner').classList.add('d-none');
+        const warnEl = document.getElementById('searchWarning');
+        if (data.warning) {
+          warnEl.textContent = '⚠ ' + data.warning;
+          warnEl.classList.remove('d-none');
+        } else {
+          warnEl.classList.add('d-none');
+        }
         const el = document.getElementById('searchResults');
         el.innerHTML = '';
         data.results.forEach(r => {
@@ -155,6 +201,7 @@ document.getElementById('searchInput').addEventListener('input', function() {
           a.dataset.name = r.name_it;
           a.addEventListener('click', e => {
             e.preventDefault();
+            document.getElementById('addError').classList.add('d-none');
             document.getElementById('selectedQid').value = r.wikidata_id;
             document.getElementById('selectedName').textContent = r.name_it + ' (' + r.wikidata_id + ')';
             document.getElementById('addBtn').disabled = false;
@@ -162,14 +209,22 @@ document.getElementById('searchInput').addEventListener('input', function() {
           });
           el.appendChild(a);
         });
+      })
+      .catch(err => {
+        if (err.name !== 'AbortError') document.getElementById('searchSpinner').classList.add('d-none');
       });
-  }, 300);
+  }, 600);
 });
 
 document.getElementById('addBtn').addEventListener('click', function() {
   const qid = document.getElementById('selectedQid').value;
   const isCaptain = document.getElementById('isCaptain').checked ? '1' : '0';
   if (!qid) return;
+
+  const btn = this;
+  const originalLabel = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Aggiunta...';
 
   const fd = new FormData();
   fd.append('wikidata_id', qid);
@@ -182,10 +237,16 @@ document.getElementById('addBtn').addEventListener('click', function() {
       if (data.success) {
         location.reload();
       } else {
-        alert(data.error || 'Errore sconosciuto');
+        btn.innerHTML = originalLabel;
+        btn.disabled = false;
+        showAddError(data.error || 'Errore sconosciuto');
       }
     })
-    .catch(() => alert('Errore di rete'));
+    .catch(() => {
+      btn.innerHTML = originalLabel;
+      btn.disabled = false;
+      showAddError('Errore di rete');
+    });
 });
 </script>
 {% endif %}

@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("game", "0009_theme_preference_and_substitution_reminder"),
+        ("game", "0012_remove_death_season_remove_team_season_delete_season"),
     ]
 
     operations = [

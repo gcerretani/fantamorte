@@ -22,17 +22,92 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    env_file:
+      - .env
     environment:
       DATABASE_URL: mysql://fantamorte:${DB_PASSWORD}@db:3306/fantamorte
-      SECRET_KEY: ${SECRET_KEY}
-      DEBUG: ${DEBUG:-False}
-      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost}
-      WIKIDATA_USER_AGENT: ${WIKIDATA_USER_AGENT:-Fantamorte/1.0 (admin@example.com)}
+    # Gunicorn resta raggiungibile solo da localhost per debug: il traffico
+    # pubblico passa da nginx.
     ports:
-      - "${PORT:-8000}:8000"
+      - "127.0.0.1:${PORT:-8000}:8000"
     volumes:
       - static_files:/app/staticfiles
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz/', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Job periodici: check_deaths + reminder sostituzioni + bonus primo/ultimo.
+  scheduler:
+    image: ghcr.io/gcerretani/fantamorte:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: mysql://fantamorte:${DB_PASSWORD}@db:3306/fantamorte
+      SCHEDULER_DAILY_HOUR: ${SCHEDULER_DAILY_HOUR:-6}
+      SCHEDULER_INTERVAL_SECONDS: ${SCHEDULER_INTERVAL_SECONDS:-3600}
+    volumes:
+      - ./deploy/scheduler.sh:/scheduler.sh:ro
+    # Salta l'entrypoint (migrate): le migrazioni le applica il servizio web.
+    entrypoint: ["sh", "/scheduler.sh"]
+
+  nginx:
+    image: nginx:1.27
+    restart: unless-stopped
+    depends_on:
+      - web
+    environment:
+      SERVER_NAME: ${SERVER_NAME:?Impostare SERVER_NAME nel file .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./deploy/nginx/start.sh:/start.sh:ro
+      - static_files:/app/staticfiles:ro
+      - letsencrypt:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot:ro
+      - nginx_certs:/etc/nginx/certs
+    command: ["sh", "/start.sh"]
+
+  # Emissione iniziale (una tantum):
+  #   docker compose run --rm certbot certonly --webroot -w /var/www/certbot \
+  #     -d $SERVER_NAME --email <email> --agree-tos --no-eff-email
+  #   docker compose restart nginx
+  # Poi questo servizio rinnova automaticamente ogni 12 ore.
+  certbot:
+    image: certbot/certbot
+    restart: unless-stopped
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    entrypoint: ["/bin/sh", "-c", "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done"]
+
+  # Backup giornaliero del DB con rotazione (default 14 giorni).
+  db_backup:
+    image: mariadb:11
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    volumes:
+      - ./deploy/backup.sh:/backup.sh:ro
+      - db_backups:/backups
+    entrypoint: ["sh", "/backup.sh"]
 
 volumes:
   db_data:
+  db_backups:
   static_files:
+  letsencrypt:
+  certbot_www:
+  nginx_certs:
