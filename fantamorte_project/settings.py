@@ -191,6 +191,20 @@ PWA_APP_BACKGROUND_COLOR = '#f8f9fa'
 WIKIDATA_USER_AGENT = env('WIKIDATA_USER_AGENT', default='Fantamorte/1.0 (fantamorte@example.com)')
 WIKIDATA_REQUEST_DELAY = env.float('WIKIDATA_REQUEST_DELAY', default=0.5)
 
+# --- Cache ---
+# In produzione il compose imposta REDIS_URL: cache condivisa tra i worker
+# Gunicorn e lo scheduler (classifiche, ricerca Wikidata, check bonus).
+# Senza REDIS_URL (sviluppo/test) Django usa la LocMemCache per-processo.
+REDIS_URL = env('REDIS_URL', default='')
+if REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
+            'KEY_PREFIX': 'fantamorte',
+        }
+    }
+
 # Mostra il pulsante VAPID disponibile al template
 TEMPLATES[0]['OPTIONS']['context_processors'].append('game.context_processors.public_settings')
 
