@@ -21,7 +21,7 @@
   }
   function applyPref(pref, persist) {
     const effective = effectiveTheme(pref);
-    html.setAttribute('data-theme', effective);
+    html.setAttribute('data-bs-theme', effective);
     html.setAttribute('data-theme-pref', pref);
     if (persist) localStorage.setItem('fm-theme', pref);
     const btn = document.getElementById('fmThemeBtn');
@@ -69,12 +69,12 @@
     }
   });
 
-  // -------- Toast --------
+  // -------- Toast (bootstrap.Toast nativo) --------
   function ensureToastContainer() {
-    let c = document.querySelector('.fm-toast-container');
+    let c = document.querySelector('.toast-container');
     if (!c) {
       c = document.createElement('div');
-      c.className = 'fm-toast-container';
+      c.className = 'toast-container position-fixed top-0 end-0 p-3';
       document.body.appendChild(c);
     }
     return c;
@@ -84,15 +84,15 @@
     const c = ensureToastContainer();
     const resolvedKind = kind || 'dark';
     const el = document.createElement('div');
-    el.className = 'toast align-items-center text-bg-' + resolvedKind + ' border-0 show';
+    el.className = 'toast align-items-center text-bg-' + resolvedKind + ' border-0';
     el.setAttribute('role', 'alert');
     const closeWhite = ['danger', 'dark', 'success', 'primary'].indexOf(resolvedKind) !== -1;
     el.innerHTML = `<div class="d-flex"><div class="toast-body"></div>
-      <button type="button" class="btn-close${closeWhite ? ' btn-close-white' : ''} me-2 m-auto" data-bs-dismiss="toast"></button></div>`;
+      <button type="button" class="btn-close${closeWhite ? ' btn-close-white' : ''} me-2 m-auto" data-bs-dismiss="toast" aria-label="Chiudi"></button></div>`;
     el.querySelector('.toast-body').textContent = msg;
     c.appendChild(el);
-    setTimeout(() => el.remove(), 5000);
-    el.querySelector('.btn-close').addEventListener('click', () => el.remove());
+    el.addEventListener('hidden.bs.toast', () => el.remove());
+    bootstrap.Toast.getOrCreateInstance(el, { delay: 5000, autohide: true }).show();
   };
 
   // -------- PWA install prompt --------
@@ -242,34 +242,58 @@
     return escapeHtml(s).replace(/\n/g, '<br>');
   }
 
+  // Guardia anti-race: se l'utente apre un'altra persona mentre una
+  // risposta è in volo, la risposta vecchia non deve sovrascrivere il modal.
+  let currentPersonPk = null;
+
+  function renderSummaryBlock(summaryText) {
+    return summaryText
+      ? `<h6 class="mt-3">Biografia</h6><p class="fm-preline">${nl2br(summaryText)}</p>`
+      : '<p class="text-muted small">(Nessuna biografia disponibile.)</p>';
+  }
+
   window.fmShowPerson = async function (pk) {
     const modalEl = document.getElementById('fmPersonModal');
     if (!modalEl) return;
+    currentPersonPk = pk;
     const label = document.getElementById('fmPersonModalLabel');
     const body = document.getElementById('fmPersonModalBody');
     label.textContent = 'Caricamento…';
-    body.innerHTML = '<div class="text-center text-muted py-5"><div class="spinner-border" role="status"></div></div>';
+    // Skeleton (bootstrap placeholder) al posto dello spinner nudo.
+    const skeleton = document.getElementById('fmPersonSkeleton');
+    body.innerHTML = '';
+    if (skeleton) {
+      body.appendChild(skeleton.content.cloneNode(true));
+    } else {
+      body.innerHTML = '<div class="text-center text-muted py-5"><div class="spinner-border" role="status"></div></div>';
+    }
     const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
     modal.show();
     try {
       const resp = await fetch(`/api/persona/${pk}/`);
       if (!resp.ok) throw new Error('persona non trovata');
       const p = await resp.json();
+      if (currentPersonPk !== pk) return;
       label.textContent = p.name_it;
       const meta = [];
       if (p.birth_date) meta.push(`<li><strong>Nato/a</strong>: ${escapeHtml(p.birth_date)}</li>`);
       if (p.is_dead && p.death_date) meta.push(`<li><strong>Deceduto/a</strong>: ${escapeHtml(p.death_date)}${p.age_at_death ? ' ('+p.age_at_death+' anni)' : ''}</li>`);
-      else if (!p.is_dead) meta.push('<li><span class="badge bg-success">Vivo/a</span></li>');
+      else if (!p.is_dead) meta.push('<li><span class="badge text-bg-success">Vivo/a</span></li>');
       if (p.occupation) meta.push(`<li><strong>Attività</strong>: ${escapeHtml(p.occupation)}</li>`);
       if (p.nationality) meta.push(`<li><strong>Cittadinanza</strong>: ${escapeHtml(p.nationality)}</li>`);
       const img = p.image_url
         ? `<img src="${escapeHtml(p.image_url)}" alt="Foto di ${escapeHtml(p.name_it || '')}" loading="lazy" decoding="async" class="img-fluid rounded shadow-sm">`
-        : `<div class="bg-secondary text-light text-center rounded p-4" aria-hidden="true"><span style="font-size:3rem">&#128100;</span></div>`;
-      const summary = p.summary_it
-        ? `<h6 class="mt-3">Biografia</h6><p style="white-space:pre-line">${nl2br(p.summary_it)}</p>`
-        : '<p class="text-muted small">(Nessuna biografia disponibile.)</p>';
+        : `<div class="bg-secondary text-light text-center rounded p-4" aria-hidden="true"><span class="fs-1">&#128100;</span></div>`;
+      // Biografia: se il dato in cache è assente/scaduto, mostra un
+      // placeholder e caricala in un secondo momento senza bloccare il modal.
+      const summary = p.summary_stale
+        ? `<div data-fm-summary class="placeholder-glow mt-3" aria-busy="true">
+             <h6>Biografia</h6>
+             <p class="mb-0"><span class="placeholder col-12"></span><span class="placeholder col-10"></span><span class="placeholder col-7"></span></p>
+           </div>`
+        : `<div data-fm-summary>${renderSummaryBlock(p.summary_it)}</div>`;
       const links = [];
-      if (p.wikipedia_url_it) links.push(`<a href="${escapeHtml(p.wikipedia_url_it)}" target="_blank" class="btn btn-outline-dark btn-sm">Wikipedia &rarr;</a>`);
+      if (p.wikipedia_url_it) links.push(`<a href="${escapeHtml(p.wikipedia_url_it)}" target="_blank" class="btn btn-outline-secondary btn-sm">Wikipedia &rarr;</a>`);
       links.push(`<a href="${escapeHtml(p.wikidata_url)}" target="_blank" class="btn btn-outline-secondary btn-sm">Wikidata &rarr;</a>`);
       links.push(`<a href="/persona/${p.id}/" class="btn btn-link btn-sm">Pagina completa</a>`);
       body.innerHTML = `
@@ -282,8 +306,24 @@
             ${summary}
           </div>
         </div>`;
+      if (p.summary_stale) {
+        try {
+          const sResp = await fetch(`/api/persona/${pk}/summary/`);
+          if (currentPersonPk !== pk) return;
+          const s = sResp.ok ? await sResp.json() : { summary_it: p.summary_it };
+          if (currentPersonPk !== pk) return;
+          const box = body.querySelector('[data-fm-summary]');
+          // Fetch fallito e nessun dato in cache → messaggio "non disponibile".
+          if (box) box.innerHTML = renderSummaryBlock(s.summary_it || p.summary_it);
+        } catch (e) {
+          const box = body.querySelector('[data-fm-summary]');
+          if (box && currentPersonPk === pk) box.innerHTML = renderSummaryBlock(p.summary_it);
+        }
+      }
     } catch (e) {
-      body.innerHTML = '<div class="alert alert-danger">Impossibile caricare i dettagli.</div>';
+      if (currentPersonPk === pk) {
+        body.innerHTML = '<div class="alert alert-danger">Impossibile caricare i dettagli.</div>';
+      }
     }
   };
 
@@ -296,12 +336,23 @@
   });
 
   // -------- Countdown sostituzioni --------
-  document.addEventListener('DOMContentLoaded', function () {
-    document.querySelectorAll('[data-fm-countdown]').forEach(function (el) {
+  // Riutilizzabile su un sottoalbero: chiamata di nuovo dopo il replace di
+  // una regione del DOM (es. la rosa dopo un'aggiunta senza reload).
+  window.fmInitCountdowns = function (root) {
+    (root || document).querySelectorAll('[data-fm-countdown]').forEach(function (el) {
+      if (el.dataset.fmCountdownInit) return;  // già attivo
+      el.dataset.fmCountdownInit = '1';
       const target = parseInt(el.dataset.fmCountdown, 10);
       if (!target) return;
       let intervalId = null;
       function tick() {
+        // Se l'elemento non è più nel documento (regione sostituita),
+        // ferma il timer.
+        if (!el.isConnected && intervalId !== null) {
+          clearInterval(intervalId);
+          intervalId = null;
+          return;
+        }
         const remaining = Math.max(0, target - Math.floor(Date.now() / 1000));
         const days = Math.floor(remaining / 86400);
         const hours = Math.floor((remaining % 86400) / 3600);
@@ -326,5 +377,87 @@
         intervalId = setInterval(tick, 1000);
       }
     });
+  };
+
+  document.addEventListener('DOMContentLoaded', function () {
+    window.fmInitCountdowns(document);
   });
+
+  // -------- Ricerca persona (componente condiviso) --------
+  // Inizializza il partial _person_search.html: debounce 600ms, min 2
+  // caratteri, AbortController per annullare le richieste obsolete,
+  // warning/errori inline. onSelect({wikidata_id, name_it}) al click su
+  // un risultato. Ritorna { reset() }.
+  window.fmPersonSearch = function (root, opts) {
+    const options = opts || {};
+    const input = root.querySelector('[data-fm-role="input"]');
+    const results = root.querySelector('[data-fm-role="results"]');
+    const warning = root.querySelector('[data-fm-role="warning"]');
+    const error = root.querySelector('[data-fm-role="error"]');
+    const spinner = root.querySelector('[data-fm-role="spinner"]');
+    const league = root.dataset.fmLeague || '';
+    let timeout;
+    let abortCtl = null;
+
+    function hide(el) { el.classList.add('d-none'); }
+    function show(el) { el.classList.remove('d-none'); }
+
+    input.addEventListener('input', function () {
+      clearTimeout(timeout);
+      hide(error);
+      const q = this.value.trim();
+      if (q.length < 2) {
+        if (abortCtl) abortCtl.abort();
+        results.innerHTML = '';
+        hide(spinner);
+        return;
+      }
+      timeout = setTimeout(async () => {
+        if (abortCtl) abortCtl.abort();
+        abortCtl = new AbortController();
+        results.innerHTML = '';
+        show(spinner);
+        try {
+          const resp = await fetch(
+            `/api/search-person/?q=${encodeURIComponent(q)}&league=${encodeURIComponent(league)}`,
+            { signal: abortCtl.signal });
+          const data = await resp.json();
+          hide(spinner);
+          if (data.warning) {
+            warning.textContent = '⚠ ' + data.warning;
+            show(warning);
+          } else {
+            hide(warning);
+          }
+          results.innerHTML = '';
+          (data.results || []).forEach(r => {
+            const a = document.createElement('a');
+            a.className = 'list-group-item list-group-item-action';
+            a.href = '#';
+            a.textContent = r.name_it + (r.description ? ' — ' + r.description : '');
+            a.addEventListener('click', e => {
+              e.preventDefault();
+              results.innerHTML = '';
+              if (options.onSelect) options.onSelect({ wikidata_id: r.wikidata_id, name_it: r.name_it });
+            });
+            results.appendChild(a);
+          });
+        } catch (err) {
+          if (err.name !== 'AbortError') {
+            hide(spinner);
+            error.textContent = 'Errore nella ricerca. Riprova.';
+            show(error);
+          }
+        }
+      }, 600);
+    });
+
+    return {
+      reset: function () {
+        input.value = '';
+        results.innerHTML = '';
+        hide(warning); hide(error); hide(spinner);
+      },
+    };
+  };
 })();

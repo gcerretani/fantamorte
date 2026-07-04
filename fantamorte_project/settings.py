@@ -142,6 +142,14 @@ ACCOUNT_SIGNUP_FIELDS = ['email*', 'username*', 'password1*', 'password2*']
 ACCOUNT_EMAIL_VERIFICATION = env('ACCOUNT_EMAIL_VERIFICATION', default='mandatory')
 ACCOUNT_UNIQUE_EMAIL = True
 ACCOUNT_DEFAULT_HTTP_PROTOCOL = env('ACCOUNT_DEFAULT_HTTP_PROTOCOL', default='https')
+# Widget con classi Bootstrap applicate server-side (game/forms.py).
+ACCOUNT_FORMS = {
+    'login': 'game.forms.LoginForm',
+    'signup': 'game.forms.SignupForm',
+    'reset_password': 'game.forms.ResetPasswordForm',
+    'reset_password_from_key': 'game.forms.ResetPasswordKeyForm',
+    'change_password': 'game.forms.ChangePasswordForm',
+}
 SOCIALACCOUNT_LOGIN_ON_GET = True
 SOCIALACCOUNT_AUTO_SIGNUP = True
 SOCIALACCOUNT_PROVIDERS = {
@@ -180,7 +188,6 @@ EMAIL_USE_TLS = env.bool('EMAIL_USE_TLS', default=True)
 VAPID_PUBLIC_KEY = env('VAPID_PUBLIC_KEY', default='')
 VAPID_PRIVATE_KEY = env('VAPID_PRIVATE_KEY', default='')
 VAPID_CLAIM_EMAIL = env('VAPID_CLAIM_EMAIL', default='admin@fantamorte.local')
-PUSH_NOTIFICATIONS_ASYNC = env.bool('PUSH_NOTIFICATIONS_ASYNC', default=False)
 
 # --- PWA ---
 PWA_APP_NAME = 'Fantamorte'
@@ -190,6 +197,20 @@ PWA_APP_BACKGROUND_COLOR = '#f8f9fa'
 
 WIKIDATA_USER_AGENT = env('WIKIDATA_USER_AGENT', default='Fantamorte/1.0 (fantamorte@example.com)')
 WIKIDATA_REQUEST_DELAY = env.float('WIKIDATA_REQUEST_DELAY', default=0.5)
+
+# --- Cache ---
+# In produzione il compose imposta REDIS_URL: cache condivisa tra i worker
+# Gunicorn e lo scheduler (classifiche, ricerca Wikidata, check bonus).
+# Senza REDIS_URL (sviluppo/test) Django usa la LocMemCache per-processo.
+REDIS_URL = env('REDIS_URL', default='')
+if REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
+            'KEY_PREFIX': 'fantamorte',
+        }
+    }
 
 # Mostra il pulsante VAPID disponibile al template
 TEMPLATES[0]['OPTIONS']['context_processors'].append('game.context_processors.public_settings')

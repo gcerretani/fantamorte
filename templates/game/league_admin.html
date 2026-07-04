@@ -118,7 +118,7 @@
         </div>
       </div>
       <div class="col-12">
-        <button type="submit" class="btn btn-dark">Salva regole</button>
+        <button type="submit" class="btn btn-primary">Salva regole</button>
       </div>
     </form>
   </div>
@@ -137,7 +137,7 @@
               <td><input type="checkbox" name="bonus_active_{{ lb.pk }}" {% if lb.is_active %}checked{% endif %}></td>
               <td>
                 <strong>{{ lb.bonus_type.name }}</strong>
-                {% if lb.bonus_type.league_id %}<span class="badge text-bg-warning ms-1">personalizzato</span>{% endif %}
+                {% if lb.bonus_type.league_id %}<span class="badge text-bg-info ms-1">personalizzato</span>{% endif %}
                 {% if lb.bonus_type.detection_method == 'wikidata' %}
                   <small class="text-muted ms-1"><code>{{ lb.bonus_type.wikidata_property }}{% if lb.bonus_type.wikidata_value %}={{ lb.bonus_type.wikidata_value }}{% endif %}</code></small>
                 {% endif %}
@@ -151,15 +151,15 @@
                 {% endif %}
               </td>
               <td>
-                <input type="number" name="bonus_points_{{ lb.pk }}" class="form-control form-control-sm"
-                       style="max-width:120px" placeholder="default" value="{{ lb.override_points|default_if_none:'' }}">
+                <input type="number" name="bonus_points_{{ lb.pk }}" class="form-control form-control-sm fm-input-narrow"
+                       placeholder="default" value="{{ lb.override_points|default_if_none:'' }}">
               </td>
             </tr>
           {% endfor %}
         </tbody>
       </table>
       </div>
-      <button class="btn btn-dark btn-sm">Salva bonus</button>
+      <button class="btn btn-primary btn-sm">Salva bonus</button>
     </form>
 
     <hr class="my-4">
@@ -198,7 +198,7 @@
         <input type="text" name="bonus_description" class="form-control form-control-sm" maxlength="200">
       </div>
       <div class="col-12">
-        <button class="btn btn-outline-dark btn-sm">Crea bonus</button>
+        <button class="btn btn-outline-secondary btn-sm">Crea bonus</button>
       </div>
     </form>
 
@@ -235,9 +235,9 @@
           <tr>
             <td>{{ m.user.username }} <small class="text-muted">{{ m.user.email }}</small></td>
             <td>
-              {% if m.role == 'owner' %}<span class="badge bg-warning text-dark">Owner</span>
-              {% elif m.role == 'admin' %}<span class="badge text-bg-info">Admin</span>
-              {% else %}<span class="badge bg-secondary">Membro</span>{% endif %}
+              {% if m.role == 'owner' %}<span class="badge text-bg-secondary">Owner</span>
+              {% elif m.role == 'admin' %}<span class="badge text-bg-secondary">Admin</span>
+              {% else %}<span class="badge text-bg-secondary">Membro</span>{% endif %}
             </td>
             <td><small>{{ m.joined_at|date:"d/m/Y" }}</small></td>
             <td>
@@ -261,7 +261,7 @@
                   {% csrf_token %}
                   <input type="hidden" name="action" value="transfer_ownership">
                   <input type="hidden" name="membership_id" value="{{ m.pk }}">
-                  <button class="btn btn-outline-warning btn-sm">Trasferisci proprietà</button>
+                  <button class="btn btn-outline-danger btn-sm">Trasferisci proprietà</button>
                 </form>
                 <form method="post" class="d-inline" onsubmit="return confirm('Rimuovere {{ m.user.username }} dalla lega?');">
                   {% csrf_token %}
@@ -292,13 +292,13 @@
     <div class="input-group mb-3">
       <input type="text" id="inviteLink" class="form-control" readonly
              value="{{ request.scheme }}://{{ request.get_host }}{% url 'league_join' league.slug %}?code={{ league.invite_code }}">
-      <button type="button" class="btn btn-outline-dark" id="copyInviteLink">Copia</button>
+      <button type="button" class="btn btn-outline-secondary" id="copyInviteLink">Copia</button>
     </div>
     <p class="small text-muted">Codice invito: <code>{{ league.invite_code }}</code></p>
     <form method="post" onsubmit="return confirm('Rigenerando il codice, i link di invito già condivisi smetteranno di funzionare. Continuare?');">
       {% csrf_token %}
       <input type="hidden" name="action" value="rotate_invite">
-      <button class="btn btn-outline-dark btn-sm">Rigenera codice</button>
+      <button class="btn btn-outline-secondary btn-sm">Rigenera codice</button>
     </form>
     <script>
     document.getElementById('copyInviteLink').addEventListener('click', function () {

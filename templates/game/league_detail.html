@@ -9,19 +9,19 @@
       {{ league.start_date|date:"d/m/Y" }} → {{ league.end_date|date:"d/m/Y" }}
       &middot; owner: <strong>{{ league.owner.username }}</strong>
       &middot; {{ league.memberships.count }} iscritti
-      &middot; <span class="badge {% if league.visibility == 'public' %}bg-success{% else %}bg-secondary{% endif %}">{{ league.get_visibility_display }}</span>
+      &middot; <span class="badge {% if league.visibility == 'public' %}text-bg-success{% else %}text-bg-secondary{% endif %}">{{ league.get_visibility_display }}</span>
     </small>
     {% if league.description %}<p class="mt-2 mb-0">{{ league.description }}</p>{% endif %}
   </div>
   <div>
     {% if is_admin %}
-      <a href="{% url 'league_admin' league.slug %}" class="btn btn-outline-dark btn-sm">Gestisci</a>
+      <a href="{% url 'league_admin' league.slug %}" class="btn btn-outline-secondary btn-sm">Gestisci</a>
     {% endif %}
     {% if is_member %}
       {% if my_team %}
-        <a href="{% url 'team_edit' my_team.pk %}" class="btn btn-warning btn-sm">La mia squadra</a>
+        <a href="{% url 'team_edit' my_team.pk %}" class="btn btn-outline-secondary btn-sm">La mia squadra</a>
       {% elif league.is_registration_open %}
-        <a href="{% url 'team_create' league.slug %}" class="btn btn-success btn-sm">Crea squadra</a>
+        <a href="{% url 'team_create' league.slug %}" class="btn btn-primary btn-sm">Crea squadra</a>
       {% endif %}
       {% if not is_owner %}
       <form method="post" action="{% url 'league_leave' league.slug %}" class="d-inline" onsubmit="return confirm('Sicuro di voler abbandonare la lega?');">
@@ -33,9 +33,9 @@
       <form method="post" action="{% url 'league_join' league.slug %}" class="d-inline">
         {% csrf_token %}
         {% if league.visibility == 'private' %}
-          <input type="text" name="invite_code" placeholder="Codice invito" class="form-control form-control-sm d-inline-block" style="width:160px">
+          <input type="text" name="invite_code" placeholder="Codice invito" class="form-control form-control-sm d-inline-block fm-input-narrow">
         {% endif %}
-        <button class="btn btn-success btn-sm">Iscriviti</button>
+        <button class="btn btn-primary btn-sm">Iscriviti</button>
       </form>
     {% endif %}
   </div>
@@ -56,7 +56,7 @@
               <strong>{{ entry.team.name }}</strong>
               <small class="text-muted ms-2">{{ entry.team.manager.username }}</small>
             </div>
-            <span class="badge bg-dark fs-6">{{ entry.score }} pt</span>
+            <span class="badge text-bg-secondary fs-6">{{ entry.score }} pt</span>
           </a>
         {% endfor %}
       </div>

@@ -16,16 +16,32 @@ services:
       retries: 5
       start_period: 30s
 
+  # Cache condivisa (classifiche, ricerca Wikidata, check bonus): pura
+  # cache, nessuna persistenza — l'invalidazione a chiave versionata in
+  # scoring.py tollera i flush.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
   web:
     image: ghcr.io/gcerretani/fantamorte:${IMAGE_TAG:-latest}
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - .env
     environment:
       DATABASE_URL: mysql://fantamorte:${DB_PASSWORD}@db:3306/fantamorte
+      REDIS_URL: redis://redis:6379/1
     # Gunicorn resta raggiungibile solo da localhost per debug: il traffico
     # pubblico passa da nginx.
     ports:
@@ -46,10 +62,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - .env
     environment:
       DATABASE_URL: mysql://fantamorte:${DB_PASSWORD}@db:3306/fantamorte
+      # Stessa cache dei worker web: check_deaths deve invalidare le
+      # stesse chiavi di classifica che le pagine leggono.
+      REDIS_URL: redis://redis:6379/1
       SCHEDULER_DAILY_HOUR: ${SCHEDULER_DAILY_HOUR:-6}
       SCHEDULER_INTERVAL_SECONDS: ${SCHEDULER_INTERVAL_SECONDS:-3600}
     volumes:

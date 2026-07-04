@@ -9,7 +9,7 @@
       {% if death.person.birth_date %}Nato/a: {{ death.person.birth_date|date:"d/m/Y" }} &mdash; {% endif %}
       Morto/a: {{ death.death_date|date:"d/m/Y" }}
       {% if death.death_age %} ({{ death.death_age }} anni){% endif %}
-      &mdash; <span class="badge {% if death.is_confirmed %}bg-success{% else %}bg-warning text-dark{% endif %}">
+      &mdash; <span class="badge {% if death.is_confirmed %}text-bg-success{% else %}text-bg-warning{% endif %}">
         {% if death.is_confirmed %}Confermato{% else %}Non confermato{% endif %}
       </span>
     </p>
@@ -31,7 +31,7 @@
                 {% if b.is_auto_detected %}
                   <span class="badge text-bg-info">automatico</span>
                 {% else %}
-                  <span class="badge bg-secondary">manuale</span>
+                  <span class="badge text-bg-secondary">manuale</span>
                 {% endif %}
               </td>
             </tr>
@@ -59,7 +59,7 @@
         {% for ta in teams_affected %}
           <li class="list-group-item d-flex justify-content-between">
             <a href="{% url 'team_detail' ta.team.pk %}">{{ ta.team.name }}</a>
-            <span class="badge bg-dark">+{{ ta.points }}</span>
+            <span class="badge text-bg-secondary">+{{ ta.points }}</span>
           </li>
         {% endfor %}
       </ul>

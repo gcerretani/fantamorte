@@ -11,6 +11,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.cache import cache
+from django.db.models import Q
 from django.http import Http404, HttpResponse, JsonResponse, HttpResponseForbidden
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
@@ -25,7 +26,7 @@ from wikidata_api.client import WikidataClient
 
 from . import scoring
 from .models import (
-    BonusType, Death, League, LeagueBonus, LeagueMembership,
+    MONTHS_IT, BonusType, Death, League, LeagueBonus, LeagueMembership,
     PushSubscription, SiteSettings, Team, TeamMember, UserProfile,
     WikipediaPerson,
 )
@@ -51,10 +52,29 @@ class HomeView(LoginRequiredMixin, TemplateView):
             t.league_id: t
             for t in Team.objects.filter(manager=user, league__isnull=False)
         }
-        my_leagues = [
-            {'league': m.league, 'role': m.role, 'team': teams_by_league.get(m.league_id)}
-            for m in my_memberships
-        ]
+        my_leagues = []
+        for m in my_memberships:
+            team = teams_by_league.get(m.league_id)
+            entry = {'league': m.league, 'role': m.role, 'team': team,
+                     'score': None, 'next_deadline': None}
+            if team:
+                # La classifica è già cachata (scoring): costo ammortizzato.
+                for row in scoring.compute_league_rankings(m.league):
+                    if row['team'].pk == team.pk:
+                        entry['score'] = row['score']
+                        break
+                # Prossima scadenza di sostituzione tra i membri morti attivi.
+                deadlines = [
+                    member.get_substitution_deadline()
+                    for member in team.members.filter(
+                        replaced_by=None, person__is_dead=True,
+                    ).select_related('person')
+                    if member.can_be_substituted()
+                ]
+                deadlines = [d for d in deadlines if d]
+                if deadlines:
+                    entry['next_deadline'] = min(deadlines)
+            my_leagues.append(entry)
         ctx['my_leagues'] = my_leagues
         # Suggerimenti: leghe pubbliche di cui non sono membro
         member_ids = [m.league_id for m in my_memberships]
@@ -264,7 +284,6 @@ class LeagueAdminView(LoginRequiredMixin, View):
         league = get_object_or_404(League, slug=slug)
         if not league.is_admin(request.user):
             return HttpResponseForbidden('Permesso negato.')
-        from django.db.models import Q
         return render(request, self.template_name, {
             'league': league,
             'memberships': league.memberships.select_related('user').order_by('role', 'user__username'),
@@ -339,7 +358,6 @@ class LeagueAdminView(LoginRequiredMixin, View):
                     lb.override_points = None
                 lb.save()
             # Eventuali nuovi bonus type (di sistema o personalizzati di questa lega)
-            from django.db.models import Q
             for bt_id in request.POST.getlist('add_bonus'):
                 try:
                     bt = BonusType.objects.filter(
@@ -565,21 +583,56 @@ WIKIPEDIA_LANGS = [
 ]
 _VALID_WIKIS = {code for code, _ in WIKIPEDIA_LANGS}
 
-MONTHS_LIST = [
-    (1, 'Gennaio'), (2, 'Febbraio'), (3, 'Marzo'), (4, 'Aprile'),
-    (5, 'Maggio'), (6, 'Giugno'), (7, 'Luglio'), (8, 'Agosto'),
-    (9, 'Settembre'), (10, 'Ottobre'), (11, 'Novembre'), (12, 'Dicembre'),
-]
-
-
 def _can_edit_team(team, user):
+    """Editing della rosa: aperto al manager finché le registrazioni sono
+    aperte e né la lega né la squadra sono bloccate. Le sostituzioni in
+    stagione NON passano da qui: sono governate da can_be_substituted()."""
     if user.is_staff:
         return True
     if team.manager_id != user.pk:
         return False
+    if team.is_locked:
+        return False
     if team.league_id:
         return team.league.is_registration_open() and not team.league.is_locked
     return False
+
+
+def _get_or_refresh_person(wikidata_id):
+    """Ritorna ``(person, error_message)`` per un QID Wikidata.
+
+    Se la persona è in cache locale ed è stata verificata entro
+    ``wikidata_check_interval_hours`` non tocca la rete; altrimenti fa il
+    fetch da Wikidata e aggiorna (o crea) il record.
+    """
+    interval = SiteSettings.get().wikidata_check_interval_hours
+    threshold = timezone.now() - timedelta(hours=interval)
+    existing = WikipediaPerson.objects.filter(wikidata_id=wikidata_id).first()
+    if existing and existing.last_checked and existing.last_checked >= threshold:
+        return existing, None
+    try:
+        entity = WikidataClient().get_entity(wikidata_id)
+    except Exception as e:
+        return existing, f'Errore Wikidata: {e}'
+    person, _ = WikipediaPerson.objects.update_or_create(
+        wikidata_id=wikidata_id,
+        defaults={
+            'name_it': entity['name_it'],
+            'name_en': entity.get('name_en', ''),
+            'description_it': entity.get('description_it', ''),
+            'birth_date': entity.get('birth_date'),
+            'birth_year': entity.get('birth_year'),
+            'death_date': entity.get('death_date'),
+            'is_dead': entity.get('death_date') is not None or entity.get('death_year') is not None,
+            'image_url': entity.get('image_url', ''),
+            'occupation': entity.get('occupation') or '',
+            'nationality': entity.get('nationality') or '',
+            'claims_cache': entity.get('claims_cache', {}),
+            'wikipedia_url_it': entity.get('wikipedia_url_it', ''),
+            'last_checked': timezone.now(),
+        }
+    )
+    return person, None
 
 
 class TeamCreateView(LoginRequiredMixin, View):
@@ -597,7 +650,7 @@ class TeamCreateView(LoginRequiredMixin, View):
         existing = Team.objects.filter(manager=request.user, league=league).first()
         if existing:
             return redirect('team_edit', pk=existing.pk)
-        return render(request, self.template_name, {'league': league, 'creating': True, 'can_edit': True, 'months': MONTHS_LIST})
+        return render(request, self.template_name, {'league': league, 'creating': True, 'can_edit': True, 'months': MONTHS_IT})
 
     def post(self, request, slug):
         league = get_object_or_404(League, slug=slug)
@@ -610,7 +663,7 @@ class TeamCreateView(LoginRequiredMixin, View):
         name = request.POST.get('name', '').strip()
         if not name:
             messages.error(request, 'Il nome della squadra è obbligatorio.')
-            return render(request, self.template_name, {'league': league, 'creating': True, 'can_edit': True, 'months': MONTHS_LIST})
+            return render(request, self.template_name, {'league': league, 'creating': True, 'can_edit': True, 'months': MONTHS_IT})
         team, created = Team.objects.get_or_create(
             manager=request.user, league=league,
             defaults={'name': name}
@@ -640,7 +693,7 @@ class TeamEditView(LoginRequiredMixin, View):
             'active_count': active_count,
             'total_age': team.get_active_total_age(),
             'dead_members': dead_members,
-            'months': MONTHS_LIST,
+            'months': MONTHS_IT,
             'can_edit': _can_edit_team(team, request.user),
             'max_non_captains': league.max_non_captains if league else 11,
             'max_captains': league.max_captains if league else 1,
@@ -703,34 +756,9 @@ class AddPersonView(LoginRequiredMixin, View):
         if not re.fullmatch(r'Q\d+', wikidata_id):
             return JsonResponse({'error': 'wikidata_id non valido'}, status=400)
 
-        interval = SiteSettings.get().wikidata_check_interval_hours
-        threshold = timezone.now() - timedelta(hours=interval)
-        existing = WikipediaPerson.objects.filter(wikidata_id=wikidata_id).first()
-        if existing and existing.last_checked and existing.last_checked >= threshold:
-            person = existing
-        else:
-            try:
-                entity = WikidataClient().get_entity(wikidata_id)
-            except Exception as e:
-                return JsonResponse({'error': f'Errore Wikidata: {e}'}, status=500)
-            person, _ = WikipediaPerson.objects.update_or_create(
-                wikidata_id=wikidata_id,
-                defaults={
-                    'name_it': entity['name_it'],
-                    'name_en': entity.get('name_en', ''),
-                    'description_it': entity.get('description_it', ''),
-                    'birth_date': entity.get('birth_date'),
-                    'birth_year': entity.get('birth_year'),
-                    'death_date': entity.get('death_date'),
-                    'is_dead': entity.get('death_date') is not None or entity.get('death_year') is not None,
-                    'image_url': entity.get('image_url', ''),
-                    'occupation': entity.get('occupation') or '',
-                    'nationality': entity.get('nationality') or '',
-                    'claims_cache': entity.get('claims_cache', {}),
-                    'wikipedia_url_it': entity.get('wikipedia_url_it', ''),
-                    'last_checked': timezone.now(),
-                }
-            )
+        person, err = _get_or_refresh_person(wikidata_id)
+        if err:
+            return JsonResponse({'error': err}, status=500)
 
         if person.is_dead:
             return JsonResponse({'error': f'{person.name_it} è già morto/a e non può essere aggiunto.'}, status=400)
@@ -812,32 +840,14 @@ class SubstituteMemberView(LoginRequiredMixin, View):
         if not wikidata_id:
             messages.error(request, 'Seleziona una persona da Wikidata.')
             return redirect('substitute_member', pk=pk, member_pk=member_pk)
-
-        client = WikidataClient()
-        try:
-            entity = client.get_entity(wikidata_id)
-        except Exception as e:
-            messages.error(request, f'Errore Wikidata: {e}')
+        if not re.fullmatch(r'Q\d+', wikidata_id):
+            messages.error(request, 'Identificativo Wikidata non valido.')
             return redirect('substitute_member', pk=pk, member_pk=member_pk)
 
-        person, _ = WikipediaPerson.objects.update_or_create(
-            wikidata_id=wikidata_id,
-            defaults={
-                'name_it': entity['name_it'],
-                'name_en': entity.get('name_en', ''),
-                'description_it': entity.get('description_it', ''),
-                'birth_date': entity.get('birth_date'),
-                'birth_year': entity.get('birth_year'),
-                'death_date': entity.get('death_date'),
-                'is_dead': entity.get('death_date') is not None,
-                'image_url': entity.get('image_url', ''),
-                'occupation': entity.get('occupation') or '',
-                'nationality': entity.get('nationality') or '',
-                'claims_cache': entity.get('claims_cache', {}),
-                'wikipedia_url_it': entity.get('wikipedia_url_it', ''),
-                'last_checked': timezone.now(),
-            }
-        )
+        person, err = _get_or_refresh_person(wikidata_id)
+        if err:
+            messages.error(request, err)
+            return redirect('substitute_member', pk=pk, member_pk=member_pk)
 
         if person.is_dead:
             messages.error(request, f'{person.name_it} è già morto/a.')
@@ -892,13 +902,19 @@ class PersonDetailView(LoginRequiredMixin, DetailView):
         return ctx
 
 
+def _summary_is_stale(person):
+    """True se il summary Wikipedia manca o è più vecchio di 30 giorni."""
+    if not person.wikipedia_url_it:
+        return False
+    if person.summary_it and person.summary_fetched_at:
+        return (timezone.now() - person.summary_fetched_at) > timedelta(days=30)
+    return True
+
+
 def _refresh_person_summary(person):
     """Aggiorna `summary_it` da Wikipedia se mancante o piu' vecchio di 30 giorni."""
-    if not person.wikipedia_url_it:
+    if not _summary_is_stale(person):
         return
-    if person.summary_it and person.summary_fetched_at:
-        if (timezone.now() - person.summary_fetched_at) <= timedelta(days=30):
-            return
     try:
         title = unquote(person.wikipedia_url_it.rsplit('/', 1)[-1].replace('_', ' '))
         summary = WikidataClient().get_summary(title)
@@ -916,8 +932,9 @@ class PersonInfoView(LoginRequiredMixin, View):
 
     def get(self, request, pk):
         person = get_object_or_404(WikipediaPerson, pk=pk)
-        _refresh_person_summary(person)
-
+        # Nessuna chiamata a Wikipedia qui: il modal deve aprirsi subito.
+        # Se il summary manca o è scaduto il client lo carica in un secondo
+        # momento da PersonSummaryView (campo summary_stale).
         data = {
             'id': person.pk,
             'wikidata_id': person.wikidata_id,
@@ -932,9 +949,28 @@ class PersonInfoView(LoginRequiredMixin, View):
             'image_url': person.image_url,
             'wikipedia_url_it': person.wikipedia_url_it,
             'summary_it': person.summary_it,
+            'summary_stale': _summary_is_stale(person),
             'wikidata_url': f'https://www.wikidata.org/wiki/{person.wikidata_id}',
         }
         return JsonResponse(data)
+
+
+class PersonSummaryView(LoginRequiredMixin, View):
+    """Refresh sincrono del summary Wikipedia, chiamato lazy dal modal.
+
+    Separato da PersonInfoView così il modal apre subito con i dati in DB
+    e la (eventuale) attesa di Wikipedia riguarda solo la biografia.
+    """
+
+    def get(self, request, pk):
+        person = get_object_or_404(WikipediaPerson, pk=pk)
+        _refresh_person_summary(person)  # no-op se fresco
+        return JsonResponse({
+            'summary_it': person.summary_it,
+            # Ancora stale dopo il refresh = fetch fallito: il client
+            # mantiene quello che sta già mostrando.
+            'summary_stale': _summary_is_stale(person),
+        })
 
 
 class PersonSearchView(LoginRequiredMixin, View):
@@ -957,6 +993,9 @@ class PersonSearchView(LoginRequiredMixin, View):
 
         client = WikidataClient()
         client.delay = 0  # ricerca interattiva: nessun rate-limit artificiale
+        # Fail-fast: meglio un fallback rapido che un autocomplete appeso.
+        client.timeout = 5
+        client.sparql_timeout = 8
         sparql_warning = None
         try:
             results, sparql_failed = client.search_by_italian_name(q, require_wikis=require_wikis)
@@ -1208,8 +1247,14 @@ class LeaguePlayersRefreshView(LoginRequiredMixin, View):
         })
 
 
+# Numero massimo di persone per singola richiesta diff/apply: il fetch da
+# Wikidata è sequenziale, un batch illimitato sfora il timeout Gunicorn
+# (60s). Il client spezza il "Controlla tutti" in blocchi di questa taglia.
+MAX_DIFF_BATCH = 10
+
+
 class LeagueBulkDiffView(LoginRequiredMixin, View):
-    """POST JSON → restituisce lista di diff per ogni persona della lega."""
+    """POST JSON → restituisce i diff Wikidata per un blocco di persone."""
 
     def post(self, request, slug):
         league = get_object_or_404(League, slug=slug)
@@ -1222,16 +1267,20 @@ class LeagueBulkDiffView(LoginRequiredMixin, View):
             return JsonResponse({'error': 'JSON non valido'}, status=400)
 
         person_pks = body.get('person_pks') or []
-        if person_pks:
-            persons = WikipediaPerson.objects.filter(
-                pk__in=person_pks,
-                team_members__team__league=league,
-                team_members__replaced_by__isnull=True,
-            ).distinct()
-        else:
-            persons = _league_persons(league)
+        if not isinstance(person_pks, list) or not person_pks:
+            return JsonResponse(
+                {'error': f'person_pks obbligatorio (max {MAX_DIFF_BATCH} per richiesta)'},
+                status=400)
+        if len(person_pks) > MAX_DIFF_BATCH:
+            return JsonResponse(
+                {'error': f'Troppe persone in una richiesta (max {MAX_DIFF_BATCH})'},
+                status=400)
+        persons = WikipediaPerson.objects.filter(
+            pk__in=person_pks,
+            team_members__team__league=league,
+            team_members__replaced_by__isnull=True,
+        ).distinct()
 
-        from wikidata_api.client import WikidataClient
         client = WikidataClient()
         results = []
         for person in persons:
@@ -1306,7 +1355,11 @@ class LeagueBulkApplyView(LoginRequiredMixin, View):
                 continue
             fields_by_pk.setdefault(person_pk, set()).add(field)
 
-        from wikidata_api.client import WikidataClient
+        if len(fields_by_pk) > MAX_DIFF_BATCH:
+            return JsonResponse(
+                {'error': f'Troppe persone in una richiesta (max {MAX_DIFF_BATCH}): applica a blocchi'},
+                status=400)
+
         client = WikidataClient()
         applied = 0
 
@@ -1390,11 +1443,7 @@ class TeamWhatIfView(LoginRequiredMixin, View):
             'team': team,
             'rows': rows,
             'month': month,
-            'months': [
-                (1, 'gennaio'), (2, 'febbraio'), (3, 'marzo'), (4, 'aprile'),
-                (5, 'maggio'), (6, 'giugno'), (7, 'luglio'), (8, 'agosto'),
-                (9, 'settembre'), (10, 'ottobre'), (11, 'novembre'), (12, 'dicembre'),
-            ],
+            'months': MONTHS_IT,
         })
 
 

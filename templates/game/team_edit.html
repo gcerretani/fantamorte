@@ -35,7 +35,7 @@
         </div>
         {% if creating %}
         <div class="col-md-3">
-          <button type="submit" class="btn btn-dark w-100">Salva</button>
+          <button type="submit" class="btn btn-primary w-100">Salva</button>
         </div>
         {% endif %}
       </div>
@@ -44,14 +44,14 @@
 
     {% if not creating %}
     <div class="d-flex justify-content-between align-items-center mb-2">
-      <h5 class="mb-0">
+      <h5 class="mb-0" id="fmRosterHeader">
         Rosa ({{ active_count }} / {{ max_captains|add:max_non_captains|default:12 }})
         {% if league.max_total_age %}
           <small class="text-muted fw-normal">— età totale {{ total_age }} / {{ league.max_total_age }}</small>
         {% endif %}
       </h5>
       {% if can_edit %}
-      <button class="btn btn-outline-success btn-sm" data-bs-toggle="collapse" data-bs-target="#addForm">+ Aggiungi</button>
+      <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="collapse" data-bs-target="#addForm">+ Aggiungi</button>
       {% endif %}
     </div>
 
@@ -59,12 +59,7 @@
     <div class="collapse mb-3" id="addForm">
       <div class="card card-body">
         <div class="mb-2">
-          <input type="text" id="searchInput" class="form-control" placeholder="{% if league.search_wikipedia_langs %}Cerca su Wikipedia…{% else %}Cerca su Wikidata…{% endif %}">
-        </div>
-        <div id="searchResults" class="list-group mb-2"></div>
-        <div id="searchWarning" class="d-none alert alert-warning py-2 px-3 small mb-2" role="alert"></div>
-        <div id="searchSpinner" class="d-none text-center text-muted small py-1">
-          <span class="spinner-border spinner-border-sm me-1"></span>Ricerca in corso…
+          {% include 'game/_person_search.html' with search_placeholder='Cerca la persona da aggiungere…' %}
         </div>
         <div class="d-flex gap-2 align-items-center">
           <input type="hidden" id="selectedQid" name="wikidata_id">
@@ -73,7 +68,7 @@
             <input class="form-check-input" type="checkbox" id="isCaptain" value="1">
             <label class="form-check-label" for="isCaptain">Capitano</label>
           </div>
-          <button id="addBtn" type="button" class="btn btn-success btn-sm" disabled>Aggiungi</button>
+          <button id="addBtn" type="button" class="btn btn-primary btn-sm" disabled>Aggiungi</button>
         </div>
         <div id="addError" class="alert alert-danger alert-dismissible d-none mt-2 mb-0 py-2 px-3 small" role="alert">
           <span id="addErrorMsg"></span>
@@ -83,9 +78,13 @@
     </div>
     {% endif %}
 
+    {# Regione sostituita in-place dopo un'aggiunta (vedi extra_js): #}
+    {# niente reload completo della pagina. #}
+    <div id="fmRosterRegion">
     {% if active_count %}
+    <div class="table-responsive">
     <table class="table table-sm align-middle">
-      <thead class="table-dark">
+      <thead>
         <tr>
           <th>Persona</th>
           <th>Nascita</th>
@@ -102,10 +101,10 @@
                 {{ member.person.name_it }}
               </a>
               {% if member.is_captain %}
-                <span class="badge badge-captain">C</span>
+                <span class="badge text-bg-primary">C</span>
               {% endif %}
               {% if member.is_original %}
-                <span class="badge bg-info" title="Giocata originale">★</span>
+                <span class="badge text-bg-info" title="Giocata originale">★</span>
               {% endif %}
             </td>
             <td><small>{% if member.person.birth_date %}{{ member.person.birth_date.year }}{% elif member.person.birth_year %}{{ member.person.birth_year }}{% endif %}</small></td>
@@ -117,9 +116,9 @@
                     <br><small class="text-muted">scade <span class="fm-countdown" data-fm-countdown="{{ deadline|date:'U' }}">…</span></small>
                   {% endif %}
                   {% if can_edit and member.can_be_substituted %}
-                    <a href="{% url 'substitute_member' team.pk member.pk %}" class="btn btn-warning btn-sm ms-1">Sostituisci</a>
+                    <a href="{% url 'substitute_member' team.pk member.pk %}" class="btn btn-primary btn-sm ms-1">Sostituisci</a>
                   {% elif can_edit and deadline %}
-                    <span class="badge bg-secondary ms-1" title="Tempi scaduti">scaduto</span>
+                    <span class="badge text-bg-secondary ms-1" title="Tempi scaduti">scaduto</span>
                   {% endif %}
                 {% endwith %}
               {% else %}
@@ -136,12 +135,13 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
     {% else %}
     <p class="text-muted">La rosa è vuota: cerca un personaggio qui sopra per aggiungerlo.</p>
     {% endif %}
 
     {% if can_edit %}
-      <button type="submit" form="teamForm" class="btn btn-outline-dark btn-sm">Salva</button>
+      <button type="submit" form="teamForm" class="btn btn-primary btn-sm">Salva</button>
     {% endif %}
 
     {% if dead_members %}
@@ -149,6 +149,7 @@
       <strong>Attenzione:</strong> {{ dead_members|length }} membro/i deceduto/i senza sostituto.
     </div>
     {% endif %}
+    </div>{# /fmRosterRegion #}
     {% endif %}
   </div>
 </div>
@@ -157,102 +158,81 @@
 {% block extra_js %}
 {% if can_edit %}
 <script>
-const teamPk = "{{ team.pk }}";
-const leagueSlug = "{{ league.slug }}";
-const csrfToken = "{{ csrf_token }}";
-let searchTimeout;
-let searchAbortController = null;
+(function () {
+  const teamPk = "{{ team.pk }}";
+  const csrfToken = "{{ csrf_token }}";
 
-function showAddError(msg) {
-  const el = document.getElementById('addError');
-  document.getElementById('addErrorMsg').textContent = msg;
-  el.classList.remove('d-none');
-}
-
-document.getElementById('searchInput').addEventListener('input', function() {
-  clearTimeout(searchTimeout);
-  document.getElementById('addError').classList.add('d-none');
-  const q = this.value.trim();
-  if (q.length < 2) {
-    if (searchAbortController) searchAbortController.abort();
-    document.getElementById('searchResults').innerHTML = '';
-    document.getElementById('searchSpinner').classList.add('d-none');
-    return;
+  function showAddError(msg) {
+    const el = document.getElementById('addError');
+    document.getElementById('addErrorMsg').textContent = msg;
+    el.classList.remove('d-none');
   }
-  searchTimeout = setTimeout(() => {
-    if (searchAbortController) searchAbortController.abort();
-    searchAbortController = new AbortController();
-    document.getElementById('searchResults').innerHTML = '';
-    document.getElementById('searchSpinner').classList.remove('d-none');
-    fetch(`/api/search-person/?q=${encodeURIComponent(q)}&league=${encodeURIComponent(leagueSlug)}`, { signal: searchAbortController.signal })
-      .then(r => r.json())
-      .then(data => {
-        document.getElementById('searchSpinner').classList.add('d-none');
-        const warnEl = document.getElementById('searchWarning');
-        if (data.warning) {
-          warnEl.textContent = '⚠ ' + data.warning;
-          warnEl.classList.remove('d-none');
-        } else {
-          warnEl.classList.add('d-none');
-        }
-        const el = document.getElementById('searchResults');
-        el.innerHTML = '';
-        data.results.forEach(r => {
-          const a = document.createElement('a');
-          a.className = 'list-group-item list-group-item-action';
-          a.href = '#';
-          a.textContent = r.name_it + (r.description ? ' — ' + r.description : '');
-          a.dataset.qid = r.wikidata_id;
-          a.dataset.name = r.name_it;
-          a.addEventListener('click', e => {
-            e.preventDefault();
-            document.getElementById('addError').classList.add('d-none');
-            document.getElementById('selectedQid').value = r.wikidata_id;
-            document.getElementById('selectedName').textContent = r.name_it + ' (' + r.wikidata_id + ')';
-            document.getElementById('addBtn').disabled = false;
-            el.innerHTML = '';
-          });
-          el.appendChild(a);
-        });
-      })
-      .catch(err => {
-        if (err.name !== 'AbortError') document.getElementById('searchSpinner').classList.add('d-none');
-      });
-  }, 600);
-});
 
-document.getElementById('addBtn').addEventListener('click', function() {
-  const qid = document.getElementById('selectedQid').value;
-  const isCaptain = document.getElementById('isCaptain').checked ? '1' : '0';
-  if (!qid) return;
+  const search = fmPersonSearch(document.querySelector('[data-fm-person-search]'), {
+    onSelect: function (p) {
+      document.getElementById('addError').classList.add('d-none');
+      document.getElementById('selectedQid').value = p.wikidata_id;
+      document.getElementById('selectedName').textContent = p.name_it + ' (' + p.wikidata_id + ')';
+      document.getElementById('addBtn').disabled = false;
+    },
+  });
 
-  const btn = this;
-  const originalLabel = btn.innerHTML;
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Aggiunta...';
+  // Dopo un'aggiunta riuscita la pagina NON viene ricaricata: si rifetcha
+  // l'HTML e si sostituiscono solo header rosa e tabella, così il form di
+  // ricerca resta aperto e pronto per l'aggiunta successiva.
+  async function refreshRoster() {
+    const resp = await fetch(location.href, { headers: { 'Accept': 'text/html' } });
+    if (!resp.ok) throw new Error('refresh fallito');
+    const doc = new DOMParser().parseFromString(await resp.text(), 'text/html');
+    for (const id of ['fmRosterHeader', 'fmRosterRegion']) {
+      const fresh = doc.getElementById(id);
+      const current = document.getElementById(id);
+      if (fresh && current) current.replaceWith(fresh);
+    }
+    fmInitCountdowns(document.getElementById('fmRosterRegion'));
+  }
 
-  const fd = new FormData();
-  fd.append('wikidata_id', qid);
-  fd.append('is_captain', isCaptain);
-  fd.append('csrfmiddlewaretoken', csrfToken);
+  document.getElementById('addBtn').addEventListener('click', async function () {
+    const qid = document.getElementById('selectedQid').value;
+    const isCaptain = document.getElementById('isCaptain').checked ? '1' : '0';
+    if (!qid) return;
 
-  fetch(`/squadra/${teamPk}/aggiungi/`, {method: 'POST', body: fd})
-    .then(r => r.json())
-    .then(data => {
+    const btn = this;
+    const originalLabel = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Aggiunta...';
+
+    const fd = new FormData();
+    fd.append('wikidata_id', qid);
+    fd.append('is_captain', isCaptain);
+    fd.append('csrfmiddlewaretoken', csrfToken);
+
+    try {
+      const resp = await fetch(`/squadra/${teamPk}/aggiungi/`, { method: 'POST', body: fd });
+      const data = await resp.json();
       if (data.success) {
-        location.reload();
+        try {
+          await refreshRoster();
+        } catch (e) {
+          location.reload();  // fallback: mai lasciare la pagina incoerente
+          return;
+        }
+        fmToast('Aggiunto: ' + data.name, 'success');
+        search.reset();
+        document.getElementById('selectedQid').value = '';
+        document.getElementById('selectedName').textContent = 'Nessuna persona selezionata';
+        document.getElementById('isCaptain').checked = false;
       } else {
-        btn.innerHTML = originalLabel;
-        btn.disabled = false;
         showAddError(data.error || 'Errore sconosciuto');
       }
-    })
-    .catch(() => {
-      btn.innerHTML = originalLabel;
-      btn.disabled = false;
+    } catch (e) {
       showAddError('Errore di rete');
-    });
-});
+    } finally {
+      btn.innerHTML = originalLabel;
+      btn.disabled = !document.getElementById('selectedQid').value;
+    }
+  });
+})();
 </script>
 {% endif %}
 {% endblock %}

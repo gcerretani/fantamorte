@@ -163,9 +163,6 @@ class Team(models.Model):
             return f'{self.name} ({self.league.name})'
         return self.name
 
-    def get_captain(self):
-        return self.members.filter(is_captain=True, replaced_by=None).first()
-
     def get_active_members(self):
         return self.members.filter(replaced_by=None)
 
@@ -176,7 +173,7 @@ class Team(models.Model):
         """Somma delle età attuali dei membri attivi (0 per chi non ha dati di nascita)."""
         return sum(
             m.person.get_current_age() or 0
-            for m in self.members.filter(replaced_by=None).select_related('person')
+            for m in self.get_active_members().select_related('person')
         )
 
 
@@ -399,13 +396,6 @@ class League(models.Model):
         today = timezone.now().date()
         return self.registration_opens <= today <= self.registration_closes
 
-    def is_running(self):
-        today = timezone.now().date()
-        return self.start_date <= today <= self.end_date
-
-    def is_finished(self):
-        return timezone.now().date() > self.end_date
-
     # ---- Permessi ----
     def is_owner(self, user):
         return user.is_authenticated and self.owner_id == user.pk
@@ -426,11 +416,6 @@ class League(models.Model):
         if self.visibility == self.VISIBILITY_PUBLIC:
             return user.is_authenticated
         return self.is_member(user) or self.is_admin(user)
-
-    # ---- Regole punteggio ----
-    def get_active_bonuses(self):
-        """Restituisce i LeagueBonus attivi della lega, in ordine."""
-        return self.league_bonuses.filter(is_active=True).select_related('bonus_type').order_by('bonus_type__ordering', 'bonus_type__name')
 
 
 class LeagueMembership(models.Model):

@@ -5,16 +5,16 @@
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h2 class="mb-0">Classifica: {{ league.name }}</h2>
   <div class="d-flex gap-2 flex-wrap">
-    <a href="{% url 'league_rankings_csv' league.slug %}" class="btn btn-outline-dark btn-sm" aria-label="Scarica classifica in CSV">Scarica CSV</a>
-    <a href="{% url 'league_calendar' league.slug %}" class="btn btn-outline-dark btn-sm" aria-label="Scarica calendario iCal della lega">Calendario .ics</a>
-    <a href="{% url 'league_detail' league.slug %}" class="btn btn-outline-dark btn-sm">&larr; Torna alla lega</a>
+    <a href="{% url 'league_rankings_csv' league.slug %}" class="btn btn-outline-secondary btn-sm" aria-label="Scarica classifica in CSV">Scarica CSV</a>
+    <a href="{% url 'league_calendar' league.slug %}" class="btn btn-outline-secondary btn-sm" aria-label="Scarica calendario iCal della lega">Calendario .ics</a>
+    <a href="{% url 'league_detail' league.slug %}" class="btn btn-outline-secondary btn-sm">&larr; Torna alla lega</a>
   </div>
 </div>
 
 {% if rankings %}
 <div class="table-responsive">
   <table class="table table-hover align-middle">
-    <thead class="table-dark">
+    <thead>
       <tr>
         <th>#</th>
         <th>Squadra</th>
@@ -31,12 +31,12 @@
           </td>
           <td>
             <a href="{% url 'team_detail' entry.team.pk %}" class="fw-bold text-decoration-none">{{ entry.team.name }}</a>
-            {% if entry.team.jolly_month %}<span class="badge badge-jolly ms-1" title="Mese jolly">J</span>{% endif %}
+            {% if entry.team.jolly_month %}<span class="badge text-bg-info ms-1" title="Mese jolly">J</span>{% endif %}
           </td>
           <td><small class="text-muted">{{ entry.team.manager.username }}</small></td>
           <td>
             {% for d in entry.deaths %}
-              <span class="badge {% if d.is_captain %}badge-captain{% else %}bg-secondary{% endif %} me-1"
+              <span class="badge {% if d.is_captain %}text-bg-primary{% else %}text-bg-secondary{% endif %} me-1"
                     title="{{ d.death.person.name_it }}{% if d.is_captain %} (capitano){% endif %}{% if d.jolly %} mese jolly{% endif %}">
                 {{ d.death.person.name_it|truncatechars:18 }}
                 {% if d.is_captain %}&#9813;{% endif %}

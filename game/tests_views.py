@@ -392,3 +392,220 @@ class MaxTotalAgeTest(ViewsBaseTestCase):
         member.refresh_from_db()
         self.assertIsNone(member.replaced_by)
         self.assertFalse(TeamMember.objects.filter(team=self.private_team, person=old).exists())
+
+
+class PersonRefreshTest(ViewsBaseTestCase):
+    """_get_or_refresh_person: freshness short-circuit e riconciliazione is_dead."""
+
+    def _kill_member_and_get_substitution_url(self):
+        from django.utils import timezone
+        self.person.is_dead = True
+        self.person.death_date = timezone.now().date()
+        self.person.save()
+        member = self.private_team.members.get(person=self.person)
+        return reverse('substitute_member', args=[self.private_team.pk, member.pk])
+
+    def test_sostituzione_con_persona_fresca_non_tocca_la_rete(self):
+        from django.utils import timezone
+        url = self._kill_member_and_get_substitution_url()
+        fresh = WikipediaPerson.objects.create(
+            wikidata_id='Q90300', name_it='Sostituto Fresco',
+            is_dead=False, last_checked=timezone.now(),
+        )
+        self.client.login(username='member', password='x')
+        with patch('game.views.WikidataClient') as mock_client:
+            mock_client.side_effect = AssertionError('rete non attesa')
+            self.client.post(url, {'wikidata_id': fresh.wikidata_id})
+        self.assertTrue(
+            self.private_team.members.filter(person=fresh, replaced_by=None).exists())
+
+    def test_sostituzione_qid_non_valido_rifiutato_senza_rete(self):
+        url = self._kill_member_and_get_substitution_url()
+        self.client.login(username='member', password='x')
+        with patch('game.views.WikidataClient') as mock_client:
+            mock_client.side_effect = AssertionError('rete non attesa')
+            self.client.post(url, {'wikidata_id': "Q1'; DROP--"})
+        self.assertEqual(self.private_team.members.filter(replaced_by=None).count(), 1)
+
+    def test_is_dead_da_solo_death_year(self):
+        """Una persona con solo l'anno di morte (senza data) è comunque morta."""
+        from game.views import _get_or_refresh_person
+        entity = {
+            'name_it': 'Solo Anno', 'name_en': '', 'description_it': '',
+            'birth_date': None, 'birth_year': 1900,
+            'death_date': None, 'death_year': 1980,
+            'image_url': '', 'occupation': '', 'nationality': '',
+            'claims_cache': {}, 'wikipedia_url_it': '',
+        }
+        with patch('game.views.WikidataClient') as mock_client:
+            mock_client.return_value.get_entity.return_value = entity
+            person, err = _get_or_refresh_person('Q90400')
+        self.assertIsNone(err)
+        self.assertTrue(person.is_dead)
+
+    def test_errore_wikidata_ritorna_messaggio(self):
+        from game.views import _get_or_refresh_person
+        with patch('game.views.WikidataClient') as mock_client:
+            mock_client.return_value.get_entity.side_effect = RuntimeError('boom')
+            person, err = _get_or_refresh_person('Q90500')
+        self.assertIsNone(person)
+        self.assertIn('Errore Wikidata', err)
+
+
+class AllauthBootstrapFormsTest(TestCase):
+    """I form allauth devono arrivare già stilati dal server (ACCOUNT_FORMS)."""
+
+    def test_login_ha_classi_bootstrap(self):
+        resp = self.client.get(reverse('account_login'))
+        self.assertContains(resp, 'form-control')
+
+    def test_signup_ha_classi_bootstrap(self):
+        resp = self.client.get(reverse('account_signup'))
+        self.assertContains(resp, 'form-control')
+
+    def test_errori_di_campo_marcati_is_invalid(self):
+        # Campi obbligatori vuoti → errori per-campo → classe is-invalid.
+        resp = self.client.post(reverse('account_login'), {'login': '', 'password': ''})
+        self.assertContains(resp, 'is-invalid', status_code=200)
+
+
+class TeamIsLockedTest(ViewsBaseTestCase):
+    """Team.is_locked blocca l'editing della rosa per il manager, non per lo staff."""
+
+    def setUp(self):
+        super().setUp()
+        from django.utils import timezone
+        self.private_team.is_locked = True
+        self.private_team.save()
+        self.candidate = WikipediaPerson.objects.create(
+            wikidata_id='Q90600', name_it='Candidato', is_dead=False,
+            last_checked=timezone.now(),
+        )
+
+    def test_manager_non_aggiunge_a_squadra_bloccata(self):
+        self.client.login(username='member', password='x')
+        resp = self.client.post(
+            reverse('add_person', args=[self.private_team.pk]),
+            {'wikidata_id': self.candidate.wikidata_id},
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(self.private_team.get_active_members().count(), 1)
+
+    def test_manager_non_salva_modifiche_a_squadra_bloccata(self):
+        self.client.login(username='member', password='x')
+        resp = self.client.post(
+            reverse('team_edit', args=[self.private_team.pk]),
+            {'name': 'Nuovo Nome'},
+        )
+        self.private_team.refresh_from_db()
+        self.assertEqual(self.private_team.name, 'Squadra Privata')
+
+    def test_staff_puo_ancora_modificare(self):
+        staff = User.objects.create_user('staff', password='x', is_staff=True)
+        self.client.login(username='staff', password='x')
+        resp = self.client.post(
+            reverse('add_person', args=[self.private_team.pk]),
+            {'wikidata_id': self.candidate.wikidata_id},
+        )
+        self.assertEqual(resp.status_code, 200)
+
+
+class BulkDiffBatchLimitTest(ViewsBaseTestCase):
+    """LeagueBulkDiffView richiede un blocco esplicito di persone (max 10)."""
+
+    def _post(self, payload):
+        self.client.login(username='owner', password='x')
+        return self.client.post(
+            reverse('league_wikidata_diff', args=['lega-privata']),
+            payload, content_type='application/json',
+        )
+
+    def test_person_pks_mancante_rifiutato(self):
+        resp = self._post('{}')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('person_pks', resp.json()['error'])
+
+    def test_blocco_troppo_grande_rifiutato(self):
+        import json as jsonlib
+        resp = self._post(jsonlib.dumps({'person_pks': list(range(1, 13))}))
+        self.assertEqual(resp.status_code, 400)
+
+    def test_blocco_valido_processato(self):
+        import json as jsonlib
+        entity = {
+            'name_it': 'Silvio Berlusconi', 'name_en': '', 'description_it': '',
+            'birth_date': None, 'birth_year': None,
+            'death_date': None, 'death_year': None,
+            'image_url': '', 'occupation': '', 'nationality': '',
+            'claims_cache': {}, 'wikipedia_url_it': '',
+        }
+        with patch('game.views.WikidataClient') as mock_client:
+            mock_client.return_value.get_entity.return_value = entity
+            resp = self._post(jsonlib.dumps({'person_pks': [self.person.pk]}))
+        self.assertEqual(resp.status_code, 200)
+        results = resp.json()['results']
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['person_pk'], self.person.pk)
+
+    def test_apply_troppe_persone_rifiutato(self):
+        import json as jsonlib
+        updates = [{'person_pk': pk, 'field': 'name_it'} for pk in range(1, 13)]
+        self.client.login(username='owner', password='x')
+        # Serve che i pk appartengano alla lega: creiamo 12 persone in rosa.
+        team = Team.objects.create(name='T2', manager=self.owner, league=self.private_league)
+        pks = []
+        for i in range(12):
+            p = WikipediaPerson.objects.create(wikidata_id=f'Q77{i}', name_it=f'P{i}')
+            TeamMember.objects.create(team=team, person=p)
+            pks.append(p.pk)
+        updates = [{'person_pk': pk, 'field': 'name_it'} for pk in pks]
+        resp = self.client.post(
+            reverse('league_wikidata_apply', args=['lega-privata']),
+            jsonlib.dumps({'updates': updates}), content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('blocchi', resp.json()['error'])
+
+
+class LazySummaryTest(ViewsBaseTestCase):
+    """Il modal persona apre subito; la biografia arriva da un endpoint dedicato."""
+
+    def setUp(self):
+        super().setUp()
+        self.person.wikipedia_url_it = 'https://it.wikipedia.org/wiki/Silvio_Berlusconi'
+        self.person.save()
+        self.client.login(username='member', password='x')
+
+    def test_person_info_non_chiama_mai_wikipedia(self):
+        with patch('game.views.WikidataClient') as mock_client:
+            mock_client.side_effect = AssertionError('rete non attesa')
+            resp = self.client.get(reverse('person_info', args=[self.person.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()['summary_stale'])
+
+    def test_person_info_summary_fresco_non_stale(self):
+        from django.utils import timezone
+        self.person.summary_it = 'Bio.'
+        self.person.summary_fetched_at = timezone.now()
+        self.person.save()
+        resp = self.client.get(reverse('person_info', args=[self.person.pk]))
+        self.assertFalse(resp.json()['summary_stale'])
+        self.assertEqual(resp.json()['summary_it'], 'Bio.')
+
+    def test_person_summary_esegue_e_persiste_il_refresh(self):
+        with patch('game.views.WikidataClient') as mock_client:
+            mock_client.return_value.get_summary.return_value = 'Biografia nuova.'
+            resp = self.client.get(reverse('person_summary', args=[self.person.pk]))
+        data = resp.json()
+        self.assertEqual(data['summary_it'], 'Biografia nuova.')
+        self.assertFalse(data['summary_stale'])
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.summary_it, 'Biografia nuova.')
+        self.assertIsNotNone(self.person.summary_fetched_at)
+
+    def test_person_summary_fallito_resta_stale(self):
+        with patch('game.views.WikidataClient') as mock_client:
+            mock_client.return_value.get_summary.side_effect = RuntimeError('timeout')
+            resp = self.client.get(reverse('person_summary', args=[self.person.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()['summary_stale'])

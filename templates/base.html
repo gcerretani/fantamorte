@@ -12,7 +12,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Fantamorte">
   <title>{% block title %}Fantamorte{% endblock %}</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
   <link href="{% static 'css/fantamorte.css' %}" rel="stylesheet">
   <script>
     // Applica subito il tema per evitare flash. Pref tri-state: auto|light|dark.
@@ -27,15 +28,15 @@
         effective = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
           ? 'dark' : 'light';
       }
-      html.setAttribute('data-theme', effective);
+      html.setAttribute('data-bs-theme', effective);
       html.setAttribute('data-theme-pref', pref);
     })();
     window.FM_VAPID_PUBLIC_KEY = "{{ VAPID_PUBLIC_KEY }}";
   </script>
 </head>
-<body class="bg-light">
+<body class="bg-body-tertiary">
 <a href="#fmMainContent" class="fm-skip-link">Salta al contenuto</a>
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-3" aria-label="Navigazione principale">
+<nav class="navbar navbar-expand-lg bg-dark mb-3" data-bs-theme="dark" aria-label="Navigazione principale">
   <div class="container">
     <a class="navbar-brand" href="{% url 'home' %}"><span aria-hidden="true">&#9760;</span> Fantamorte</a>
     <div class="d-flex align-items-center order-lg-last">
@@ -48,10 +49,12 @@
         <span class="navbar-toggler-icon" aria-hidden="true"></span>
       </button>
     </div>
-    <div class="offcanvas offcanvas-end text-bg-dark" tabindex="-1" id="navOffcanvas" aria-labelledby="navOffcanvasLabel">
-      <div class="offcanvas-header">
+    <!-- offcanvas-lg: menu a scomparsa sotto il breakpoint lg, link inline
+         nella barra su desktop. Colori ereditati da data-bs-theme="dark". -->
+    <div class="offcanvas-lg offcanvas-end" tabindex="-1" id="navOffcanvas" aria-labelledby="navOffcanvasLabel">
+      <div class="offcanvas-header d-lg-none">
         <h5 class="offcanvas-title" id="navOffcanvasLabel">Menu</h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#navOffcanvas" aria-label="Chiudi menu"></button>
       </div>
       <div class="offcanvas-body">
         <ul class="navbar-nav me-auto">
@@ -118,7 +121,24 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<!-- Skeleton del modal persona: clonato da fmShowPerson a ogni apertura. -->
+<template id="fmPersonSkeleton">
+  <div class="row placeholder-glow" aria-busy="true" aria-label="Caricamento dettagli persona">
+    <div class="col-md-4">
+      <div class="ratio ratio-1x1 rounded bg-body-secondary placeholder"></div>
+    </div>
+    <div class="col-md-8">
+      <p class="mb-2"><span class="placeholder col-8"></span></p>
+      <p class="mb-1"><span class="placeholder col-5"></span></p>
+      <p class="mb-1"><span class="placeholder col-6"></span></p>
+      <p class="mb-3"><span class="placeholder col-4"></span></p>
+      <p class="mb-0"><span class="placeholder col-12"></span><span class="placeholder col-10"></span><span class="placeholder col-7"></span></p>
+    </div>
+  </div>
+</template>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
 <script src="{% static 'js/fantamorte.js' %}"></script>
 {% block extra_js %}{% endblock %}
 </body>

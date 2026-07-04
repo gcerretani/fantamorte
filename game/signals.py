@@ -1,6 +1,7 @@
 """Signal handlers per profili utente, notifiche push sui decessi e
 invalidazione della cache della classifica di lega."""
-from django.conf import settings
+import logging
+
 from django.contrib.auth.models import User
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
@@ -9,6 +10,8 @@ from .models import (
     Death, DeathBonus, League, LeagueBonus, Team, TeamMember, UserProfile,
 )
 from .scoring import invalidate_league_rankings
+
+logger = logging.getLogger(__name__)
 
 
 @receiver(post_save, sender=User)
@@ -37,15 +40,12 @@ def notify_on_death_confirmed(sender, instance, created, **kwargs):
     if not (instance.is_confirmed and not was_confirmed):
         return
 
-    import logging
-    logger = logging.getLogger(__name__)
-
-    if not getattr(settings, 'PUSH_NOTIFICATIONS_ASYNC', False):
-        try:
-            from .push import broadcast_death_notification
-            broadcast_death_notification(instance)
-        except Exception:
-            logger.exception('Errore invio push per Death %s', instance.pk)
+    # Push best-effort: gli errori non devono bloccare il salvataggio.
+    try:
+        from .push import broadcast_death_notification
+        broadcast_death_notification(instance)
+    except Exception:
+        logger.exception('Errore invio push per Death %s', instance.pk)
 
     # Email: sempre sincrone (volume basso). Errori non devono bloccare il salvataggio.
     try:
