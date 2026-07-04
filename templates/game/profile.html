@@ -42,7 +42,7 @@
               <label class="form-check-label" for="themeDark">Scuro</label>
             </div>
           </fieldset>
-          <button class="btn btn-dark" type="submit">Salva</button>
+          <button class="btn btn-primary" type="submit">Salva</button>
         </form>
       </div>
     </div>
@@ -56,11 +56,11 @@
           Ricevi una notifica quando un personaggio decede. Funziona anche con app installata.
         </p>
         <div class="d-flex gap-2 flex-wrap">
-          <button id="enablePushBtn" class="btn btn-success btn-sm" type="button"
+          <button id="enablePushBtn" class="btn btn-primary btn-sm" type="button"
             onclick="fmEnablePush()" aria-label="Attiva notifiche push su questo dispositivo">Attiva</button>
           <button class="btn btn-outline-secondary btn-sm" type="button"
             onclick="fmDisablePush()" aria-label="Disattiva notifiche push">Disattiva</button>
-          <button class="btn btn-outline-dark btn-sm" type="button"
+          <button class="btn btn-outline-secondary btn-sm" type="button"
             onclick="fmTestPush()" aria-label="Invia notifica push di test">Invia test</button>
         </div>
         {% if not VAPID_PUBLIC_KEY %}
@@ -88,7 +88,7 @@
         <h5 class="card-title">Le tue squadre</h5>
         <div class="d-flex flex-wrap gap-2">
           {% for t in teams %}
-            <a href="{% url 'team_edit' t.pk %}" class="btn btn-outline-dark btn-sm">
+            <a href="{% url 'team_edit' t.pk %}" class="btn btn-outline-secondary btn-sm">
               {{ t.name }}{% if t.league %} <small class="text-muted">— {{ t.league.name }}</small>{% endif %}
             </a>
           {% endfor %}

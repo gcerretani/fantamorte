@@ -35,7 +35,7 @@
         </div>
         {% if creating %}
         <div class="col-md-3">
-          <button type="submit" class="btn btn-dark w-100">Salva</button>
+          <button type="submit" class="btn btn-primary w-100">Salva</button>
         </div>
         {% endif %}
       </div>
@@ -73,7 +73,7 @@
             <input class="form-check-input" type="checkbox" id="isCaptain" value="1">
             <label class="form-check-label" for="isCaptain">Capitano</label>
           </div>
-          <button id="addBtn" type="button" class="btn btn-success btn-sm" disabled>Aggiungi</button>
+          <button id="addBtn" type="button" class="btn btn-primary btn-sm" disabled>Aggiungi</button>
         </div>
         <div id="addError" class="alert alert-danger alert-dismissible d-none mt-2 mb-0 py-2 px-3 small" role="alert">
           <span id="addErrorMsg"></span>
@@ -84,6 +84,7 @@
     {% endif %}
 
     {% if active_count %}
+    <div class="table-responsive">
     <table class="table table-sm align-middle">
       <thead class="table-dark">
         <tr>
@@ -102,10 +103,10 @@
                 {{ member.person.name_it }}
               </a>
               {% if member.is_captain %}
-                <span class="badge badge-captain">C</span>
+                <span class="badge text-bg-primary">C</span>
               {% endif %}
               {% if member.is_original %}
-                <span class="badge bg-info" title="Giocata originale">★</span>
+                <span class="badge text-bg-info" title="Giocata originale">★</span>
               {% endif %}
             </td>
             <td><small>{% if member.person.birth_date %}{{ member.person.birth_date.year }}{% elif member.person.birth_year %}{{ member.person.birth_year }}{% endif %}</small></td>
@@ -117,9 +118,9 @@
                     <br><small class="text-muted">scade <span class="fm-countdown" data-fm-countdown="{{ deadline|date:'U' }}">…</span></small>
                   {% endif %}
                   {% if can_edit and member.can_be_substituted %}
-                    <a href="{% url 'substitute_member' team.pk member.pk %}" class="btn btn-warning btn-sm ms-1">Sostituisci</a>
+                    <a href="{% url 'substitute_member' team.pk member.pk %}" class="btn btn-primary btn-sm ms-1">Sostituisci</a>
                   {% elif can_edit and deadline %}
-                    <span class="badge bg-secondary ms-1" title="Tempi scaduti">scaduto</span>
+                    <span class="badge text-bg-secondary ms-1" title="Tempi scaduti">scaduto</span>
                   {% endif %}
                 {% endwith %}
               {% else %}
@@ -136,12 +137,13 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
     {% else %}
     <p class="text-muted">La rosa è vuota: cerca un personaggio qui sopra per aggiungerlo.</p>
     {% endif %}
 
     {% if can_edit %}
-      <button type="submit" form="teamForm" class="btn btn-outline-dark btn-sm">Salva</button>
+      <button type="submit" form="teamForm" class="btn btn-primary btn-sm">Salva</button>
     {% endif %}
 
     {% if dead_members %}

@@ -4,7 +4,7 @@
 
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h2 class="mb-0">Tutte le leghe</h2>
-  <a href="{% url 'league_create' %}" class="btn btn-success">+ Crea lega</a>
+  <a href="{% url 'league_create' %}" class="btn btn-primary">+ Crea lega</a>
 </div>
 
 {% if public_leagues %}
@@ -15,7 +15,7 @@
           <div class="card-body">
             <h5 class="card-title">
               <a href="{% url 'league_detail' league.slug %}" class="text-decoration-none">{{ league.name }}</a>
-              {% if league.pk in my_league_ids %}<span class="badge bg-success">iscritto</span>{% endif %}
+              {% if league.pk in my_league_ids %}<span class="badge text-bg-success">iscritto</span>{% endif %}
             </h5>
             {% if league.description %}<p class="card-text small text-muted">{{ league.description|truncatewords:25 }}</p>{% endif %}
             <ul class="list-unstyled small mb-0">
@@ -26,7 +26,7 @@
             </ul>
           </div>
           <div class="card-footer bg-transparent">
-            <a href="{% url 'league_detail' league.slug %}" class="btn btn-outline-dark btn-sm">Vai alla lega &rarr;</a>
+            <a href="{% url 'league_detail' league.slug %}" class="btn btn-outline-secondary btn-sm">Vai alla lega &rarr;</a>
           </div>
         </div>
       </div>
@@ -34,7 +34,7 @@
   </div>
 {% else %}
   <p class="text-muted">Nessuna lega pubblica. Sii il primo!</p>
-  <a href="{% url 'league_create' %}" class="btn btn-success">Crea una lega</a>
+  <a href="{% url 'league_create' %}" class="btn btn-primary">Crea una lega</a>
 {% endif %}
 
 {% endblock %}

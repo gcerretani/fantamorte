@@ -259,17 +259,17 @@
       const meta = [];
       if (p.birth_date) meta.push(`<li><strong>Nato/a</strong>: ${escapeHtml(p.birth_date)}</li>`);
       if (p.is_dead && p.death_date) meta.push(`<li><strong>Deceduto/a</strong>: ${escapeHtml(p.death_date)}${p.age_at_death ? ' ('+p.age_at_death+' anni)' : ''}</li>`);
-      else if (!p.is_dead) meta.push('<li><span class="badge bg-success">Vivo/a</span></li>');
+      else if (!p.is_dead) meta.push('<li><span class="badge text-bg-success">Vivo/a</span></li>');
       if (p.occupation) meta.push(`<li><strong>Attività</strong>: ${escapeHtml(p.occupation)}</li>`);
       if (p.nationality) meta.push(`<li><strong>Cittadinanza</strong>: ${escapeHtml(p.nationality)}</li>`);
       const img = p.image_url
         ? `<img src="${escapeHtml(p.image_url)}" alt="Foto di ${escapeHtml(p.name_it || '')}" loading="lazy" decoding="async" class="img-fluid rounded shadow-sm">`
-        : `<div class="bg-secondary text-light text-center rounded p-4" aria-hidden="true"><span style="font-size:3rem">&#128100;</span></div>`;
+        : `<div class="bg-secondary text-light text-center rounded p-4" aria-hidden="true"><span class="fs-1">&#128100;</span></div>`;
       const summary = p.summary_it
-        ? `<h6 class="mt-3">Biografia</h6><p style="white-space:pre-line">${nl2br(p.summary_it)}</p>`
+        ? `<h6 class="mt-3">Biografia</h6><p class="fm-preline">${nl2br(p.summary_it)}</p>`
         : '<p class="text-muted small">(Nessuna biografia disponibile.)</p>';
       const links = [];
-      if (p.wikipedia_url_it) links.push(`<a href="${escapeHtml(p.wikipedia_url_it)}" target="_blank" class="btn btn-outline-dark btn-sm">Wikipedia &rarr;</a>`);
+      if (p.wikipedia_url_it) links.push(`<a href="${escapeHtml(p.wikipedia_url_it)}" target="_blank" class="btn btn-outline-secondary btn-sm">Wikipedia &rarr;</a>`);
       links.push(`<a href="${escapeHtml(p.wikidata_url)}" target="_blank" class="btn btn-outline-secondary btn-sm">Wikidata &rarr;</a>`);
       links.push(`<a href="/persona/${p.id}/" class="btn btn-link btn-sm">Pagina completa</a>`);
       body.innerHTML = `

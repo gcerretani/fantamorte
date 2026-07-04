@@ -39,7 +39,7 @@
         <td>
           <a href="#" data-fm-person-pk="{{ person.pk }}">{{ person.name_it }}</a>
           {% if person.data_frozen %}
-          <span class="badge bg-secondary ms-1" title="Escluso dai controlli automatici">Frozen</span>
+          <span class="badge text-bg-secondary ms-1" title="Escluso dai controlli automatici">Frozen</span>
           {% endif %}
         </td>
         <td><code class="small">{{ person.wikidata_id }}</code></td>
@@ -52,9 +52,9 @@
         </td>
         <td>
           {% if person.is_dead %}
-            <span class="badge bg-dark">Morto</span>
+            <span class="badge text-bg-danger">Morto</span>
           {% else %}
-            <span class="badge bg-success">Vivo</span>
+            <span class="badge text-bg-success">Vivo</span>
           {% endif %}
         </td>
         <td>
@@ -79,8 +79,8 @@
   <hr>
   <h4>Aggiornamenti disponibili</h4>
   <p class="text-muted small">
-    Le modifiche <span class="badge bg-success">verdi</span> aggiungono dati nuovi.
-    Le modifiche <span class="badge bg-danger">rosse</span> rimuovono un valore esistente: verificale con attenzione prima di importare.
+    Le modifiche <span class="badge text-bg-success">verdi</span> aggiungono dati nuovi.
+    Le modifiche <span class="badge text-bg-danger">rosse</span> rimuovono un valore esistente: verificale con attenzione prima di importare.
   </p>
 
   <div id="diff-errors" class="d-none alert alert-warning"></div>
@@ -90,7 +90,7 @@
       <!-- popolato via JS -->
     </div>
     <div class="mt-3 d-flex gap-2 align-items-center">
-      <button type="submit" id="btn-apply" class="btn btn-success" disabled>
+      <button type="submit" id="btn-apply" class="btn btn-primary" disabled>
         <span id="spinner-apply" class="spinner-border spinner-border-sm d-none me-1" role="status"></span>
         Applica selezionati
       </button>
@@ -146,7 +146,7 @@
         const rowClass = ch.is_removal ? 'table-danger' : (ch.field === 'death_date' || ch.field === 'death_year' ? 'table-success' : '');
         const oldDisplay = ch.old !== null ? fmEscapeHtml(ch.old) : '<em class="text-muted">—</em>';
         const newDisplay = ch.new !== null ? fmEscapeHtml(ch.new) : '<em class="text-muted">—</em>';
-        const badge = ch.is_removal ? '<span class="badge bg-danger ms-1">Rimozione</span>' : '';
+        const badge = ch.is_removal ? '<span class="badge text-bg-danger ms-1">Rimozione</span>' : '';
         newValues.push(ch.new !== null ? ch.new : '');
         html += `<tr class="${rowClass}">
           ${nameCell}

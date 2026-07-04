@@ -5,7 +5,7 @@
 <h2>Nomina sostituto per {{ member.person.name_it }}</h2>
 <p class="text-muted mb-1">
   &#9760; Morto/a il {{ member.person.death_date }}
-  {% if member.is_captain %} &mdash; <span class="badge badge-captain">Capitano</span>{% endif %}
+  {% if member.is_captain %} &mdash; <span class="badge text-bg-primary">Capitano</span>{% endif %}
 </p>
 
 {% if deadline %}
@@ -33,7 +33,7 @@
     {% csrf_token %}
     <input type="hidden" id="selectedQid" name="wikidata_id">
     <p id="selectedName" class="text-muted">Nessuna persona selezionata</p>
-    <button type="submit" id="submitBtn" class="btn btn-warning" disabled>Conferma sostituzione</button>
+    <button type="submit" id="submitBtn" class="btn btn-primary" disabled>Conferma sostituzione</button>
     <a href="{% url 'team_edit' team.pk %}" class="btn btn-outline-secondary ms-2">Annulla</a>
   </form>
 </div>

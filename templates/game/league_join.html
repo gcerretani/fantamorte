@@ -22,8 +22,8 @@
         <form method="post" action="{% url 'league_join' league.slug %}" class="d-flex gap-2 justify-content-center">
           {% csrf_token %}
           <input type="text" name="invite_code" value="{{ prefill_code }}"
-                 placeholder="Codice invito" class="form-control" style="max-width: 220px" required>
-          <button class="btn btn-success">Iscriviti</button>
+                 placeholder="Codice invito" class="form-control fm-input-narrow" required>
+          <button class="btn btn-primary">Iscriviti</button>
         </form>
         <a href="{% url 'league_list' %}" class="btn btn-link btn-sm mt-3">&larr; Torna alle leghe</a>
       </div>

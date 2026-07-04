@@ -12,7 +12,7 @@
         {% if socialaccount_providers %}
           <div class="d-grid gap-2 mb-3">
             {% for provider in socialaccount_providers %}
-              <a class="btn btn-outline-dark"
+              <a class="btn btn-outline-secondary"
                  href="{% provider_login_url provider.id process='login' %}">
                 Continua con {{ provider.name }}
               </a>
@@ -44,7 +44,7 @@
           {% if redirect_field_value %}
             <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}">
           {% endif %}
-          <button type="submit" class="btn btn-dark w-100">Accedi</button>
+          <button type="submit" class="btn btn-primary w-100">Accedi</button>
         </form>
 
         <hr>

@@ -21,7 +21,7 @@
     </select>
   </div>
   <div class="col-auto">
-    <button class="btn btn-dark btn-sm" type="submit">Aggiorna</button>
+    <button class="btn btn-primary btn-sm" type="submit">Aggiorna</button>
   </div>
   {% if team.jolly_month %}
     <div class="col-auto">
@@ -49,11 +49,11 @@
           <th scope="row">{{ forloop.counter }}</th>
           <td>
             <a href="#" data-fm-person-pk="{{ r.person.pk }}">{{ r.person.name_it }}</a>
-            {% if r.is_jolly_month %}<span class="badge badge-jolly ms-1">jolly</span>{% endif %}
+            {% if r.is_jolly_month %}<span class="badge text-bg-info ms-1">jolly</span>{% endif %}
           </td>
           <td>{{ r.simulated_age }}</td>
-          <td>{% if r.member.is_captain %}<span class="badge badge-captain">C</span>{% endif %}</td>
-          <td>{% if r.member.is_original %}<span class="badge bg-info">★</span>{% endif %}</td>
+          <td>{% if r.member.is_captain %}<span class="badge text-bg-primary">C</span>{% endif %}</td>
+          <td>{% if r.member.is_original %}<span class="badge text-bg-info">★</span>{% endif %}</td>
           <td class="text-end fw-bold">{{ r.points_now }}</td>
         </tr>
       {% empty %}
