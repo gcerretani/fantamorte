@@ -35,6 +35,7 @@ urlpatterns = [
     path('persona/<int:pk>/', views.PersonDetailView.as_view(), name='person_detail'),
     path('morte/<int:pk>/', views.DeathDetailView.as_view(), name='death_detail'),
     path('api/persona/<int:pk>/', views.PersonInfoView.as_view(), name='person_info'),
+    path('api/persona/<int:pk>/summary/', views.PersonSummaryView.as_view(), name='person_summary'),
     path('api/search-person/', views.PersonSearchView.as_view(), name='person_search'),
 
     # Wikidata diff/apply (per pannello admin lega)

@@ -886,13 +886,19 @@ class PersonDetailView(LoginRequiredMixin, DetailView):
         return ctx
 
 
+def _summary_is_stale(person):
+    """True se il summary Wikipedia manca o è più vecchio di 30 giorni."""
+    if not person.wikipedia_url_it:
+        return False
+    if person.summary_it and person.summary_fetched_at:
+        return (timezone.now() - person.summary_fetched_at) > timedelta(days=30)
+    return True
+
+
 def _refresh_person_summary(person):
     """Aggiorna `summary_it` da Wikipedia se mancante o piu' vecchio di 30 giorni."""
-    if not person.wikipedia_url_it:
+    if not _summary_is_stale(person):
         return
-    if person.summary_it and person.summary_fetched_at:
-        if (timezone.now() - person.summary_fetched_at) <= timedelta(days=30):
-            return
     try:
         title = unquote(person.wikipedia_url_it.rsplit('/', 1)[-1].replace('_', ' '))
         summary = WikidataClient().get_summary(title)
@@ -910,8 +916,9 @@ class PersonInfoView(LoginRequiredMixin, View):
 
     def get(self, request, pk):
         person = get_object_or_404(WikipediaPerson, pk=pk)
-        _refresh_person_summary(person)
-
+        # Nessuna chiamata a Wikipedia qui: il modal deve aprirsi subito.
+        # Se il summary manca o è scaduto il client lo carica in un secondo
+        # momento da PersonSummaryView (campo summary_stale).
         data = {
             'id': person.pk,
             'wikidata_id': person.wikidata_id,
@@ -926,9 +933,28 @@ class PersonInfoView(LoginRequiredMixin, View):
             'image_url': person.image_url,
             'wikipedia_url_it': person.wikipedia_url_it,
             'summary_it': person.summary_it,
+            'summary_stale': _summary_is_stale(person),
             'wikidata_url': f'https://www.wikidata.org/wiki/{person.wikidata_id}',
         }
         return JsonResponse(data)
+
+
+class PersonSummaryView(LoginRequiredMixin, View):
+    """Refresh sincrono del summary Wikipedia, chiamato lazy dal modal.
+
+    Separato da PersonInfoView così il modal apre subito con i dati in DB
+    e la (eventuale) attesa di Wikipedia riguarda solo la biografia.
+    """
+
+    def get(self, request, pk):
+        person = get_object_or_404(WikipediaPerson, pk=pk)
+        _refresh_person_summary(person)  # no-op se fresco
+        return JsonResponse({
+            'summary_it': person.summary_it,
+            # Ancora stale dopo il refresh = fetch fallito: il client
+            # mantiene quello che sta già mostrando.
+            'summary_stale': _summary_is_stale(person),
+        })
 
 
 class PersonSearchView(LoginRequiredMixin, View):

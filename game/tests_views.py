@@ -450,3 +450,47 @@ class PersonRefreshTest(ViewsBaseTestCase):
             person, err = _get_or_refresh_person('Q90500')
         self.assertIsNone(person)
         self.assertIn('Errore Wikidata', err)
+
+
+class LazySummaryTest(ViewsBaseTestCase):
+    """Il modal persona apre subito; la biografia arriva da un endpoint dedicato."""
+
+    def setUp(self):
+        super().setUp()
+        self.person.wikipedia_url_it = 'https://it.wikipedia.org/wiki/Silvio_Berlusconi'
+        self.person.save()
+        self.client.login(username='member', password='x')
+
+    def test_person_info_non_chiama_mai_wikipedia(self):
+        with patch('game.views.WikidataClient') as mock_client:
+            mock_client.side_effect = AssertionError('rete non attesa')
+            resp = self.client.get(reverse('person_info', args=[self.person.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()['summary_stale'])
+
+    def test_person_info_summary_fresco_non_stale(self):
+        from django.utils import timezone
+        self.person.summary_it = 'Bio.'
+        self.person.summary_fetched_at = timezone.now()
+        self.person.save()
+        resp = self.client.get(reverse('person_info', args=[self.person.pk]))
+        self.assertFalse(resp.json()['summary_stale'])
+        self.assertEqual(resp.json()['summary_it'], 'Bio.')
+
+    def test_person_summary_esegue_e_persiste_il_refresh(self):
+        with patch('game.views.WikidataClient') as mock_client:
+            mock_client.return_value.get_summary.return_value = 'Biografia nuova.'
+            resp = self.client.get(reverse('person_summary', args=[self.person.pk]))
+        data = resp.json()
+        self.assertEqual(data['summary_it'], 'Biografia nuova.')
+        self.assertFalse(data['summary_stale'])
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.summary_it, 'Biografia nuova.')
+        self.assertIsNotNone(self.person.summary_fetched_at)
+
+    def test_person_summary_fallito_resta_stale(self):
+        with patch('game.views.WikidataClient') as mock_client:
+            mock_client.return_value.get_summary.side_effect = RuntimeError('timeout')
+            resp = self.client.get(reverse('person_summary', args=[self.person.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()['summary_stale'])
