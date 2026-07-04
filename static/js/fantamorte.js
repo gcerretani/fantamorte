@@ -21,7 +21,7 @@
   }
   function applyPref(pref, persist) {
     const effective = effectiveTheme(pref);
-    html.setAttribute('data-theme', effective);
+    html.setAttribute('data-bs-theme', effective);
     html.setAttribute('data-theme-pref', pref);
     if (persist) localStorage.setItem('fm-theme', pref);
     const btn = document.getElementById('fmThemeBtn');
