@@ -137,7 +137,7 @@
               <td><input type="checkbox" name="bonus_active_{{ lb.pk }}" {% if lb.is_active %}checked{% endif %}></td>
               <td>
                 <strong>{{ lb.bonus_type.name }}</strong>
-                {% if lb.bonus_type.league_id %}<span class="badge text-bg-warning ms-1">personalizzato</span>{% endif %}
+                {% if lb.bonus_type.league_id %}<span class="badge text-bg-info ms-1">personalizzato</span>{% endif %}
                 {% if lb.bonus_type.detection_method == 'wikidata' %}
                   <small class="text-muted ms-1"><code>{{ lb.bonus_type.wikidata_property }}{% if lb.bonus_type.wikidata_value %}={{ lb.bonus_type.wikidata_value }}{% endif %}</code></small>
                 {% endif %}
@@ -261,7 +261,7 @@
                   {% csrf_token %}
                   <input type="hidden" name="action" value="transfer_ownership">
                   <input type="hidden" name="membership_id" value="{{ m.pk }}">
-                  <button class="btn btn-outline-warning btn-sm">Trasferisci proprietà</button>
+                  <button class="btn btn-outline-danger btn-sm">Trasferisci proprietà</button>
                 </form>
                 <form method="post" class="d-inline" onsubmit="return confirm('Rimuovere {{ m.user.username }} dalla lega?');">
                   {% csrf_token %}

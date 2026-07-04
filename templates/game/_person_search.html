@@ -1,0 +1,23 @@
+{% comment %}
+Componente di ricerca persona (Wikidata/Wikipedia) condiviso tra
+team_edit e substitute_member. Gli elementi sono identificati da
+data-fm-role, non da id: il partial può comparire più volte per pagina.
+Va inizializzato via JS: fmPersonSearch(rootEl, { onSelect: ... }).
+
+Parametri ({% include ... with ... %}):
+  search_label        etichetta sopra il campo (opzionale)
+  search_placeholder  placeholder del campo (opzionale)
+  league              lega per il filtro lingue della ricerca (opzionale)
+{% endcomment %}
+<div data-fm-person-search data-fm-league="{{ league.slug|default:'' }}">
+  {% if search_label %}<label class="form-label">{{ search_label }}</label>{% endif %}
+  <input type="text" data-fm-role="input" class="form-control"
+         placeholder="{{ search_placeholder|default:'Nome della persona…' }}"
+         autocomplete="off">
+  <div data-fm-role="results" class="list-group mt-1"></div>
+  <div data-fm-role="warning" class="d-none alert alert-warning py-2 px-3 small mt-1" role="alert"></div>
+  <div data-fm-role="error" class="d-none alert alert-danger py-2 px-3 small mt-1" role="alert"></div>
+  <div data-fm-role="spinner" class="d-none text-center text-muted small py-1 mt-1">
+    <span class="spinner-border spinner-border-sm me-1"></span>Ricerca in corso…
+  </div>
+</div>
