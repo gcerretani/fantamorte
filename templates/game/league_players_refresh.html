@@ -181,26 +181,67 @@
     document.getElementById('btn-apply').disabled = checked === 0;
   }
 
+  // Il server accetta al massimo BATCH_SIZE persone per richiesta: il
+  // fan-out avviene qui, a blocchi con concorrenza limitata, così nessuna
+  // singola richiesta rischia il timeout e la tabella si riempie man mano.
+  const BATCH_SIZE = 10;
+  const CONCURRENCY = 2;
+
+  // Risultati accumulati per persona: il check singolo fa merge, non wipe.
+  const allResults = new Map();
+
+  function mergeResults(results) {
+    results.forEach(r => allResults.set(r.person_pk, r));
+    renderDiff(Array.from(allResults.values()));
+  }
+
   async function fetchDiff(personPks) {
     const resp = await fetch(DIFF_URL, {
       method: 'POST',
       headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
-      body: JSON.stringify(personPks ? {person_pks: personPks} : {}),
+      body: JSON.stringify({person_pks: personPks}),
     });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     return resp.json();
   }
 
-  // Controlla tutti
+  // Controlla tutti: blocchi di BATCH_SIZE, CONCURRENCY richieste in volo.
   document.getElementById('btn-check-all').addEventListener('click', async function () {
-    setSpinner(this, true);
+    const btn = this;
+    const allPks = Array.from(document.querySelectorAll('.btn-check-one'))
+      .map(b => parseInt(b.dataset.personPk));
+    if (!allPks.length) return;
+    const chunks = [];
+    for (let i = 0; i < allPks.length; i += BATCH_SIZE) {
+      chunks.push(allPks.slice(i, i + BATCH_SIZE));
+    }
+    const label = btn.childNodes[btn.childNodes.length - 1];
+    let done = 0;
+    setSpinner(btn, true);
+    label.textContent = ` Controllati 0/${allPks.length}`;
+    async function worker() {
+      while (chunks.length) {
+        const chunk = chunks.shift();
+        try {
+          const data = await fetchDiff(chunk);
+          mergeResults(data.results || []);
+        } catch (e) {
+          // Errore di blocco: risultati sintetici così finisce nel box errori.
+          mergeResults(chunk.map(pk => {
+            const b = document.querySelector(`.btn-check-one[data-person-pk="${pk}"]`);
+            return {person_pk: pk, name_it: b ? b.dataset.personName : `#${pk}`,
+                    wikidata_id: '', error: e.message, changes: []};
+          }));
+        }
+        done += chunk.length;
+        label.textContent = ` Controllati ${done}/${allPks.length}`;
+      }
+    }
     try {
-      const data = await fetchDiff(null);
-      renderDiff(data.results || []);
-    } catch (e) {
-      fmToast('Errore durante il controllo: ' + e.message, 'danger');
+      await Promise.all(Array.from({length: CONCURRENCY}, worker));
     } finally {
-      setSpinner(this, false);
+      setSpinner(btn, false);
+      label.textContent = ' Controlla tutti';
     }
   });
 
@@ -211,7 +252,7 @@
       setSpinner(this, true);
       try {
         const data = await fetchDiff([pk]);
-        renderDiff(data.results || []);
+        mergeResults(data.results || []);
         document.getElementById('diff-section').scrollIntoView({behavior: 'smooth'});
       } catch (e) {
         fmToast('Errore durante il controllo: ' + e.message, 'danger');
@@ -231,43 +272,59 @@
     updateApplyButton();
   });
 
-  // Applica
+  // Applica: anche qui a blocchi di BATCH_SIZE persone, in sequenza.
   document.getElementById('apply-form').addEventListener('submit', async function (e) {
     e.preventDefault();
-    const checked = document.querySelectorAll('.diff-check:checked');
-    const updates = Array.from(checked).map(cb => ({
+    const checked = Array.from(document.querySelectorAll('.diff-check:checked'));
+    const updates = checked.map(cb => ({
       person_pk: parseInt(cb.dataset.personPk),
       field: cb.dataset.field,
       new_value: cb.dataset.isNull === '1' ? null : cb.dataset.newValue,
     }));
+    // Raggruppa per persona e spezza in blocchi da BATCH_SIZE persone.
+    const byPerson = new Map();
+    updates.forEach(u => {
+      if (!byPerson.has(u.person_pk)) byPerson.set(u.person_pk, []);
+      byPerson.get(u.person_pk).push(u);
+    });
+    const personGroups = Array.from(byPerson.values());
+    const batches = [];
+    for (let i = 0; i < personGroups.length; i += BATCH_SIZE) {
+      batches.push(personGroups.slice(i, i + BATCH_SIZE).flat());
+    }
     const btn = document.getElementById('btn-apply');
     const sp  = document.getElementById('spinner-apply');
+    const resultSpan = document.getElementById('apply-result');
     sp.classList.remove('d-none');
     btn.disabled = true;
+    let applied = 0;
+    const errors = [];
     try {
-      const resp = await fetch(APPLY_URL, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
-        body: JSON.stringify({updates}),
-      });
-      const data = await resp.json();
-      const resultSpan = document.getElementById('apply-result');
-      if (resp.ok) {
-        resultSpan.className = 'ms-2 small text-success';
-        resultSpan.textContent = `${data.applied} modifiche importate.`;
-        if (data.errors && data.errors.length) {
-          resultSpan.textContent += ' Errori: ' + data.errors.join('; ');
-          resultSpan.className = 'ms-2 small text-warning';
+      for (const batch of batches) {
+        const resp = await fetch(APPLY_URL, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+          body: JSON.stringify({updates: batch}),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+          applied += data.applied || 0;
+          if (data.errors) errors.push(...data.errors);
+          resultSpan.className = 'ms-2 small text-muted';
+          resultSpan.textContent = `${applied} modifiche importate…`;
+        } else {
+          errors.push(data.error || 'Errore sconosciuto');
         }
-        // Rimuovi le righe applicate dalla tabella diff
+      }
+      resultSpan.className = errors.length ? 'ms-2 small text-warning' : 'ms-2 small text-success';
+      resultSpan.textContent = `${applied} modifiche importate.` +
+        (errors.length ? ' Errori: ' + errors.join('; ') : '');
+      if (applied > 0) {
         checked.forEach(cb => cb.closest('tr').remove());
-        updateApplyButton();
-      } else {
-        resultSpan.className = 'ms-2 small text-danger';
-        resultSpan.textContent = 'Errore: ' + (data.error || 'sconosciuto');
       }
     } catch (err) {
-      document.getElementById('apply-result').textContent = 'Errore di rete: ' + err.message;
+      resultSpan.className = 'ms-2 small text-danger';
+      resultSpan.textContent = 'Errore di rete: ' + err.message;
     } finally {
       sp.classList.add('d-none');
       updateApplyButton();

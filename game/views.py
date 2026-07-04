@@ -1231,8 +1231,14 @@ class LeaguePlayersRefreshView(LoginRequiredMixin, View):
         })
 
 
+# Numero massimo di persone per singola richiesta diff/apply: il fetch da
+# Wikidata è sequenziale, un batch illimitato sfora il timeout Gunicorn
+# (60s). Il client spezza il "Controlla tutti" in blocchi di questa taglia.
+MAX_DIFF_BATCH = 10
+
+
 class LeagueBulkDiffView(LoginRequiredMixin, View):
-    """POST JSON → restituisce lista di diff per ogni persona della lega."""
+    """POST JSON → restituisce i diff Wikidata per un blocco di persone."""
 
     def post(self, request, slug):
         league = get_object_or_404(League, slug=slug)
@@ -1245,16 +1251,20 @@ class LeagueBulkDiffView(LoginRequiredMixin, View):
             return JsonResponse({'error': 'JSON non valido'}, status=400)
 
         person_pks = body.get('person_pks') or []
-        if person_pks:
-            persons = WikipediaPerson.objects.filter(
-                pk__in=person_pks,
-                team_members__team__league=league,
-                team_members__replaced_by__isnull=True,
-            ).distinct()
-        else:
-            persons = _league_persons(league)
+        if not isinstance(person_pks, list) or not person_pks:
+            return JsonResponse(
+                {'error': f'person_pks obbligatorio (max {MAX_DIFF_BATCH} per richiesta)'},
+                status=400)
+        if len(person_pks) > MAX_DIFF_BATCH:
+            return JsonResponse(
+                {'error': f'Troppe persone in una richiesta (max {MAX_DIFF_BATCH})'},
+                status=400)
+        persons = WikipediaPerson.objects.filter(
+            pk__in=person_pks,
+            team_members__team__league=league,
+            team_members__replaced_by__isnull=True,
+        ).distinct()
 
-        from wikidata_api.client import WikidataClient
         client = WikidataClient()
         results = []
         for person in persons:
@@ -1329,7 +1339,11 @@ class LeagueBulkApplyView(LoginRequiredMixin, View):
                 continue
             fields_by_pk.setdefault(person_pk, set()).add(field)
 
-        from wikidata_api.client import WikidataClient
+        if len(fields_by_pk) > MAX_DIFF_BATCH:
+            return JsonResponse(
+                {'error': f'Troppe persone in una richiesta (max {MAX_DIFF_BATCH}): applica a blocchi'},
+                status=400)
+
         client = WikidataClient()
         applied = 0
 

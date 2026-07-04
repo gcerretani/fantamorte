@@ -452,6 +452,63 @@ class PersonRefreshTest(ViewsBaseTestCase):
         self.assertIn('Errore Wikidata', err)
 
 
+class BulkDiffBatchLimitTest(ViewsBaseTestCase):
+    """LeagueBulkDiffView richiede un blocco esplicito di persone (max 10)."""
+
+    def _post(self, payload):
+        self.client.login(username='owner', password='x')
+        return self.client.post(
+            reverse('league_wikidata_diff', args=['lega-privata']),
+            payload, content_type='application/json',
+        )
+
+    def test_person_pks_mancante_rifiutato(self):
+        resp = self._post('{}')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('person_pks', resp.json()['error'])
+
+    def test_blocco_troppo_grande_rifiutato(self):
+        import json as jsonlib
+        resp = self._post(jsonlib.dumps({'person_pks': list(range(1, 13))}))
+        self.assertEqual(resp.status_code, 400)
+
+    def test_blocco_valido_processato(self):
+        import json as jsonlib
+        entity = {
+            'name_it': 'Silvio Berlusconi', 'name_en': '', 'description_it': '',
+            'birth_date': None, 'birth_year': None,
+            'death_date': None, 'death_year': None,
+            'image_url': '', 'occupation': '', 'nationality': '',
+            'claims_cache': {}, 'wikipedia_url_it': '',
+        }
+        with patch('game.views.WikidataClient') as mock_client:
+            mock_client.return_value.get_entity.return_value = entity
+            resp = self._post(jsonlib.dumps({'person_pks': [self.person.pk]}))
+        self.assertEqual(resp.status_code, 200)
+        results = resp.json()['results']
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['person_pk'], self.person.pk)
+
+    def test_apply_troppe_persone_rifiutato(self):
+        import json as jsonlib
+        updates = [{'person_pk': pk, 'field': 'name_it'} for pk in range(1, 13)]
+        self.client.login(username='owner', password='x')
+        # Serve che i pk appartengano alla lega: creiamo 12 persone in rosa.
+        team = Team.objects.create(name='T2', manager=self.owner, league=self.private_league)
+        pks = []
+        for i in range(12):
+            p = WikipediaPerson.objects.create(wikidata_id=f'Q77{i}', name_it=f'P{i}')
+            TeamMember.objects.create(team=team, person=p)
+            pks.append(p.pk)
+        updates = [{'person_pk': pk, 'field': 'name_it'} for pk in pks]
+        resp = self.client.post(
+            reverse('league_wikidata_apply', args=['lega-privata']),
+            jsonlib.dumps({'updates': updates}), content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('blocchi', resp.json()['error'])
+
+
 class LazySummaryTest(ViewsBaseTestCase):
     """Il modal persona apre subito; la biografia arriva da un endpoint dedicato."""
 
