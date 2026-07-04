@@ -8,8 +8,8 @@ const PRECACHE = [
   '/static/pwa/icon.svg',
   '/static/pwa/icon-192.png',
   '/static/pwa/icon-512.png',
-  'https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css',
-  'https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js',
+  'https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css',
+  'https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js',
 ];
 
 self.addEventListener('install', function (event) {

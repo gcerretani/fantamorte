@@ -12,7 +12,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Fantamorte">
   <title>{% block title %}Fantamorte{% endblock %}</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
   <link href="{% static 'css/fantamorte.css' %}" rel="stylesheet">
   <script>
     // Applica subito il tema per evitare flash. Pref tri-state: auto|light|dark.
@@ -48,10 +49,12 @@
         <span class="navbar-toggler-icon" aria-hidden="true"></span>
       </button>
     </div>
-    <div class="offcanvas offcanvas-end text-bg-dark" tabindex="-1" id="navOffcanvas" aria-labelledby="navOffcanvasLabel">
-      <div class="offcanvas-header">
+    <!-- offcanvas-lg: menu a scomparsa sotto il breakpoint lg, link inline
+         nella barra su desktop. Colori ereditati da data-bs-theme="dark". -->
+    <div class="offcanvas-lg offcanvas-end" tabindex="-1" id="navOffcanvas" aria-labelledby="navOffcanvasLabel">
+      <div class="offcanvas-header d-lg-none">
         <h5 class="offcanvas-title" id="navOffcanvasLabel">Menu</h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#navOffcanvas" aria-label="Chiudi menu"></button>
       </div>
       <div class="offcanvas-body">
         <ul class="navbar-nav me-auto">
@@ -118,7 +121,8 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
 <script src="{% static 'js/fantamorte.js' %}"></script>
 {% block extra_js %}{% endblock %}
 </body>
