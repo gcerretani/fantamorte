@@ -24,7 +24,7 @@
 {% if persons %}
 <div class="table-responsive">
   <table class="table table-sm table-hover align-middle">
-    <thead class="table-light">
+    <thead>
       <tr>
         <th>Nome</th>
         <th>Wikidata</th>
@@ -138,7 +138,7 @@
     // assegnato via JS dopo il rendering, senza mai passare per innerHTML.
     const newValues = [];
     let html = '<table class="table table-bordered table-sm align-middle">';
-    html += '<thead class="table-light"><tr><th>Giocatore</th><th>Campo</th><th>Valore attuale</th><th>Nuovo valore</th><th>Importa</th></tr></thead><tbody>';
+    html += '<thead><tr><th>Giocatore</th><th>Campo</th><th>Valore attuale</th><th>Nuovo valore</th><th>Importa</th></tr></thead><tbody>';
     withChanges.forEach(person => {
       person.changes.forEach((ch, i) => {
         const rowspan = i === 0 ? ` rowspan="${person.changes.length}"` : '';

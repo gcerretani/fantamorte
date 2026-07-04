@@ -52,6 +52,29 @@
 .fm-preline { white-space: pre-line; }
 .fm-input-narrow { max-width: 160px; }
 
+/* Le varianti di riga delle tabelle (.table-danger ecc.) hanno colori
+   fissi in Bootstrap e non seguono data-bs-theme: in dark diventano una
+   tinta trasparente sul fondo scuro, con testo e bordi del tema. */
+[data-bs-theme="dark"] .table-danger,
+[data-bs-theme="dark"] .table-success,
+[data-bs-theme="dark"] .table-warning {
+  --bs-table-color: var(--bs-body-color);
+  --bs-table-border-color: var(--bs-border-color);
+  --bs-table-hover-color: var(--bs-body-color);
+}
+[data-bs-theme="dark"] .table-danger {
+  --bs-table-bg: rgba(var(--bs-danger-rgb), 0.18);
+  --bs-table-hover-bg: rgba(var(--bs-danger-rgb), 0.25);
+}
+[data-bs-theme="dark"] .table-success {
+  --bs-table-bg: rgba(var(--bs-success-rgb), 0.18);
+  --bs-table-hover-bg: rgba(var(--bs-success-rgb), 0.25);
+}
+[data-bs-theme="dark"] .table-warning {
+  --bs-table-bg: rgba(var(--bs-warning-rgb), 0.18);
+  --bs-table-hover-bg: rgba(var(--bs-warning-rgb), 0.25);
+}
+
 /* Feedback rapido sulle liste cliccabili, disattivato per chi preferisce
    ridurre il movimento. */
 @media (prefers-reduced-motion: no-preference) {
