@@ -52,10 +52,29 @@ class HomeView(LoginRequiredMixin, TemplateView):
             t.league_id: t
             for t in Team.objects.filter(manager=user, league__isnull=False)
         }
-        my_leagues = [
-            {'league': m.league, 'role': m.role, 'team': teams_by_league.get(m.league_id)}
-            for m in my_memberships
-        ]
+        my_leagues = []
+        for m in my_memberships:
+            team = teams_by_league.get(m.league_id)
+            entry = {'league': m.league, 'role': m.role, 'team': team,
+                     'score': None, 'next_deadline': None}
+            if team:
+                # La classifica è già cachata (scoring): costo ammortizzato.
+                for row in scoring.compute_league_rankings(m.league):
+                    if row['team'].pk == team.pk:
+                        entry['score'] = row['score']
+                        break
+                # Prossima scadenza di sostituzione tra i membri morti attivi.
+                deadlines = [
+                    member.get_substitution_deadline()
+                    for member in team.members.filter(
+                        replaced_by=None, person__is_dead=True,
+                    ).select_related('person')
+                    if member.can_be_substituted()
+                ]
+                deadlines = [d for d in deadlines if d]
+                if deadlines:
+                    entry['next_deadline'] = min(deadlines)
+            my_leagues.append(entry)
         ctx['my_leagues'] = my_leagues
         # Suggerimenti: leghe pubbliche di cui non sono membro
         member_ids = [m.league_id for m in my_memberships]

@@ -19,8 +19,14 @@ con regole, calendario e bonus configurabili.
 
 - **Django 4.2+** (testato fino a 5.2) su Python 3.11
 - **MariaDB 11** in produzione, SQLite in sviluppo (via `DATABASE_URL`)
-- **Bootstrap 5.3** + vanilla JS per il frontend (server-rendered, no SPA)
-- **django-allauth** per auth + OAuth (Google, GitHub)
+- **Redis 7** come cache condivisa in produzione (`REDIS_URL`, impostata dal
+  compose su web **e** scheduler: le invalidazioni delle classifiche devono
+  raggiungere i worker web). Senza `REDIS_URL` → LocMemCache per-processo
+  (sviluppo/test).
+- **Bootstrap 5.3** (CDN con SRI) + vanilla JS per il frontend
+  (server-rendered, no SPA)
+- **django-allauth** per auth + OAuth (Google, GitHub); form con classi
+  Bootstrap applicate server-side via `ACCOUNT_FORMS` → `game/forms.py`
 - **pywebpush** per Web Push (VAPID)
 - **Email transazionali** implementate in `game/email.py` (template testo+HTML
   in `templates/email/`): notifica decesso e reminder sostituzione
@@ -37,6 +43,7 @@ fantamorte/
 │   ├── views.py             # CBV organizzate per area (dashboard, league, team, ...)
 │   ├── urls.py              # URL della app
 │   ├── admin.py             # Django admin
+│   ├── forms.py             # Form allauth con classi Bootstrap (ACCOUNT_FORMS)
 │   ├── scoring.py           # Calcolo punteggi (sorgente di verità: la League)
 │   ├── push.py              # Web Push (VAPID + broadcast)
 │   ├── email.py             # Email transazionali (decesso, reminder sostituzione)
@@ -46,7 +53,7 @@ fantamorte/
 │   ├── tests.py             # Test di scoring + email + reminder + tema
 │   ├── tests_commands.py    # Test management command (check_deaths)
 │   ├── tests_middleware.py  # Test LoginRequiredEverywhereMiddleware
-│   ├── tests_views.py       # Test permessi/integrazione view (in arrivo)
+│   ├── tests_views.py       # Test permessi/integrazione view
 │   ├── management/commands/ # check_deaths, mark_originals, send_substitution_reminders, generate_vapid_keys
 │   └── migrations/
 ├── wikidata_api/            # Client SPARQL/Wikipedia (puro utility, niente modelli)
@@ -93,7 +100,9 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
 - **`LeagueMembership.role`** ∈ `owner|admin|member`.
 - **`Team`** ha FK a `League` (vincolo unique `(manager, league)` →
   un utente ha **una squadra per lega**). Ha anche `jolly_month` (mese del
-  jolly, intero 1-12) e `is_locked` (squadra bloccata: nessuna modifica).
+  jolly, intero 1-12) e `is_locked` (squadra bloccata: il manager non può
+  più modificare la rosa — enforced in `_can_edit_team`; le sostituzioni
+  in stagione restano governate da `can_be_substituted()`).
 - **`TeamMember.is_original`** flag che abilita il bonus "giocata originale".
   Calcolato a inizio stagione dal command `mark_originals`. Il campo
   `replaced_by` crea una catena per tracciare le sostituzioni (solo
@@ -212,6 +221,24 @@ Config in `settings.py`: `WIKIDATA_USER_AGENT` (default `'Fantamorte/1.0'`),
 `WIKIDATA_REQUEST_DELAY` (0.5 s di rate limit tra richieste; azzerato per ricerche
 interattive).
 
+Note di efficienza (importanti se tocchi il client):
+- La `requests.Session` è **condivisa a livello di modulo** (riuso
+  connessioni/TLS) con retry automatico su errori di connessione e
+  502/503/504. Nei test usa `_reset_session_for_tests()`.
+- Il rate limit (`_throttle`) si applica solo **tra richieste consecutive**,
+  mai prima della prima: le viste interattive non pagano lo sleep.
+- Timeout per-istanza (`client.timeout`, `client.sparql_timeout`, default
+  15/30 s): `PersonSearchView` li abbassa a 5/8 s per fallire in fretta.
+- `get_entity` risolve occupazione+cittadinanza con **una** `wbgetentities`.
+- I check gerarchici dei bonus (ASK con property path) sono **cachati 7
+  giorni** nella cache Django (`wd_bonus:*`).
+- Il summary Wikipedia è **lazy**: `/api/persona/<pk>/` risponde solo con i
+  dati in DB + flag `summary_stale`; il refresh sincrono sta in
+  `/api/persona/<pk>/summary/`, chiamato dal client dopo il render del modal.
+- Gli endpoint bulk diff/apply accettano **max 10 persone per richiesta**
+  (`MAX_DIFF_BATCH`): il fan-out lo fa il browser a blocchi con concorrenza
+  2 (vedi `league_players_refresh.html`), mai una singola richiesta lunga.
+
 ## URL principali (mappa)
 
 ```
@@ -229,13 +256,15 @@ interattive).
 /squadra/<pk>/modifica/         edit squadra (rosa, capitano, jolly)
 /squadra/<pk>/aggiungi/         POST AJAX: aggiunge persona (Wikidata)
 /squadra/<pk>/sostituisci/<member_pk>/    flusso sostituzione
+/squadra/<pk>/what-if/          simulatore punti (capitano/jolly)
 
 /persona/<pk>/                  pagina dettaglio (con bio Wikipedia)
 /morte/<pk>/                    dettaglio decesso con bonus e squadre coinvolte
-/api/persona/<pk>/              JSON per il modal "click sul nome"
+/api/persona/<pk>/              JSON per il modal (solo dati in DB + summary_stale)
+/api/persona/<pk>/summary/      refresh sincrono del summary Wikipedia (lazy dal modal)
 /api/search-person/             autocomplete Wikidata (accetta ?q=&league=<slug> per filtrare per lingua)
-/api/leghe/<slug>/wikidata-diff/    JSON POST: diff campi Wikidata vs DB (admin)
-/api/leghe/<slug>/wikidata-apply/   JSON POST: applica campi selezionati (admin)
+/api/leghe/<slug>/wikidata-diff/    JSON POST: diff campi Wikidata vs DB (admin, max 10 persone)
+/api/leghe/<slug>/wikidata-apply/   JSON POST: applica campi selezionati (admin, max 10 persone)
 
 /profilo/                       preferenze utente (push/email/dark mode)
 /statistiche/                   statistiche cross-lega (storico + leaderboard all-time)
@@ -251,21 +280,52 @@ interattive).
 
 ## Frontend conventions
 
-- **Bootstrap 5.3** è caricato da CDN da `base.html`. Niente bundler.
-- Stili custom in `static/css/fantamorte.css` (dark mode con
-  `data-theme="dark"` su `<html>`).
+- **Bootstrap 5.3** è caricato da CDN da `base.html` con hash SRI
+  (aggiorna gli hash quando cambi versione; ricalcolo dal pacchetto npm:
+  `openssl dgst -sha384 -binary | openssl base64 -A`). Niente bundler.
+  Gli URL versionati vanno tenuti allineati anche nel precache di
+  `templates/game/sw.js`.
+- **Dark mode nativo Bootstrap**: lo script anti-FOUC in `base.html` (e il
+  toggle in `fantamorte.js`) scrivono `data-bs-theme="light|dark"` su
+  `<html>`; la preferenza tri-state (`auto|light|dark`) sta in
+  `data-theme-pref` + localStorage. In `fantamorte.css` restano solo poche
+  regole custom basate sulle variabili `--bs-*`: **non** aggiungere override
+  a mano per componenti Bootstrap in dark mode.
+- **Convenzione bottoni**: `btn-primary` per l'azione affermativa/primaria
+  (Salva, Aggiungi, Iscriviti, Conferma, Crea…), `btn-outline-secondary`
+  per azioni secondarie e navigazione, `btn-danger`/`btn-outline-danger`
+  solo per azioni distruttive. Mai `btn-dark`/`btn-outline-dark`/
+  `btn-warning`/`btn-success` (non si adattano al dark mode nativo).
+- **Convenzione badge**: sempre `text-bg-*` (mai `bg-*` nudo):
+  `danger`=morte, `success`=vivo/attivo/confermato, `primary`=capitano,
+  `info`=meccaniche di gioco (jolly, originale, personalizzato),
+  `warning`=stati di attenzione (non confermato), `secondary`=meta
+  (ruoli, punteggi, stati neutri).
 - JS custom in `static/js/fantamorte.js`: tema, install prompt, push,
-  modal persona, countdown sostituzioni, toast. Tutto attaccato a
-  `window.fm*` (`fmShowPerson`, `fmEnablePush`, `fmToast`, ...).
-- La ricerca persona (`/api/search-person/`) usa debounce 600 ms e
-  `AbortController` per annullare richieste obsolete; i risultati sono
-  cachati 5 min lato Django. Errori mostrati inline, niente `alert()`.
+  modal persona, countdown sostituzioni, toast (via `bootstrap.Toast`),
+  ricerca persona. Tutto attaccato a `window.fm*` (`fmShowPerson`,
+  `fmEnablePush`, `fmToast`, `fmPersonSearch`, `fmInitCountdowns`, ...).
+- La **ricerca persona** è un componente condiviso: partial
+  `templates/game/_person_search.html` (elementi marcati `data-fm-role`)
+  + `fmPersonSearch(rootEl, {onSelect})` (debounce 600 ms,
+  `AbortController`, errori inline; metodo `reset()`). Risultati cachati
+  5 min lato Django. Usato da team_edit e substitute_member: non duplicare
+  la logica nei template.
+- In team_edit l'aggiunta persona **non ricarica la pagina**: rifetch
+  dell'HTML e replace di `#fmRosterHeader` + `#fmRosterRegion`, poi
+  `fmInitCountdowns(region)` e `fmToast`. Mantieni gli id se ristrutturi
+  il template.
 - Per aprire il **modal dettagli persona** ovunque, basta un
   `<a href="#" data-fm-person-pk="{{ person.pk }}">…</a>` — il listener
-  globale fa il resto. Da preferire al link a `/persona/<pk>/` quando si
-  resta nel flusso di una pagina.
+  globale fa il resto. Il modal apre con uno skeleton
+  (`<template id="fmPersonSkeleton">` in base.html) e carica la biografia
+  scaduta in lazy da `/api/persona/<pk>/summary/`.
 - Per il **countdown** della deadline sostituzione, usa
-  `<span class="fm-countdown" data-fm-countdown="{{ deadline|date:'U' }}">…</span>`.
+  `<span class="fm-countdown" data-fm-countdown="{{ deadline|date:'U' }}">…</span>`
+  (initializzato da `fmInitCountdowns`, richiamabile su un sottoalbero dopo
+  un replace del DOM).
+- Animazioni: nessuna oltre a quelle di Bootstrap; eventuali transizioni
+  custom vanno dentro `@media (prefers-reduced-motion: no-preference)`.
 
 ## Convenzioni di codice
 
@@ -278,10 +338,14 @@ interattive).
   endpoint pubblici senza inserirli in `PUBLIC_PATHS` o `PUBLIC_PREFIXES`
   in `game/middleware.py`.
 - Le push sono best-effort: il signal cattura ogni eccezione e logga.
-- Per il dark mode: il valore `data-theme` viene applicato inline da
+- Per il dark mode: il valore `data-bs-theme` viene applicato inline da
   `base.html` prima del rendering per evitare il flash.
 - Le view AJAX restituiscono JSON con `status: "ok"|"error"` e codici HTTP
   appropriati (400/403/404).
+- Le chiamate a Wikidata/Wikipedia dentro il ciclo di richiesta vanno
+  minimizzate: usa `_get_or_refresh_person` (freshness via
+  `wikidata_check_interval_hours`), il summary lazy e i batch ≤ 10 per il
+  diff bulk. Mai loop illimitati di fetch in una singola richiesta.
 
 ## Test
 

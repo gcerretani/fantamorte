@@ -24,9 +24,16 @@
                 {% if entry.role == 'owner' %}<span class="badge text-bg-secondary">owner</span>
                 {% elif entry.role == 'admin' %}<span class="badge text-bg-secondary">admin</span>{% endif %}
               </div>
-              <div>
+              <div class="text-end">
                 {% if entry.team %}
                   <span class="badge text-bg-success">{{ entry.team.name }}</span>
+                  {% if entry.score is not None %}
+                    <span class="badge text-bg-secondary">{{ entry.score }} pt</span>
+                  {% endif %}
+                  {% if entry.next_deadline %}
+                    <br><small class="text-danger">sostituzione entro
+                      <span class="fm-countdown" data-fm-countdown="{{ entry.next_deadline|date:'U' }}">…</span></small>
+                  {% endif %}
                 {% else %}
                   <span class="badge text-bg-secondary">Nessuna squadra</span>
                 {% endif %}
