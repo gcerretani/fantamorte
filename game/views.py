@@ -11,6 +11,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.cache import cache
+from django.db.models import Q
 from django.http import Http404, HttpResponse, JsonResponse, HttpResponseForbidden
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
@@ -25,7 +26,7 @@ from wikidata_api.client import WikidataClient
 
 from . import scoring
 from .models import (
-    BonusType, Death, League, LeagueBonus, LeagueMembership,
+    MONTHS_IT, BonusType, Death, League, LeagueBonus, LeagueMembership,
     PushSubscription, SiteSettings, Team, TeamMember, UserProfile,
     WikipediaPerson,
 )
@@ -264,7 +265,6 @@ class LeagueAdminView(LoginRequiredMixin, View):
         league = get_object_or_404(League, slug=slug)
         if not league.is_admin(request.user):
             return HttpResponseForbidden('Permesso negato.')
-        from django.db.models import Q
         return render(request, self.template_name, {
             'league': league,
             'memberships': league.memberships.select_related('user').order_by('role', 'user__username'),
@@ -339,7 +339,6 @@ class LeagueAdminView(LoginRequiredMixin, View):
                     lb.override_points = None
                 lb.save()
             # Eventuali nuovi bonus type (di sistema o personalizzati di questa lega)
-            from django.db.models import Q
             for bt_id in request.POST.getlist('add_bonus'):
                 try:
                     bt = BonusType.objects.filter(
@@ -565,17 +564,15 @@ WIKIPEDIA_LANGS = [
 ]
 _VALID_WIKIS = {code for code, _ in WIKIPEDIA_LANGS}
 
-MONTHS_LIST = [
-    (1, 'Gennaio'), (2, 'Febbraio'), (3, 'Marzo'), (4, 'Aprile'),
-    (5, 'Maggio'), (6, 'Giugno'), (7, 'Luglio'), (8, 'Agosto'),
-    (9, 'Settembre'), (10, 'Ottobre'), (11, 'Novembre'), (12, 'Dicembre'),
-]
-
-
 def _can_edit_team(team, user):
+    """Editing della rosa: aperto al manager finché le registrazioni sono
+    aperte e né la lega né la squadra sono bloccate. Le sostituzioni in
+    stagione NON passano da qui: sono governate da can_be_substituted()."""
     if user.is_staff:
         return True
     if team.manager_id != user.pk:
+        return False
+    if team.is_locked:
         return False
     if team.league_id:
         return team.league.is_registration_open() and not team.league.is_locked
@@ -634,7 +631,7 @@ class TeamCreateView(LoginRequiredMixin, View):
         existing = Team.objects.filter(manager=request.user, league=league).first()
         if existing:
             return redirect('team_edit', pk=existing.pk)
-        return render(request, self.template_name, {'league': league, 'creating': True, 'can_edit': True, 'months': MONTHS_LIST})
+        return render(request, self.template_name, {'league': league, 'creating': True, 'can_edit': True, 'months': MONTHS_IT})
 
     def post(self, request, slug):
         league = get_object_or_404(League, slug=slug)
@@ -647,7 +644,7 @@ class TeamCreateView(LoginRequiredMixin, View):
         name = request.POST.get('name', '').strip()
         if not name:
             messages.error(request, 'Il nome della squadra è obbligatorio.')
-            return render(request, self.template_name, {'league': league, 'creating': True, 'can_edit': True, 'months': MONTHS_LIST})
+            return render(request, self.template_name, {'league': league, 'creating': True, 'can_edit': True, 'months': MONTHS_IT})
         team, created = Team.objects.get_or_create(
             manager=request.user, league=league,
             defaults={'name': name}
@@ -677,7 +674,7 @@ class TeamEditView(LoginRequiredMixin, View):
             'active_count': active_count,
             'total_age': team.get_active_total_age(),
             'dead_members': dead_members,
-            'months': MONTHS_LIST,
+            'months': MONTHS_IT,
             'can_edit': _can_edit_team(team, request.user),
             'max_non_captains': league.max_non_captains if league else 11,
             'max_captains': league.max_captains if league else 1,
@@ -1427,11 +1424,7 @@ class TeamWhatIfView(LoginRequiredMixin, View):
             'team': team,
             'rows': rows,
             'month': month,
-            'months': [
-                (1, 'gennaio'), (2, 'febbraio'), (3, 'marzo'), (4, 'aprile'),
-                (5, 'maggio'), (6, 'giugno'), (7, 'luglio'), (8, 'agosto'),
-                (9, 'settembre'), (10, 'ottobre'), (11, 'novembre'), (12, 'dicembre'),
-            ],
+            'months': MONTHS_IT,
         })
 
 

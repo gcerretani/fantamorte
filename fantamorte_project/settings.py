@@ -180,7 +180,6 @@ EMAIL_USE_TLS = env.bool('EMAIL_USE_TLS', default=True)
 VAPID_PUBLIC_KEY = env('VAPID_PUBLIC_KEY', default='')
 VAPID_PRIVATE_KEY = env('VAPID_PRIVATE_KEY', default='')
 VAPID_CLAIM_EMAIL = env('VAPID_CLAIM_EMAIL', default='admin@fantamorte.local')
-PUSH_NOTIFICATIONS_ASYNC = env.bool('PUSH_NOTIFICATIONS_ASYNC', default=False)
 
 # --- PWA ---
 PWA_APP_NAME = 'Fantamorte'

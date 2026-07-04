@@ -452,6 +452,47 @@ class PersonRefreshTest(ViewsBaseTestCase):
         self.assertIn('Errore Wikidata', err)
 
 
+class TeamIsLockedTest(ViewsBaseTestCase):
+    """Team.is_locked blocca l'editing della rosa per il manager, non per lo staff."""
+
+    def setUp(self):
+        super().setUp()
+        from django.utils import timezone
+        self.private_team.is_locked = True
+        self.private_team.save()
+        self.candidate = WikipediaPerson.objects.create(
+            wikidata_id='Q90600', name_it='Candidato', is_dead=False,
+            last_checked=timezone.now(),
+        )
+
+    def test_manager_non_aggiunge_a_squadra_bloccata(self):
+        self.client.login(username='member', password='x')
+        resp = self.client.post(
+            reverse('add_person', args=[self.private_team.pk]),
+            {'wikidata_id': self.candidate.wikidata_id},
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(self.private_team.get_active_members().count(), 1)
+
+    def test_manager_non_salva_modifiche_a_squadra_bloccata(self):
+        self.client.login(username='member', password='x')
+        resp = self.client.post(
+            reverse('team_edit', args=[self.private_team.pk]),
+            {'name': 'Nuovo Nome'},
+        )
+        self.private_team.refresh_from_db()
+        self.assertEqual(self.private_team.name, 'Squadra Privata')
+
+    def test_staff_puo_ancora_modificare(self):
+        staff = User.objects.create_user('staff', password='x', is_staff=True)
+        self.client.login(username='staff', password='x')
+        resp = self.client.post(
+            reverse('add_person', args=[self.private_team.pk]),
+            {'wikidata_id': self.candidate.wikidata_id},
+        )
+        self.assertEqual(resp.status_code, 200)
+
+
 class BulkDiffBatchLimitTest(ViewsBaseTestCase):
     """LeagueBulkDiffView richiede un blocco esplicito di persone (max 10)."""
 
