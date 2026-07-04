@@ -142,6 +142,14 @@ ACCOUNT_SIGNUP_FIELDS = ['email*', 'username*', 'password1*', 'password2*']
 ACCOUNT_EMAIL_VERIFICATION = env('ACCOUNT_EMAIL_VERIFICATION', default='mandatory')
 ACCOUNT_UNIQUE_EMAIL = True
 ACCOUNT_DEFAULT_HTTP_PROTOCOL = env('ACCOUNT_DEFAULT_HTTP_PROTOCOL', default='https')
+# Widget con classi Bootstrap applicate server-side (game/forms.py).
+ACCOUNT_FORMS = {
+    'login': 'game.forms.LoginForm',
+    'signup': 'game.forms.SignupForm',
+    'reset_password': 'game.forms.ResetPasswordForm',
+    'reset_password_from_key': 'game.forms.ResetPasswordKeyForm',
+    'change_password': 'game.forms.ChangePasswordForm',
+}
 SOCIALACCOUNT_LOGIN_ON_GET = True
 SOCIALACCOUNT_AUTO_SIGNUP = True
 SOCIALACCOUNT_PROVIDERS = {

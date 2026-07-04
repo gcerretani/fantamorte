@@ -452,6 +452,23 @@ class PersonRefreshTest(ViewsBaseTestCase):
         self.assertIn('Errore Wikidata', err)
 
 
+class AllauthBootstrapFormsTest(TestCase):
+    """I form allauth devono arrivare già stilati dal server (ACCOUNT_FORMS)."""
+
+    def test_login_ha_classi_bootstrap(self):
+        resp = self.client.get(reverse('account_login'))
+        self.assertContains(resp, 'form-control')
+
+    def test_signup_ha_classi_bootstrap(self):
+        resp = self.client.get(reverse('account_signup'))
+        self.assertContains(resp, 'form-control')
+
+    def test_errori_di_campo_marcati_is_invalid(self):
+        # Campi obbligatori vuoti → errori per-campo → classe is-invalid.
+        resp = self.client.post(reverse('account_login'), {'login': '', 'password': ''})
+        self.assertContains(resp, 'is-invalid', status_code=200)
+
+
 class TeamIsLockedTest(ViewsBaseTestCase):
     """Team.is_locked blocca l'editing della rosa per il manager, non per lo staff."""
 
