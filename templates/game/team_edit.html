@@ -1,10 +1,19 @@
 {% extends 'base.html' %}
-{% block title %}{% if creating %}Nuova squadra{% else %}Modifica {{ team.name }}{% endif %} — Fantamorte{% endblock %}
+{% block title %}Modifica {{ team.name }} — Fantamorte{% endblock %}
 
 {% block content %}
 <div class="row">
   <div class="col-md-8">
-    <h2>{% if creating %}Crea la tua squadra{% else %}Modifica: {{ team.name }}{% endif %}</h2>
+    <div class="d-flex justify-content-between align-items-start">
+      <h2>Modifica: {{ team.name }}</h2>
+      {% if can_edit %}
+      <form method="post" action="{% url 'team_delete' team.pk %}"
+            onsubmit="return confirm('Eliminare la squadra «{{ team.name }}»? La rosa e i punteggi associati andranno persi. L\'azione è irreversibile.');">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-outline-danger btn-sm">Elimina squadra</button>
+      </form>
+      {% endif %}
+    </div>
 
     {% if not can_edit %}
     <div class="alert alert-info">
@@ -33,16 +42,10 @@
             {% endfor %}
           </select>
         </div>
-        {% if creating %}
-        <div class="col-md-3">
-          <button type="submit" class="btn btn-primary w-100">Salva</button>
-        </div>
-        {% endif %}
       </div>
     </form>
     {% endif %}
 
-    {% if not creating %}
     <div class="d-flex justify-content-between align-items-center mb-2">
       <h5 class="mb-0" id="fmRosterHeader">
         Rosa ({{ active_count }} / {{ max_captains|add:max_non_captains|default:12 }})
@@ -150,7 +153,6 @@
     </div>
     {% endif %}
     </div>{# /fmRosterRegion #}
-    {% endif %}
   </div>
 </div>
 {% endblock %}
