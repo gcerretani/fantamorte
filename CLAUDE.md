@@ -119,7 +119,14 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
   (nullable) distingue i bonus **di sistema** (NULL, proposti a tutte le
   leghe) dai bonus **personalizzati di lega**, creabili dal pannello admin
   della lega indicando una coppia proprietà/valore Wikidata (es. `P166=Q41254`
-  per il Grammy). La detection `wikidata` prova prima il match esatto sui
+  per il Grammy) oppure, lasciando vuota la proprietà, come bonus **manuali**
+  che gli admin di lega assegnano ai decessi dalla pagina
+  `/leghe/<slug>/decessi/` (POST `assign_bonus`/`remove_bonus`; assegnabili a
+  mano anche i bonus `wikidata`/`age` se la detection ha mancato il dato, mai
+  gli speciali `original`/`first_death`/`last_death`). Nei template il criterio
+  di assegnazione è renderizzato dal partial `_bonus_detection.html`, che legge
+  i campi reali della detection (non la `description`, che è solo testo). La
+  detection `wikidata` prova prima il match esatto sui
   claim in cache, poi un match gerarchico via SPARQL che segue
   `P31/P279/P361` (così `P166=Q38104` "Nobel per la fisica" soddisfa il
   bonus generico `Q7191` "Premio Nobel"). I P/Q id sono validati con regex
@@ -255,8 +262,9 @@ Note di efficienza (importanti se tocchi il client):
 /leghe/nuova/                   crea lega
 /leghe/<slug>/                  detail (top 3 + recent deaths + regole + iscrizione)
 /leghe/<slug>/admin/            pannello admin (regole, bonus, membri, invito)
+/leghe/<slug>/regolamento/      riepilogo regole+bonus della lega (visibile a tutti i membri)
 /leghe/<slug>/classifica/       classifica completa
-/leghe/<slug>/decessi/          timeline decessi
+/leghe/<slug>/decessi/          timeline decessi (con assegnazione manuale bonus per gli admin)
 /leghe/<slug>/giocatori/        refresh Wikidata giocatori della lega (admin)
 /leghe/<slug>/squadra/nuova/    crea la mia squadra in questa lega
 
@@ -276,7 +284,7 @@ Note di efficienza (importanti se tocchi il client):
 
 /profilo/                       preferenze utente (push/email/dark mode)
 /statistiche/                   statistiche cross-lega (storico + leaderboard all-time)
-/regolamento/                   regolamento generico
+/regolamento/                   manuale generico del portale (nessun punteggio: quelli sono per-lega)
 /healthz/                       healthcheck (pubblico, verifica anche il DB)
 
 /api/push/{subscribe,unsubscribe,test}/

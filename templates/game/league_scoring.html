@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+{% block title %}Regolamento {{ league.name }} — Fantamorte{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h2 class="mb-0">Regolamento — {{ league.name }}</h2>
+  <div class="d-flex gap-2 flex-wrap">
+    {% if is_admin %}
+      <a href="{% url 'league_admin' league.slug %}" class="btn btn-outline-secondary btn-sm">Gestisci</a>
+    {% endif %}
+    <a href="{% url 'league_detail' league.slug %}" class="btn btn-outline-secondary btn-sm">&larr; Torna alla lega</a>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-lg-4">
+    <h5>Regole generali</h5>
+    <ul class="list-unstyled small">
+      <li>Periodo di gioco: <strong>{{ league.start_date|date:"d/m/Y" }} → {{ league.end_date|date:"d/m/Y" }}</strong></li>
+      <li>Iscrizioni: {{ league.registration_opens|date:"d/m/Y" }} → {{ league.registration_closes|date:"d/m/Y" }}</li>
+      <li>Composizione: <strong>{{ league.max_captains }} capitano + {{ league.max_non_captains }} morituri</strong></li>
+      {% if league.max_total_age %}
+        <li>Somma massima età rosa: <strong>{{ league.max_total_age }} anni</strong></li>
+      {% endif %}
+      <li>Punti base per decesso: <strong>{{ league.base_points }}</strong></li>
+      <li>Moltiplicatore capitano: <strong>×{{ league.captain_multiplier }}</strong></li>
+      {% if league.jolly_enabled %}
+        <li>Moltiplicatore mese jolly: <strong>×{{ league.jolly_multiplier }}</strong> (cumulabile col capitano)</li>
+      {% else %}
+        <li>Mese jolly: disattivato</li>
+      {% endif %}
+      <li>Sostituzione: <strong>{{ league.substitution_deadline_days }} giorni</strong> dalla conferma del decesso</li>
+    </ul>
+    <p class="small text-muted">
+      Ogni decesso confermato nel periodo di gioco vale i punti base più i bonus
+      attivi qui sotto; il totale viene moltiplicato per capitano e/o jolly.
+      Come funziona il portale in generale: <a href="{% url 'rules' %}">manuale</a>.
+    </p>
+  </div>
+
+  <div class="col-lg-8">
+    <h5>Bonus attivi in questa lega</h5>
+    {% if bonus_rows %}
+      <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead><tr><th>Bonus</th><th class="text-end">Punti</th><th>Assegnazione</th></tr></thead>
+        <tbody>
+          {% for row in bonus_rows %}
+            <tr>
+              <td>
+                <strong>{{ row.bonus_type.name }}</strong>
+                {% if row.bonus_type.league_id %}<span class="badge text-bg-info ms-1">personalizzato</span>{% endif %}
+                {% if row.bonus_type.description %}<br><small class="text-muted">{{ row.bonus_type.description }}</small>{% endif %}
+              </td>
+              <td class="text-end">
+                {% if row.formula %}<code>{{ row.formula }}</code>{% else %}+{{ row.points }}{% endif %}
+              </td>
+              <td>{% include 'game/_bonus_detection.html' with bt=row.bonus_type %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      <p class="small text-muted">
+        Nelle formule, <code>age</code> è l'età della persona al decesso.
+        I bonus <span class="badge text-bg-info">automatico</span> vengono rilevati dai dati
+        di Wikidata o dall'età; quelli <span class="badge text-bg-info">speciale</span> sono
+        calcolati dal sistema per questa lega; quelli
+        <span class="badge text-bg-secondary">manuale</span> sono assegnati dagli admin della lega.
+      </p>
+    {% else %}
+      <p class="text-muted">Nessun bonus attivo: ogni decesso vale i soli punti base.</p>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

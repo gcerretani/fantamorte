@@ -1,0 +1,26 @@
+{% comment %}
+Mostra COME viene assegnato un BonusType, leggendo i campi effettivamente
+usati dalla detection (detection_method, wikidata_property/value, age_formula):
+è l'algoritmo reale, non testo libero. Uso: {% include 'game/_bonus_detection.html' with bt=... %}
+{% endcomment %}
+{% if bt.detection_method == 'wikidata' %}
+  <span class="badge text-bg-info">automatico</span>
+  <small class="text-muted">Wikidata
+    <code>{{ bt.wikidata_property }}{% if bt.wikidata_value %}={{ bt.wikidata_value }}{% endif %}</code>{% if not bt.wikidata_value %} (qualsiasi valore){% endif %},
+    anche via gerarchia (istanza/sottoclasse/parte)</small>
+{% elif bt.detection_method == 'age' %}
+  <span class="badge text-bg-info">automatico</span>
+  <small class="text-muted">in base all'età{% if bt.age_formula %}: <code>{{ bt.age_formula }}</code>{% endif %}</small>
+{% elif bt.detection_method == 'original' %}
+  <span class="badge text-bg-info">speciale</span>
+  <small class="text-muted">calcolato automaticamente per ogni squadra (giocata originale)</small>
+{% elif bt.detection_method == 'first_death' %}
+  <span class="badge text-bg-info">speciale</span>
+  <small class="text-muted">calcolato automaticamente: primo decesso del periodo della lega</small>
+{% elif bt.detection_method == 'last_death' %}
+  <span class="badge text-bg-info">speciale</span>
+  <small class="text-muted">calcolato automaticamente: ultimo decesso del periodo della lega (a lega conclusa)</small>
+{% else %}
+  <span class="badge text-bg-secondary">manuale</span>
+  <small class="text-muted">assegnato dagli admin della lega dalla pagina decessi</small>
+{% endif %}

@@ -358,6 +358,28 @@ class CustomBonusTest(ViewsBaseTestCase):
         self.assertFalse(LeagueBonus.objects.filter(
             league=self.public_league, bonus_type=custom).exists())
 
+    def test_admin_crea_bonus_manuale_senza_proprieta(self):
+        from .models import BonusType, LeagueBonus
+        self.client.login(username='owner', password='x')
+        self.client.post(
+            reverse('league_admin', args=['lega-privata']),
+            self._create_payload(bonus_name='Cattiveria', bonus_wikidata_property='',
+                                 bonus_wikidata_value=''),
+        )
+        bt = BonusType.objects.get(name='Cattiveria')
+        self.assertEqual(bt.detection_method, 'manual')
+        self.assertEqual(bt.wikidata_property, '')
+        self.assertTrue(LeagueBonus.objects.filter(league=self.private_league, bonus_type=bt).exists())
+
+    def test_valore_senza_proprieta_rifiutato(self):
+        from .models import BonusType
+        self.client.login(username='owner', password='x')
+        self.client.post(
+            reverse('league_admin', args=['lega-privata']),
+            self._create_payload(bonus_wikidata_property='', bonus_wikidata_value='Q41254'),
+        )
+        self.assertFalse(BonusType.objects.filter(name='Grammy Award').exists())
+
     def test_delete_custom_bonus_rimuove_anche_i_death_bonus(self):
         from .models import BonusType, Death, DeathBonus
         custom = BonusType.objects.create(
@@ -665,3 +687,162 @@ class LazySummaryTest(ViewsBaseTestCase):
             resp = self.client.get(reverse('person_summary', args=[self.person.pk]))
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.json()['summary_stale'])
+
+
+class LeagueScoringPageTest(ViewsBaseTestCase):
+    """Riepilogo regolamento/punteggi per lega, visibile a tutti i membri."""
+
+    def setUp(self):
+        super().setUp()
+        from .models import BonusType, LeagueBonus
+        self.bt = BonusType.objects.create(
+            name='Bonus Wikidata Test', points=20, detection_method='wikidata',
+            wikidata_property='P166', wikidata_value='Q7191',
+        )
+        LeagueBonus.objects.create(
+            league=self.private_league, bonus_type=self.bt, override_points=35,
+        )
+
+    def test_membro_non_admin_vede_il_regolamento_con_i_punti(self):
+        self.client.login(username='member', password='x')
+        resp = self.client.get(reverse('league_scoring', args=['lega-privata']))
+        self.assertEqual(resp.status_code, 200)
+        self.assertTemplateUsed(resp, 'game/league_scoring.html')
+        self.assertContains(resp, 'Bonus Wikidata Test')
+        self.assertContains(resp, '+35')                # override della lega, non il default
+        self.assertContains(resp, 'P166=Q7191')         # la logica reale della detection
+
+    def test_estraneo_di_lega_privata_rediretto(self):
+        self.client.login(username='outsider', password='x')
+        resp = self.client.get(reverse('league_scoring', args=['lega-privata']))
+        self.assertRedirects(resp, reverse('league_list'))
+
+    def test_bonus_disattivato_non_compare(self):
+        from .models import LeagueBonus
+        LeagueBonus.objects.filter(league=self.private_league).update(is_active=False)
+        self.client.login(username='member', password='x')
+        resp = self.client.get(reverse('league_scoring', args=['lega-privata']))
+        self.assertNotContains(resp, 'Bonus Wikidata Test')
+
+
+class ManualBonusAssignTest(ViewsBaseTestCase):
+    """Assegnazione/rimozione manuale dei bonus dalla pagina decessi della lega."""
+
+    def setUp(self):
+        super().setUp()
+        from .models import BonusType, Death, LeagueBonus
+        self.manual_bt = BonusType.objects.create(
+            name='Bonus Manuale Test', points=25, detection_method='manual',
+        )
+        self.lb = LeagueBonus.objects.create(
+            league=self.private_league, bonus_type=self.manual_bt,
+        )
+        self.dead = WikipediaPerson.objects.create(
+            wikidata_id='Q90300', name_it='Defunto Test', is_dead=True,
+        )
+        self.death = Death.objects.create(
+            person=self.dead, death_date=date(2021, 5, 1), death_age=70, is_confirmed=True,
+        )
+
+    def _assign(self, **overrides):
+        data = {
+            'action': 'assign_bonus',
+            'death_id': str(self.death.pk),
+            'bonus_type_id': str(self.manual_bt.pk),
+        }
+        data.update(overrides)
+        return self.client.post(reverse('league_deaths', args=['lega-privata']), data)
+
+    def test_admin_assegna_bonus_manuale(self):
+        from .models import DeathBonus
+        self.client.login(username='owner', password='x')
+        self._assign()
+        db = DeathBonus.objects.get(death=self.death, bonus_type=self.manual_bt)
+        self.assertFalse(db.is_auto_detected)
+        self.assertEqual(db.points_awarded, 25)
+
+    def test_non_admin_non_assegna(self):
+        from .models import DeathBonus
+        self.client.login(username='member', password='x')
+        resp = self._assign()
+        self.assertEqual(resp.status_code, 403)
+        self.assertFalse(DeathBonus.objects.filter(death=self.death).exists())
+
+    def test_bonus_non_attivo_nella_lega_rifiutato(self):
+        from .models import DeathBonus
+        self.lb.is_active = False
+        self.lb.save()
+        self.client.login(username='owner', password='x')
+        self._assign()
+        self.assertFalse(DeathBonus.objects.filter(death=self.death).exists())
+
+    def test_bonus_speciale_non_assegnabile_a_mano(self):
+        from .models import BonusType, DeathBonus, LeagueBonus
+        special = BonusType.objects.create(
+            name='Speciale Test', points=50, detection_method='first_death',
+        )
+        LeagueBonus.objects.create(league=self.private_league, bonus_type=special)
+        self.client.login(username='owner', password='x')
+        self._assign(bonus_type_id=str(special.pk))
+        self.assertFalse(DeathBonus.objects.filter(death=self.death).exists())
+
+    def test_decesso_fuori_periodo_rifiutato(self):
+        from .models import Death, DeathBonus
+        fuori = WikipediaPerson.objects.create(
+            wikidata_id='Q90301', name_it='Fuori Periodo', is_dead=True,
+        )
+        death_fuori = Death.objects.create(
+            person=fuori, death_date=date(2010, 1, 1), death_age=90, is_confirmed=True,
+        )
+        self.client.login(username='owner', password='x')
+        self._assign(death_id=str(death_fuori.pk))
+        self.assertFalse(DeathBonus.objects.filter(death=death_fuori).exists())
+
+    def test_admin_rimuove_bonus_assegnato_a_mano(self):
+        from .models import DeathBonus
+        db = DeathBonus.objects.create(
+            death=self.death, bonus_type=self.manual_bt, points_awarded=25,
+            is_auto_detected=False,
+        )
+        self.client.login(username='owner', password='x')
+        self.client.post(reverse('league_deaths', args=['lega-privata']),
+                         {'action': 'remove_bonus', 'death_bonus_id': str(db.pk)})
+        self.assertFalse(DeathBonus.objects.filter(pk=db.pk).exists())
+
+    def test_bonus_auto_di_sistema_non_rimovibile(self):
+        from .models import DeathBonus
+        db = DeathBonus.objects.create(
+            death=self.death, bonus_type=self.manual_bt, points_awarded=25,
+            is_auto_detected=True,
+        )
+        self.client.login(username='owner', password='x')
+        self.client.post(reverse('league_deaths', args=['lega-privata']),
+                         {'action': 'remove_bonus', 'death_bonus_id': str(db.pk)})
+        self.assertTrue(DeathBonus.objects.filter(pk=db.pk).exists())
+
+    def test_bonus_custom_auto_rimovibile_dalla_propria_lega(self):
+        from .models import BonusType, DeathBonus, LeagueBonus
+        custom = BonusType.objects.create(
+            name='Custom Auto', league=self.private_league, points=10,
+            detection_method='wikidata', wikidata_property='P166',
+        )
+        LeagueBonus.objects.create(league=self.private_league, bonus_type=custom)
+        db = DeathBonus.objects.create(
+            death=self.death, bonus_type=custom, points_awarded=10, is_auto_detected=True,
+        )
+        self.client.login(username='owner', password='x')
+        self.client.post(reverse('league_deaths', args=['lega-privata']),
+                         {'action': 'remove_bonus', 'death_bonus_id': str(db.pk)})
+        self.assertFalse(DeathBonus.objects.filter(pk=db.pk).exists())
+
+    def test_pagina_decessi_mostra_punti_effettivi_della_lega(self):
+        from .models import DeathBonus
+        self.lb.override_points = 99
+        self.lb.save()
+        DeathBonus.objects.create(
+            death=self.death, bonus_type=self.manual_bt, points_awarded=25,
+            is_auto_detected=False,
+        )
+        self.client.login(username='member', password='x')
+        resp = self.client.get(reverse('league_deaths', args=['lega-privata']))
+        self.assertContains(resp, 'Bonus Manuale Test +99')

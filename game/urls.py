@@ -12,6 +12,7 @@ urlpatterns = [
     path('leghe/<slug:slug>/abbandona/', views.LeagueLeaveView.as_view(), name='league_leave'),
     path('leghe/<slug:slug>/admin/', views.LeagueAdminView.as_view(), name='league_admin'),
     path('leghe/<slug:slug>/admin/giocatori/', views.LeaguePlayersRefreshView.as_view(), name='league_players_refresh'),
+    path('leghe/<slug:slug>/regolamento/', views.LeagueScoringView.as_view(), name='league_scoring'),
     path('leghe/<slug:slug>/classifica/', views.LeagueRankingsView.as_view(), name='league_rankings'),
     path('leghe/<slug:slug>/decessi/', views.LeagueDeathsView.as_view(), name='league_deaths'),
     path('leghe/<slug:slug>/squadra/nuova/', views.TeamCreateView.as_view(), name='team_create'),

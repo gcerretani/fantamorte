@@ -135,6 +135,12 @@ def _first_last_death_pks(league, deaths):
 
 # ---------- API pubblica ----------
 
+def league_first_last_death_pks(league):
+    """pk del primo e dell'ultimo decesso confermato della lega (vedi _first_last_death_pks)."""
+    return _first_last_death_pks(league, _confirmed_deaths_for_league(league))
+
+
+
 def _points_for_member_death(member, team, death, league, lb_map, first_pk=None, last_pk=None):
     """Calcola i punti per un singolo (member, death) con la mappa bonus precaricata.
 
