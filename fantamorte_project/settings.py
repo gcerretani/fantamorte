@@ -150,6 +150,11 @@ ACCOUNT_FORMS = {
     'reset_password_from_key': 'game.forms.ResetPasswordKeyForm',
     'change_password': 'game.forms.ChangePasswordForm',
 }
+ACCOUNT_ADAPTER = 'game.adapters.ClosedSignupAccountAdapter'
+SOCIALACCOUNT_ADAPTER = 'game.adapters.ClosedSignupSocialAccountAdapter'
+# A False chiude le nuove registrazioni (form email+password e OAuth), senza
+# toccare il login di chi ha gia' un account.
+ACCOUNT_SIGNUP_ENABLED = env.bool('ACCOUNT_SIGNUP_ENABLED', default=True)
 SOCIALACCOUNT_LOGIN_ON_GET = True
 SOCIALACCOUNT_AUTO_SIGNUP = True
 # Un provider entra in SOCIALACCOUNT_PROVIDERS solo se le sue env sono
