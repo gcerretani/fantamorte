@@ -152,9 +152,12 @@ ACCOUNT_FORMS = {
 }
 ACCOUNT_ADAPTER = 'game.adapters.ClosedSignupAccountAdapter'
 SOCIALACCOUNT_ADAPTER = 'game.adapters.ClosedSignupSocialAccountAdapter'
-# A False chiude le nuove registrazioni (form email+password e OAuth), senza
-# toccare il login di chi ha gia' un account.
+# Due interruttori indipendenti per le nuove registrazioni. Nessuno dei due
+# tocca il login di chi ha gia' un account (form o OAuth che sia).
+# A False chiude il signup via form email+password.
 ACCOUNT_SIGNUP_ENABLED = env.bool('ACCOUNT_SIGNUP_ENABLED', default=True)
+# A False chiude la creazione automatica di un account al primo login OAuth.
+SOCIALACCOUNT_SIGNUP_ENABLED = env.bool('SOCIALACCOUNT_SIGNUP_ENABLED', default=True)
 SOCIALACCOUNT_LOGIN_ON_GET = True
 SOCIALACCOUNT_AUTO_SIGNUP = True
 # Un provider entra in SOCIALACCOUNT_PROVIDERS solo se le sue env sono

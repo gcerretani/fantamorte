@@ -7,7 +7,8 @@ class ClosedSignupAccountAdapter(DefaultAccountAdapter):
     """Rispetta ACCOUNT_SIGNUP_ENABLED per il signup via form (email+password).
 
     Non impedisce il login di account gia' esistenti, solo la creazione di
-    nuovi account da /accounts/signup/.
+    nuovi account da /accounts/signup/. Indipendente dal signup via OAuth,
+    vedi ClosedSignupSocialAccountAdapter.
     """
 
     def is_open_for_signup(self, request):
@@ -15,12 +16,15 @@ class ClosedSignupAccountAdapter(DefaultAccountAdapter):
 
 
 class ClosedSignupSocialAccountAdapter(DefaultSocialAccountAdapter):
-    """Stesso interruttore per il signup via OAuth (Google/GitHub).
+    """Interruttore indipendente per il signup via OAuth (Google/GitHub),
+    cioe' la creazione automatica dell'account al primo login social.
 
-    Senza questo, con ACCOUNT_SIGNUP_ENABLED=False si chiuderebbe solo il
-    form email+password ma chiunque potrebbe comunque registrarsi via
-    OAuth una volta configurato un provider.
+    Non ha alcun effetto sul login: se l'utente ha gia' un account (creato in
+    precedenza o collegato manualmente), l'autenticazione via OAuth funziona
+    comunque, a prescindere da SOCIALACCOUNT_SIGNUP_ENABLED. Indipendente da
+    ACCOUNT_SIGNUP_ENABLED: si puo' chiudere il signup via form lasciando
+    aperto quello via OAuth o viceversa.
     """
 
     def is_open_for_signup(self, request, sociallogin):
-        return settings.ACCOUNT_SIGNUP_ENABLED
+        return settings.SOCIALACCOUNT_SIGNUP_ENABLED
