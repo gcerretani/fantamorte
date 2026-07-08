@@ -152,25 +152,35 @@ ACCOUNT_FORMS = {
 }
 SOCIALACCOUNT_LOGIN_ON_GET = True
 SOCIALACCOUNT_AUTO_SIGNUP = True
-SOCIALACCOUNT_PROVIDERS = {
-    'google': {
+# Un provider entra in SOCIALACCOUNT_PROVIDERS solo se le sue env sono
+# valorizzate. Se la chiave manca, allauth non registra nessuna "app" da
+# settings per quel provider, lasciando spazio a un SocialApp configurato
+# da Django admin (/admin/socialaccount/socialapp/) senza conflitti:
+# allauth unisce le app da DB e da settings, quindi un'app vuota qui
+# duplicherebbe quella creata da admin e romperebbe il login
+# (get_app() -> MultipleObjectsReturned). Le due modalità di
+# configurazione (env vs admin) vanno usate in alternativa per lo stesso
+# provider, non insieme.
+SOCIALACCOUNT_PROVIDERS = {}
+if env('GOOGLE_OAUTH_CLIENT_ID', default=''):
+    SOCIALACCOUNT_PROVIDERS['google'] = {
         'SCOPE': ['profile', 'email'],
         'AUTH_PARAMS': {'access_type': 'online'},
         'APP': {
-            'client_id': env('GOOGLE_OAUTH_CLIENT_ID', default=''),
+            'client_id': env('GOOGLE_OAUTH_CLIENT_ID'),
             'secret': env('GOOGLE_OAUTH_CLIENT_SECRET', default=''),
             'key': '',
         },
-    } if env('GOOGLE_OAUTH_CLIENT_ID', default='') else {'APP': {'client_id': '', 'secret': '', 'key': ''}},
-    'github': {
+    }
+if env('GITHUB_OAUTH_CLIENT_ID', default=''):
+    SOCIALACCOUNT_PROVIDERS['github'] = {
         'SCOPE': ['user:email'],
         'APP': {
-            'client_id': env('GITHUB_OAUTH_CLIENT_ID', default=''),
+            'client_id': env('GITHUB_OAUTH_CLIENT_ID'),
             'secret': env('GITHUB_OAUTH_CLIENT_SECRET', default=''),
             'key': '',
         },
-    } if env('GITHUB_OAUTH_CLIENT_ID', default='') else {'APP': {'client_id': '', 'secret': '', 'key': ''}},
-}
+    }
 
 # --- Email ---
 EMAIL_BACKEND = env(
