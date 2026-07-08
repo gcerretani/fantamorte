@@ -276,6 +276,34 @@ class LeagueLeaveView(LoginRequiredMixin, View):
         return redirect('home')
 
 
+class LeagueDeleteView(LoginRequiredMixin, View):
+    """Eliminazione definitiva di una lega (danger zone, solo owner).
+
+    Richiede la conferma del nome della lega digitato per esteso.
+    """
+
+    def post(self, request, slug):
+        league = get_object_or_404(League, slug=slug)
+        if not league.is_owner(request.user):
+            return HttpResponseForbidden('Solo il proprietario può eliminare la lega.')
+        confirm = request.POST.get('confirm_name', '').strip()
+        if confirm != league.name:
+            messages.error(
+                request,
+                'Il nome digitato non corrisponde: la lega non è stata eliminata.',
+            )
+            return redirect('league_admin', slug=slug)
+        # I DeathBonus dei bonus personalizzati (PROTECT) contano solo in
+        # questa lega: vanno rimossi prima, poi la delete cascada su squadre,
+        # iscrizioni, LeagueBonus e BonusType personalizzati.
+        for bt in league.custom_bonus_types.all():
+            bt.awarded.all().delete()
+        name = league.name
+        league.delete()
+        messages.success(request, f'La lega "{name}" è stata eliminata definitivamente.')
+        return redirect('home')
+
+
 class LeagueAdminView(LoginRequiredMixin, View):
     """Pannello di amministrazione di una lega: regole, bonus, membri, admin."""
     template_name = 'game/league_admin.html'
@@ -1567,15 +1595,10 @@ class TeamWhatIfView(LoginRequiredMixin, View):
         rows = []
         for m in active_members:
             person = m.person
-            if person.death_age is not None:
-                age = person.death_age
-            elif person.birth_date:
-                today = timezone.now().date()
-                age = today.year - person.birth_date.year - (
-                    (today.month, today.day) < (person.birth_date.month, person.birth_date.day)
-                )
-            else:
-                age = 80  # fallback ragionevole se mancano dati
+            # Età attuale (o al decesso, per i già morti); 80 se mancano i dati.
+            age = person.get_current_age()
+            if age is None:
+                age = 80
             points = scoring.simulate_team_points_for_person(team, person, age, death_month=month)
             rows.append({
                 'member': m,

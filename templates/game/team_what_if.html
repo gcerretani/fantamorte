@@ -2,8 +2,18 @@
 {% block title %}Simulatore — {{ team.name }} — Fantamorte{% endblock %}
 {% block content %}
 
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb mb-2">
+    {% if team.league %}
+      <li class="breadcrumb-item"><a href="{% url 'league_list' %}">Leghe</a></li>
+      <li class="breadcrumb-item"><a href="{% url 'league_detail' team.league.slug %}">{{ team.league.name }}</a></li>
+    {% endif %}
+    <li class="breadcrumb-item"><a href="{% url 'team_detail' team.pk %}">{{ team.name }}</a></li>
+    <li class="breadcrumb-item active" aria-current="page">Simulatore</li>
+  </ol>
+</nav>
+
 <div class="mb-3">
-  <a href="{% url 'team_detail' team.pk %}" class="text-muted small">&larr; {{ team.name }}</a>
   <h2 class="mb-1">Simulatore "What if"</h2>
   <p class="text-muted">
     Stima dei punti che la squadra otterrebbe se ciascun membro vivo morisse oggi nel mese selezionato.

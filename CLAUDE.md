@@ -261,7 +261,8 @@ Note di efficienza (importanti se tocchi il client):
 /leghe/                         lista leghe pubbliche
 /leghe/nuova/                   crea lega
 /leghe/<slug>/                  detail (top 3 + recent deaths + regole + iscrizione)
-/leghe/<slug>/admin/            pannello admin (regole, bonus, membri, invito)
+/leghe/<slug>/admin/            pannello admin (regole, bonus, membri, invito, danger zone)
+/leghe/<slug>/elimina/          POST: elimina la lega (solo owner, richiede il nome digitato)
 /leghe/<slug>/regolamento/      riepilogo regole+bonus della lega (visibile a tutti i membri)
 /leghe/<slug>/classifica/       classifica completa
 /leghe/<slug>/decessi/          timeline decessi (con assegnazione manuale bonus per gli admin)
@@ -342,6 +343,14 @@ Note di efficienza (importanti se tocchi il client):
   un replace del DOM).
 - Animazioni: nessuna oltre a quelle di Bootstrap; eventuali transizioni
   custom vanno dentro `@media (prefers-reduced-motion: no-preference)`.
+- **Navigazione**: ogni sottopagina ha un breadcrumb Bootstrap in testa
+  (`Leghe / <lega> / <pagina>`, per le squadre `Leghe / <lega> / <squadra> /
+  <pagina>`). Se aggiungi una pagina sotto lega o squadra, aggiungi il
+  breadcrumb; niente più bottoni "← Torna a...".
+- **Danger zone**: le azioni distruttive (elimina lega, elimina squadra)
+  stanno in una card `border-danger` in fondo alla pagina, mai tra le azioni
+  normali. L'eliminazione della lega richiede di ridigitare il nome
+  (validato anche server-side in `LeagueDeleteView`).
 
 ## Convenzioni di codice
 

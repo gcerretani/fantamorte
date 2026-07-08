@@ -2,14 +2,19 @@
 {% block title %}Regolamento {{ league.name }} — Fantamorte{% endblock %}
 {% block content %}
 
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb mb-2">
+    <li class="breadcrumb-item"><a href="{% url 'league_list' %}">Leghe</a></li>
+    <li class="breadcrumb-item"><a href="{% url 'league_detail' league.slug %}">{{ league.name }}</a></li>
+    <li class="breadcrumb-item active" aria-current="page">Regolamento</li>
+  </ol>
+</nav>
+
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h2 class="mb-0">Regolamento — {{ league.name }}</h2>
-  <div class="d-flex gap-2 flex-wrap">
-    {% if is_admin %}
-      <a href="{% url 'league_admin' league.slug %}" class="btn btn-outline-secondary btn-sm">Gestisci</a>
-    {% endif %}
-    <a href="{% url 'league_detail' league.slug %}" class="btn btn-outline-secondary btn-sm">&larr; Torna alla lega</a>
-  </div>
+  {% if is_admin %}
+  <a href="{% url 'league_admin' league.slug %}" class="btn btn-outline-secondary btn-sm">Gestisci</a>
+  {% endif %}
 </div>
 
 <div class="row">

@@ -846,3 +846,78 @@ class ManualBonusAssignTest(ViewsBaseTestCase):
         self.client.login(username='member', password='x')
         resp = self.client.get(reverse('league_deaths', args=['lega-privata']))
         self.assertContains(resp, 'Bonus Manuale Test +99')
+
+
+class LeagueDeleteTest(ViewsBaseTestCase):
+    """Danger zone: eliminazione definitiva della lega (solo owner, nome digitato)."""
+
+    def _delete(self, confirm_name='Lega Privata'):
+        return self.client.post(reverse('league_delete', args=['lega-privata']),
+                                {'confirm_name': confirm_name})
+
+    def test_owner_elimina_con_nome_corretto(self):
+        self.client.login(username='owner', password='x')
+        resp = self._delete()
+        self.assertRedirects(resp, reverse('home'))
+        self.assertFalse(League.objects.filter(slug='lega-privata').exists())
+        self.assertFalse(Team.objects.filter(pk=self.private_team.pk).exists())
+
+    def test_elimina_anche_con_bonus_custom_assegnati(self):
+        # I DeathBonus dei bonus personalizzati (FK PROTECT) non devono
+        # bloccare l'eliminazione della lega.
+        from .models import BonusType, Death, DeathBonus
+        custom = BonusType.objects.create(
+            name='Custom Della Lega', league=self.private_league, points=10,
+            detection_method='manual',
+        )
+        dead = WikipediaPerson.objects.create(
+            wikidata_id='Q90400', name_it='Morto Custom', is_dead=True,
+        )
+        death = Death.objects.create(person=dead, death_date=date(2021, 6, 1),
+                                     death_age=70, is_confirmed=True)
+        DeathBonus.objects.create(death=death, bonus_type=custom, points_awarded=10)
+        self.client.login(username='owner', password='x')
+        self._delete()
+        self.assertFalse(League.objects.filter(slug='lega-privata').exists())
+        self.assertFalse(BonusType.objects.filter(pk=custom.pk).exists())
+        # Il decesso resta: è un evento condiviso tra leghe.
+        self.assertTrue(Death.objects.filter(pk=death.pk).exists())
+
+    def test_nome_sbagliato_non_elimina(self):
+        self.client.login(username='owner', password='x')
+        self._delete(confirm_name='lega privata')  # case diverso: non basta
+        self.assertTrue(League.objects.filter(slug='lega-privata').exists())
+
+    def test_membro_non_elimina(self):
+        self.client.login(username='member', password='x')
+        resp = self._delete()
+        self.assertEqual(resp.status_code, 403)
+        self.assertTrue(League.objects.filter(slug='lega-privata').exists())
+
+    def test_admin_non_owner_non_elimina(self):
+        LeagueMembership.objects.filter(
+            league=self.private_league, user=self.member,
+        ).update(role=LeagueMembership.ROLE_ADMIN)
+        self.client.login(username='member', password='x')
+        resp = self._delete()
+        self.assertEqual(resp.status_code, 403)
+        self.assertTrue(League.objects.filter(slug='lega-privata').exists())
+
+
+class TeamWhatIfTest(ViewsBaseTestCase):
+    """La pagina what-if deve renderizzare con membri in rosa (con e senza dati di nascita)."""
+
+    def test_render_con_membri_in_rosa(self):
+        from django.utils import timezone
+        today = timezone.now().date()
+        con_nascita = WikipediaPerson.objects.create(
+            wikidata_id='Q90500', name_it='Con Nascita',
+            birth_date=date(today.year - 70, 1, 1),
+        )
+        TeamMember.objects.create(team=self.private_team, person=con_nascita)
+        self.client.login(username='member', password='x')
+        resp = self.client.get(reverse('team_what_if', args=[self.private_team.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Con Nascita')
+        # self.person è senza dati di nascita: fallback a 80 anni, niente crash.
+        self.assertContains(resp, self.person.name_it)

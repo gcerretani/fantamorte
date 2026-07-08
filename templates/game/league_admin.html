@@ -2,6 +2,14 @@
 {% block title %}Gestione {{ league.name }}{% endblock %}
 {% block content %}
 
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb mb-2">
+    <li class="breadcrumb-item"><a href="{% url 'league_list' %}">Leghe</a></li>
+    <li class="breadcrumb-item"><a href="{% url 'league_detail' league.slug %}">{{ league.name }}</a></li>
+    <li class="breadcrumb-item active" aria-current="page">Gestione</li>
+  </ol>
+</nav>
+
 <h2 class="mb-1">Gestione: {{ league.name }}</h2>
 <p class="text-muted">Solo admin/owner possono modificare queste impostazioni.</p>
 
@@ -329,10 +337,48 @@
 
 </div>
 
+{% if is_owner %}
+{{ league.name|json_script:"fmLeagueName" }}
+<div class="card border-danger mt-5">
+  <div class="card-header text-danger fw-semibold">Danger zone</div>
+  <div class="card-body">
+    <p class="mb-2">
+      L'eliminazione della lega è <strong>definitiva</strong>: cancella squadre, rose,
+      punteggi, iscrizioni e bonus personalizzati. I dati dei decessi restano
+      condivisi con le altre leghe.
+    </p>
+    <form method="post" action="{% url 'league_delete' league.slug %}" class="row g-2 align-items-end"
+          onsubmit="return confirm('Eliminare definitivamente la lega «{{ league.name }}»? L\'azione è irreversibile.');">
+      {% csrf_token %}
+      <div class="col-md-5">
+        <label class="form-label small" for="deleteConfirmName">
+          Per confermare, digita il nome della lega: <strong>{{ league.name }}</strong>
+        </label>
+        <input type="text" id="deleteConfirmName" name="confirm_name" class="form-control form-control-sm"
+               autocomplete="off" placeholder="{{ league.name }}">
+      </div>
+      <div class="col-auto">
+        <button type="submit" id="deleteLeagueBtn" class="btn btn-danger btn-sm" disabled>Elimina lega</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
 {% endblock %}
 
 {% block extra_js %}
 <script>
+// Danger zone: il bottone di eliminazione si attiva solo se il nome digitato
+// corrisponde (la verifica vera è comunque server-side).
+const fmDeleteInput = document.getElementById('deleteConfirmName');
+if (fmDeleteInput) {
+  const expected = JSON.parse(document.getElementById('fmLeagueName').textContent);
+  fmDeleteInput.addEventListener('input', function () {
+    document.getElementById('deleteLeagueBtn').disabled = this.value.trim() !== expected;
+  });
+}
+
 document.getElementById('wikiFilterAll').addEventListener('change', function() {
   const grid = document.getElementById('wikiLangsGrid');
   const checks = grid.querySelectorAll('.wiki-lang-check');
