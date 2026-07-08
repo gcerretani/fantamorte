@@ -157,8 +157,16 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
   `account_signup`, `account_reset_password`). **Non** usare i nomi vecchi
   `login`/`logout` di `django.contrib.auth.urls`: l'include è stato rimosso.
 - Provider social (Google/GitHub) si attivano popolando le env
-  `GOOGLE_OAUTH_CLIENT_ID/SECRET` e `GITHUB_OAUTH_CLIENT_ID/SECRET`. Se vuote
-  i pulsanti spariscono automaticamente.
+  `GOOGLE_OAUTH_CLIENT_ID/SECRET` e `GITHUB_OAUTH_CLIENT_ID/SECRET`, **oppure**
+  creando un `SocialApp` dal Django admin
+  (`/admin/socialaccount/socialapp/`) lasciando le env vuote — se le env
+  sono vuote `SOCIALACCOUNT_PROVIDERS` in `settings.py` non registra
+  nessuna app per quel provider, evitando conflitti con quella creata da
+  admin (allauth unirebbe le due app e romperebbe il login con
+  `MultipleObjectsReturned`). Non mescolare i due canali per lo stesso
+  provider. Con entrambi i canali vuoti/assenti i pulsanti spariscono
+  automaticamente (`{% get_providers %}` in `templates/account/login.html`
+  e `signup.html` mostra solo i provider effettivamente configurati).
 
 ## PWA + Push
 
