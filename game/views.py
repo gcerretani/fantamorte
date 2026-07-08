@@ -636,8 +636,9 @@ def _get_or_refresh_person(wikidata_id):
 
 
 class TeamCreateView(LoginRequiredMixin, View):
-    """Crea (o redirect a) la squadra dell'utente in una specifica lega."""
-    template_name = 'game/team_edit.html'
+    """Crea (se non esiste) la squadra dell'utente in una lega e porta
+    direttamente alla pagina di modifica, dove nome, mese jolly e rosa si
+    gestiscono in un unico form."""
 
     def get(self, request, slug):
         league = get_object_or_404(League, slug=slug)
@@ -647,31 +648,29 @@ class TeamCreateView(LoginRequiredMixin, View):
         if not league.is_registration_open() and not request.user.is_staff:
             messages.error(request, 'Le registrazioni non sono aperte per questa lega.')
             return redirect('league_detail', slug=slug)
-        existing = Team.objects.filter(manager=request.user, league=league).first()
-        if existing:
-            return redirect('team_edit', pk=existing.pk)
-        return render(request, self.template_name, {'league': league, 'creating': True, 'can_edit': True, 'months': MONTHS_IT})
-
-    def post(self, request, slug):
-        league = get_object_or_404(League, slug=slug)
-        if not league.is_member(request.user):
-            messages.error(request, 'Devi prima iscriverti alla lega.')
-            return redirect('league_detail', slug=slug)
-        if not league.is_registration_open() and not request.user.is_staff:
-            messages.error(request, 'Le registrazioni non sono aperte.')
-            return redirect('league_detail', slug=slug)
-        name = request.POST.get('name', '').strip()
-        if not name:
-            messages.error(request, 'Il nome della squadra è obbligatorio.')
-            return render(request, self.template_name, {'league': league, 'creating': True, 'can_edit': True, 'months': MONTHS_IT})
-        team, created = Team.objects.get_or_create(
+        team, _ = Team.objects.get_or_create(
             manager=request.user, league=league,
-            defaults={'name': name}
+            defaults={'name': f'Squadra di {request.user.username}'},
         )
-        if not created:
-            team.name = name
-            team.save()
         return redirect('team_edit', pk=team.pk)
+
+
+class TeamDeleteView(LoginRequiredMixin, View):
+    def post(self, request, pk):
+        team = get_object_or_404(Team, pk=pk)
+        if team.manager != request.user and not request.user.is_staff:
+            messages.error(request, 'Non hai i permessi per eliminare questa squadra.')
+            return redirect('team_detail', pk=pk)
+        if not _can_edit_team(team, request.user):
+            messages.error(request, 'Non è più possibile eliminare la squadra.')
+            return redirect('team_edit', pk=pk)
+        league = team.league
+        name = team.name
+        team.delete()
+        messages.success(request, f'Squadra "{name}" eliminata.')
+        if league:
+            return redirect('league_detail', slug=league.slug)
+        return redirect('home')
 
 
 class TeamEditView(LoginRequiredMixin, View):

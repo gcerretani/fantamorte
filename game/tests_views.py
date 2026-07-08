@@ -230,6 +230,62 @@ class TeamEditValidazioneTest(ViewsBaseTestCase):
         self.assertEqual(self.private_team.name, 'Squadra Privata')
 
 
+class TeamCreateFlowTest(ViewsBaseTestCase):
+    """Il form di creazione è unico: team_create crea subito la squadra
+    (senza chiedere nome/jolly a parte) e porta dritti a team_edit, dove
+    nome, mese jolly e rosa si salvano insieme."""
+
+    def test_get_crea_squadra_e_va_dritto_a_team_edit(self):
+        self.client.login(username='outsider', password='x')
+        LeagueMembership.objects.create(
+            league=self.private_league, user=self.outsider, role=LeagueMembership.ROLE_MEMBER,
+        )
+        resp = self.client.get(reverse('team_create', args=['lega-privata']))
+        team = Team.objects.get(manager=self.outsider, league=self.private_league)
+        self.assertRedirects(resp, reverse('team_edit', args=[team.pk]))
+
+    def test_get_ripetuto_non_duplica_la_squadra(self):
+        self.client.login(username='member', password='x')
+        self.client.get(reverse('team_create', args=['lega-privata']))
+        self.assertEqual(
+            Team.objects.filter(manager=self.member, league=self.private_league).count(), 1,
+        )
+
+    def test_salvataggio_propaga_nome_e_jolly(self):
+        self.client.login(username='outsider', password='x')
+        LeagueMembership.objects.create(
+            league=self.private_league, user=self.outsider, role=LeagueMembership.ROLE_MEMBER,
+        )
+        self.client.get(reverse('team_create', args=['lega-privata']))
+        team = Team.objects.get(manager=self.outsider, league=self.private_league)
+        self.client.post(reverse('team_edit', args=[team.pk]),
+                          {'name': 'I Falciatori', 'jolly_month': '5'})
+        team.refresh_from_db()
+        self.assertEqual(team.name, 'I Falciatori')
+        self.assertEqual(team.jolly_month, 5)
+
+
+class TeamDeleteTest(ViewsBaseTestCase):
+
+    def test_manager_elimina_la_propria_squadra(self):
+        self.client.login(username='member', password='x')
+        resp = self.client.post(reverse('team_delete', args=[self.private_team.pk]))
+        self.assertRedirects(resp, reverse('league_detail', args=['lega-privata']))
+        self.assertFalse(Team.objects.filter(pk=self.private_team.pk).exists())
+
+    def test_estraneo_non_puo_eliminare(self):
+        self.client.login(username='outsider', password='x')
+        self.client.post(reverse('team_delete', args=[self.private_team.pk]))
+        self.assertTrue(Team.objects.filter(pk=self.private_team.pk).exists())
+
+    def test_squadra_bloccata_non_eliminabile(self):
+        self.private_team.is_locked = True
+        self.private_team.save()
+        self.client.login(username='member', password='x')
+        self.client.post(reverse('team_delete', args=[self.private_team.pk]))
+        self.assertTrue(Team.objects.filter(pk=self.private_team.pk).exists())
+
+
 class PagineGeneraliTest(ViewsBaseTestCase):
 
     def test_statistiche_accessibili(self):
