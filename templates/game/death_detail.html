@@ -4,7 +4,7 @@
 
 <div class="row">
   <div class="col-md-8">
-    <h2>&#9760; {{ death.person.name_it }}</h2>
+    <h2>&#9760; <a href="{% url 'person_detail' death.person.pk %}" class="text-decoration-none">{{ death.person.name_it }}</a></h2>
     <p class="text-muted">
       {% if death.person.birth_date %}Nato/a: {{ death.person.birth_date|date:"d/m/Y" }} &mdash; {% endif %}
       Morto/a: {{ death.death_date|date:"d/m/Y" }}
@@ -40,8 +40,8 @@
       </table>
       </div>
       <p class="text-muted small">
-        I punti effettivi dipendono dalla configurazione della lega.
-        Vedi <a href="{% url 'rules' %}">il regolamento</a>.
+        I punti mostrati sono quelli di default: i punti effettivi dipendono dalla
+        configurazione di ogni lega (vedi la pagina "Regolamento" della lega).
       </p>
     {% else %}
       <p class="text-muted">Nessun bonus per questo decesso.</p>

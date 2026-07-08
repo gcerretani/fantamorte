@@ -1,8 +1,13 @@
 {% extends 'base.html' %}
-{% block title %}Regolamento — Fantamorte{% endblock %}
+{% block title %}Come funziona — Fantamorte{% endblock %}
 {% block content %}
 
-<h2>Regolamento Fantamorte</h2>
+<h2>Come funziona Fantamorte</h2>
+<p class="text-muted">
+  Questa pagina spiega il funzionamento generale del portale. Punteggi, bonus e
+  regole precise variano da lega a lega: le trovi nella pagina
+  <em>Regolamento</em> di ogni lega.
+</p>
 
 <div class="row">
   <div class="col-lg-8">
@@ -10,65 +15,85 @@
     <p>
       Ogni giocatore (manager) compone una squadra di personaggi pubblici. Quando uno di
       questi personaggi muore durante il periodo di gioco della lega, la squadra accumula punti.
+      Vince chi a fine periodo ha totalizzato più punti.
     </p>
 
-    <h5>Composizione della squadra</h5>
+    <h5>Le leghe</h5>
+    <p>
+      Il gioco è organizzato in <strong>leghe indipendenti</strong>. Ogni lega ha il proprio
+      calendario (periodo di gioco e finestra di iscrizione), le proprie regole di composizione
+      della squadra e il proprio sistema di punteggio. Le leghe possono essere:
+    </p>
     <ul>
-      <li><strong>1 capitano</strong> (raddoppia i punti).</li>
-      <li><strong>11 morituri</strong> non capitano.</li>
-      <li>Un <strong>mese jolly</strong> opzionale: i decessi avvenuti in quel mese raddoppiano (cumulabile col capitano).</li>
+      <li><strong>Pubbliche</strong>: visibili a tutti gli utenti registrati, iscrizione libera.</li>
+      <li><strong>Privata</strong>: si entra solo con un codice o un link di invito.</li>
     </ul>
-    <p class="text-muted small">
-      I numeri esatti (capitani, morituri, punti base, moltiplicatori, durata sostituzione)
-      sono configurabili per ogni lega dal pannello admin.
+    <p>
+      Chiunque può creare una lega e diventarne <strong>owner</strong>; l'owner può nominare
+      degli <strong>admin</strong> che lo aiutano a gestirla (regole, bonus, membri).
+      In ogni lega puoi avere <strong>una sola squadra</strong>, ma puoi partecipare a più leghe.
     </p>
 
-    <h5>Punti</h5>
-    <p>Ogni decesso assegna i <strong>punti base della lega</strong> (default 50),
-    più gli eventuali bonus elencati sotto.
-    Il totale viene poi moltiplicato per il moltiplicatore (capitano e/o jolly).</p>
-
-    {% if bonus_types %}
-    <table class="table table-sm">
-      <thead><tr><th>Bonus</th><th class="text-end">Punti</th></tr></thead>
-      <tbody>
-        {% for bt in bonus_types %}
-          <tr>
-            <td><strong>{{ bt.name }}</strong>
-              {% if bt.description %}<br><small class="text-muted">{{ bt.description }}</small>{% endif %}
-            </td>
-            <td class="text-end">
-              {% if bt.points_formula %}<code>{{ bt.points_formula }}</code>{% else %}+{{ bt.points }}{% endif %}
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% endif %}
-
-    <h5>Moltiplicatori</h5>
+    <h5>La squadra</h5>
+    <p>
+      La squadra si compone durante la finestra di iscrizione, cercando le persone per nome
+      (i dati arrivano da Wikidata/Wikipedia). La lega stabilisce quanti membri puoi schierare,
+      tipicamente:
+    </p>
     <ul>
-      <li>×2 se a morire è il <strong>capitano</strong>.</li>
-      <li>×2 se la morte avviene nel <strong>mese jolly</strong> della squadra.</li>
-      <li>×4 se entrambi i casi (capitano nel mese jolly).</li>
+      <li>uno o più <strong>capitani</strong>, i cui punti vengono moltiplicati;</li>
+      <li>i <strong>morituri</strong> non capitani;</li>
+      <li>se la lega lo prevede, un <strong>mese jolly</strong>: i decessi avvenuti in quel mese
+        valgono di più (cumulabile con il capitano);</li>
+      <li>eventuale <strong>limite sulla somma delle età</strong> della rosa.</li>
     </ul>
+
+    <h5>I punteggi (in generale)</h5>
+    <p>
+      Ogni decesso confermato nel periodo di gioco assegna i <strong>punti base della lega</strong>,
+      più gli eventuali <strong>bonus</strong> attivi nella lega; il totale viene poi moltiplicato
+      per capitano e/o jolly. I bonus sono di tre tipi:
+    </p>
+    <ul>
+      <li><span class="badge text-bg-info">automatico</span> — rilevati dai dati di
+        Wikidata (es. premi ricevuti) o dall'età al decesso;</li>
+      <li><span class="badge text-bg-info">speciale</span> — calcolati automaticamente dal
+        sistema per ogni lega (primo/ultimo decesso del periodo, giocata originale);</li>
+      <li><span class="badge text-bg-secondary">manuale</span> — assegnati dagli admin
+        della lega (es. circostanze del decesso non deducibili dai dati).</li>
+    </ul>
+    <p>
+      I valori esatti di punti base, bonus e moltiplicatori sono configurati dagli admin di
+      ciascuna lega: consulta il <strong>regolamento della tua lega</strong> (link nella pagina
+      della lega) per il riepilogo completo.
+    </p>
+
+    <h5>Decessi e conferme</h5>
+    <p>
+      Il portale controlla periodicamente Wikidata: quando viene rilevato un decesso con una data
+      valida, l'evento viene registrato e confermato. Alla conferma scattano i punti per tutte le
+      leghe il cui periodo di gioco comprende la data del decesso, oltre alle notifiche.
+    </p>
 
     <h5>Sostituzioni</h5>
     <p>
-      Quando un membro della tua squadra muore, hai un certo numero di giorni
-      (configurabile dalla lega, default <strong>7</strong>) per nominare un sostituto,
-      a partire dalla conferma del decesso da parte degli amministratori.
-      I punti del decesso restano comunque assegnati.
+      Quando un membro della tua squadra muore, hai un numero di giorni stabilito dalla lega
+      per nominare un sostituto, a partire dalla conferma del decesso. I punti del decesso
+      restano comunque assegnati. Riceverai anche dei promemoria prima della scadenza.
     </p>
 
     <h5>Notifiche</h5>
     <p>
-      Puoi attivare le notifiche push dal tuo <a href="{% url 'profile' %}">profilo</a>: riceverai un avviso
-      ogni volta che un decesso viene confermato. Se la persona era nella tua squadra, la notifica avrà priorità più alta.
+      Dal tuo <a href="{% url 'profile' %}">profilo</a> puoi attivare le notifiche push e le
+      email: riceverai un avviso ogni volta che un decesso viene confermato, con priorità più
+      alta se la persona era nella tua squadra. Il portale è anche installabile come app (PWA).
     </p>
 
     <h5>Fonti</h5>
-    <p>I dati provengono da <a href="https://www.wikidata.org" target="_blank">Wikidata</a> e Wikipedia italiana.</p>
+    <p>
+      I dati biografici provengono da <a href="https://www.wikidata.org" target="_blank">Wikidata</a>
+      e da Wikipedia. Se noti dati errati o mancanti, segnalalo agli admin della lega.
+    </p>
   </div>
 </div>
 

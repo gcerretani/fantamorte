@@ -26,9 +26,9 @@ from wikidata_api.client import WikidataClient
 
 from . import scoring
 from .models import (
-    MONTHS_IT, BonusType, Death, League, LeagueBonus, LeagueMembership,
-    PushSubscription, SiteSettings, Team, TeamMember, UserProfile,
-    WikipediaPerson,
+    MONTHS_IT, BonusType, Death, DeathBonus, League, LeagueBonus,
+    LeagueMembership, PushSubscription, SiteSettings, Team, TeamMember,
+    UserProfile, WikipediaPerson,
 )
 
 
@@ -276,6 +276,34 @@ class LeagueLeaveView(LoginRequiredMixin, View):
         return redirect('home')
 
 
+class LeagueDeleteView(LoginRequiredMixin, View):
+    """Eliminazione definitiva di una lega (danger zone, solo owner).
+
+    Richiede la conferma del nome della lega digitato per esteso.
+    """
+
+    def post(self, request, slug):
+        league = get_object_or_404(League, slug=slug)
+        if not league.is_owner(request.user):
+            return HttpResponseForbidden('Solo il proprietario può eliminare la lega.')
+        confirm = request.POST.get('confirm_name', '').strip()
+        if confirm != league.name:
+            messages.error(
+                request,
+                'Il nome digitato non corrisponde: la lega non è stata eliminata.',
+            )
+            return redirect('league_admin', slug=slug)
+        # I DeathBonus dei bonus personalizzati (PROTECT) contano solo in
+        # questa lega: vanno rimossi prima, poi la delete cascada su squadre,
+        # iscrizioni, LeagueBonus e BonusType personalizzati.
+        for bt in league.custom_bonus_types.all():
+            bt.awarded.all().delete()
+        name = league.name
+        league.delete()
+        messages.success(request, f'La lega "{name}" è stata eliminata definitivamente.')
+        return redirect('home')
+
+
 class LeagueAdminView(LoginRequiredMixin, View):
     """Pannello di amministrazione di una lega: regole, bonus, membri, admin."""
     template_name = 'game/league_admin.html'
@@ -381,7 +409,12 @@ class LeagueAdminView(LoginRequiredMixin, View):
             if not name:
                 messages.error(request, 'Il nome del bonus è obbligatorio.')
                 return redirect('league_admin', slug=slug)
-            if not re.fullmatch(r'P\d+', prop):
+            # Proprietà Wikidata opzionale: senza, il bonus è a rilevazione
+            # manuale (lo assegnano gli admin dalla pagina decessi).
+            if value and not prop:
+                messages.error(request, 'Hai indicato un valore Wikidata senza la proprietà.')
+                return redirect('league_admin', slug=slug)
+            if prop and not re.fullmatch(r'P\d+', prop):
                 messages.error(request, 'Proprietà Wikidata non valida (formato: P166).')
                 return redirect('league_admin', slug=slug)
             if value and not re.fullmatch(r'Q\d+', value):
@@ -393,17 +426,24 @@ class LeagueAdminView(LoginRequiredMixin, View):
                 return redirect('league_admin', slug=slug)
             bt = BonusType.objects.create(
                 name=name, league=league, description=description, points=points,
-                detection_method=BonusType.DETECTION_WIKIDATA,
+                detection_method=BonusType.DETECTION_WIKIDATA if prop else BonusType.DETECTION_MANUAL,
                 wikidata_property=prop, wikidata_value=value,
                 is_active=True, ordering=100,
             )
             LeagueBonus.objects.create(league=league, bonus_type=bt, is_active=True)
-            messages.success(
-                request,
-                f'Bonus "{name}" creato ({prop}{"=" + value if value else ""}). Verrà rilevato '
-                'automaticamente sui prossimi decessi; per quelli già registrati usare '
-                '"Auto-rileva bonus" dal Django admin.',
-            )
+            if prop:
+                messages.success(
+                    request,
+                    f'Bonus "{name}" creato ({prop}{"=" + value if value else ""}). Verrà rilevato '
+                    'automaticamente sui prossimi decessi; per quelli già registrati usare '
+                    '"Auto-rileva bonus" dal Django admin.',
+                )
+            else:
+                messages.success(
+                    request,
+                    f'Bonus "{name}" creato (assegnazione manuale). Puoi assegnarlo ai decessi '
+                    'dalla pagina "Decessi" della lega.',
+                )
 
         elif action == 'delete_custom_bonus':
             try:
@@ -496,14 +536,43 @@ class LeagueRankingsView(LoginRequiredMixin, View):
         })
 
 
-class LeagueDeathsView(LoginRequiredMixin, View):
-    """Cronologia decessi di una lega."""
+class LeagueScoringView(LoginRequiredMixin, View):
+    """Riepilogo del regolamento di una lega, visibile a tutti i suoi membri."""
 
     def get(self, request, slug):
         league = get_object_or_404(League, slug=slug)
         if not league.can_user_view(request.user):
             return redirect('league_list')
-        deaths = (
+        bonus_rows = []
+        for lb in (
+            league.league_bonuses.filter(is_active=True)
+            .select_related('bonus_type')
+            .order_by('bonus_type__ordering', 'bonus_type__name')
+        ):
+            bonus_rows.append({
+                'bonus_type': lb.bonus_type,
+                'formula': (lb.override_formula or lb.bonus_type.points_formula or '').strip(),
+                'points': lb.override_points if lb.override_points is not None else lb.bonus_type.points,
+            })
+        return render(request, 'game/league_scoring.html', {
+            'league': league,
+            'bonus_rows': bonus_rows,
+            'is_admin': league.is_admin(request.user),
+        })
+
+
+class LeagueDeathsView(LoginRequiredMixin, View):
+    """Cronologia decessi di una lega, con gestione manuale dei bonus per gli admin."""
+
+    # Bonus assegnabili a mano dagli admin: quelli manuali, più quelli
+    # automatici (Wikidata/età) nel caso la rilevazione abbia mancato il dato.
+    # Esclusi gli speciali (original/first/last): li calcola lo scoring.
+    ASSIGNABLE_METHODS = (
+        BonusType.DETECTION_MANUAL, BonusType.DETECTION_WIKIDATA, BonusType.DETECTION_AGE,
+    )
+
+    def _deaths(self, league):
+        return (
             Death.objects.filter(
                 is_confirmed=True,
                 death_date__gte=league.start_date,
@@ -513,7 +582,122 @@ class LeagueDeathsView(LoginRequiredMixin, View):
             .prefetch_related('bonuses__bonus_type')
             .order_by('-death_date')
         )
-        return render(request, 'game/league_deaths.html', {'league': league, 'deaths': deaths})
+
+    def get(self, request, slug):
+        league = get_object_or_404(League, slug=slug)
+        if not league.can_user_view(request.user):
+            return redirect('league_list')
+        is_admin = league.is_admin(request.user)
+        lb_map = {
+            lb.bonus_type_id: lb
+            for lb in league.league_bonuses.filter(is_active=True).select_related('bonus_type')
+        }
+        first_pk, last_pk = scoring.league_first_last_death_pks(league)
+        first_lb = next((lb for lb in lb_map.values()
+                         if lb.bonus_type.detection_method == BonusType.DETECTION_FIRST_DEATH), None)
+        last_lb = next((lb for lb in lb_map.values()
+                        if lb.bonus_type.detection_method == BonusType.DETECTION_LAST_DEATH), None)
+
+        death_rows = []
+        for d in self._deaths(league):
+            items = []
+            for b in d.bonuses.all():
+                bt = b.bonus_type
+                # Righe legacy primo/ultimo: ignorate dallo scoring, non mostrarle.
+                if bt.detection_method in (BonusType.DETECTION_FIRST_DEATH, BonusType.DETECTION_LAST_DEATH):
+                    continue
+                # Bonus personalizzati di ALTRE leghe: irrilevanti qui.
+                if bt.league_id and bt.league_id != league.pk:
+                    continue
+                lb = lb_map.get(bt.pk)
+                items.append({
+                    'bonus': b,
+                    'active': lb is not None,
+                    'points': lb.compute_points(age=d.death_age) if lb else None,
+                    # I bonus assegnati a mano si possono revocare da qui; quelli
+                    # auto-rilevati solo se personalizzati della lega (gli altri
+                    # sono condivisi e si revocano dal Django admin).
+                    'removable': is_admin and (not b.is_auto_detected or bt.league_id == league.pk),
+                })
+            death_rows.append({
+                'death': d,
+                'bonus_items': items,
+                'is_first': first_lb is not None and d.pk == first_pk,
+                'first_points': first_lb.compute_points(age=d.death_age) if first_lb else None,
+                'is_last': last_lb is not None and last_pk is not None and d.pk == last_pk,
+                'last_points': last_lb.compute_points(age=d.death_age) if last_lb else None,
+            })
+
+        assignable = sorted(
+            (lb for lb in lb_map.values()
+             if lb.bonus_type.detection_method in self.ASSIGNABLE_METHODS),
+            key=lambda lb: (lb.bonus_type.ordering, lb.bonus_type.name),
+        ) if is_admin else []
+        return render(request, 'game/league_deaths.html', {
+            'league': league,
+            'death_rows': death_rows,
+            'is_admin': is_admin,
+            'assignable_bonuses': assignable,
+        })
+
+    def post(self, request, slug):
+        league = get_object_or_404(League, slug=slug)
+        if not league.is_admin(request.user):
+            return HttpResponseForbidden('Permesso negato.')
+        action = request.POST.get('action', '')
+
+        if action == 'assign_bonus':
+            try:
+                death = Death.objects.select_related('person').get(
+                    pk=int(request.POST.get('death_id', '')),
+                    is_confirmed=True,
+                    death_date__gte=league.start_date,
+                    death_date__lte=league.end_date,
+                )
+                lb = league.league_bonuses.select_related('bonus_type').get(
+                    bonus_type_id=int(request.POST.get('bonus_type_id', '')),
+                    is_active=True,
+                    bonus_type__detection_method__in=self.ASSIGNABLE_METHODS,
+                )
+            except (Death.DoesNotExist, LeagueBonus.DoesNotExist, ValueError, TypeError):
+                messages.error(request, 'Decesso o bonus non valido.')
+                return redirect('league_deaths', slug=slug)
+            _, created = DeathBonus.objects.get_or_create(
+                death=death, bonus_type=lb.bonus_type,
+                defaults={'points_awarded': lb.bonus_type.points, 'is_auto_detected': False},
+            )
+            if created:
+                messages.success(
+                    request, f'Bonus "{lb.bonus_type.name}" assegnato a {death.person.name_it}.'
+                )
+            else:
+                messages.info(request, 'Bonus già assegnato a questo decesso.')
+
+        elif action == 'remove_bonus':
+            try:
+                db = DeathBonus.objects.select_related('death__person', 'bonus_type').get(
+                    pk=int(request.POST.get('death_bonus_id', '')),
+                    death__death_date__gte=league.start_date,
+                    death__death_date__lte=league.end_date,
+                )
+            except (DeathBonus.DoesNotExist, ValueError, TypeError):
+                messages.error(request, 'Bonus non trovato.')
+                return redirect('league_deaths', slug=slug)
+            if db.bonus_type.league_id and db.bonus_type.league_id != league.pk:
+                messages.error(request, 'Questo bonus appartiene a un\'altra lega.')
+            elif db.is_auto_detected and db.bonus_type.league_id != league.pk:
+                messages.error(
+                    request,
+                    'I bonus di sistema rilevati automaticamente si revocano dal Django admin.',
+                )
+            else:
+                db.delete()
+                messages.success(
+                    request,
+                    f'Bonus "{db.bonus_type.name}" rimosso da {db.death.person.name_it}.',
+                )
+
+        return redirect('league_deaths', slug=slug)
 
 
 # ---------------- Squadre ----------------
@@ -1012,16 +1196,8 @@ class PersonSearchView(LoginRequiredMixin, View):
 
 
 class RulesView(TemplateView):
+    """Manuale generico del portale: nessun punteggio, quelli sono per-lega."""
     template_name = 'game/rules.html'
-
-    def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)
-        # Il regolamento generico mostra solo i bonus di sistema, non i
-        # personalizzati delle singole leghe.
-        ctx['bonus_types'] = BonusType.objects.filter(
-            is_active=True, league__isnull=True,
-        ).order_by('ordering', 'name')
-        return ctx
 
 
 class ProfileView(LoginRequiredMixin, View):
@@ -1419,15 +1595,10 @@ class TeamWhatIfView(LoginRequiredMixin, View):
         rows = []
         for m in active_members:
             person = m.person
-            if person.death_age is not None:
-                age = person.death_age
-            elif person.birth_date:
-                today = timezone.now().date()
-                age = today.year - person.birth_date.year - (
-                    (today.month, today.day) < (person.birth_date.month, person.birth_date.day)
-                )
-            else:
-                age = 80  # fallback ragionevole se mancano dati
+            # Età attuale (o al decesso, per i già morti); 80 se mancano i dati.
+            age = person.get_current_age()
+            if age is None:
+                age = 80
             points = scoring.simulate_team_points_for_person(team, person, age, death_month=month)
             rows.append({
                 'member': m,

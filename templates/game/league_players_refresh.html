@@ -4,8 +4,10 @@
 
 <nav aria-label="breadcrumb" class="mb-3">
   <ol class="breadcrumb">
-    <li class="breadcrumb-item"><a href="{% url 'league_admin' slug=league.slug %}">Gestione {{ league.name }}</a></li>
-    <li class="breadcrumb-item active">Controlla giocatori</li>
+    <li class="breadcrumb-item"><a href="{% url 'league_list' %}">Leghe</a></li>
+    <li class="breadcrumb-item"><a href="{% url 'league_detail' league.slug %}">{{ league.name }}</a></li>
+    <li class="breadcrumb-item"><a href="{% url 'league_admin' slug=league.slug %}">Gestione</a></li>
+    <li class="breadcrumb-item active" aria-current="page">Controlla giocatori</li>
   </ol>
 </nav>
 

@@ -2,6 +2,13 @@
 {% block title %}{{ league.name }} — Fantamorte{% endblock %}
 {% block content %}
 
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb mb-2">
+    <li class="breadcrumb-item"><a href="{% url 'league_list' %}">Leghe</a></li>
+    <li class="breadcrumb-item active" aria-current="page">{{ league.name }}</li>
+  </ol>
+</nav>
+
 <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
   <div>
     <h2 class="mb-1">{{ league.name }}</h2>
@@ -86,7 +93,10 @@
       <p class="text-muted">Nessun decesso ancora.</p>
     {% endif %}
 
-    <h5 class="mt-4">Regole della lega</h5>
+    <div class="d-flex justify-content-between align-items-center mt-4 mb-2">
+      <h5 class="mb-0">Regole della lega</h5>
+      <a href="{% url 'league_scoring' league.slug %}" class="btn btn-link btn-sm">Regolamento completo &rarr;</a>
+    </div>
     <ul class="list-unstyled small">
       <li>Composizione: <strong>{{ league.max_captains }} capitano + {{ league.max_non_captains }} morituri</strong></li>
       {% if league.max_total_age %}
