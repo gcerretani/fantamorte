@@ -262,6 +262,12 @@ Note di efficienza (importanti se tocchi il client):
 - Gli endpoint bulk diff/apply accettano **max 10 persone per richiesta**
   (`MAX_DIFF_BATCH`): il fan-out lo fa il browser a blocchi con concorrenza
   2 (vedi `league_players_refresh.html`), mai una singola richiesta lunga.
+  Entrambi, avendo già pagato la fetch dell'entità, rinfrescano anche
+  `claims_cache` e invalidano le cache bonus derivate
+  (`_refresh_person_claims` in `views.py`): per una persona **viva** è
+  l'unico percorso che aggiorna i claim (il cron `check_deaths` li rinfresca
+  solo per i morti). Il diff non tocca `last_checked`: bumparlo
+  ritarderebbe il rilevamento decessi del cron.
 
 ## URL principali (mappa)
 
