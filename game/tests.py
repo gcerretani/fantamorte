@@ -721,6 +721,15 @@ class WhatIfSimulatorTest(ScoringBaseTestCase):
         pts = simulate_team_points_for_person(self.team, self.fellini, 73)
         self.assertEqual(pts, 0)
 
+    def test_bonus_extra_sommati_prima_dei_moltiplicatori(self):
+        from .scoring import simulate_team_points_for_person
+        # I bonus automatici precalcolati entrano nel punteggio grezzo,
+        # quindi vengono moltiplicati dal capitano.
+        pts = simulate_team_points_for_person(
+            self.team, self.berlusconi, 86, extra_bonus_points=20)
+        self.assertEqual(
+            pts, (self.league.base_points + 20) * self.league.captain_multiplier)
+
 
 class CSVAndIcalExportTest(ScoringBaseTestCase):
 
