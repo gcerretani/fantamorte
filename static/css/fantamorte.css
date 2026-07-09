@@ -3,6 +3,65 @@
    (data-bs-theme su <html>): qui si usano solo le variabili --bs-* così
    ogni regola si adatta da sola a entrambi i temi. */
 
+/* Navbar fissa in cima: fixed-top (non sticky) così non si muove nemmeno
+   durante l'overscroll/rubber-band. Il body compensa l'altezza della barra;
+   su dispositivi con notch la barra assorbe la safe area superiore. */
+.navbar.fixed-top {
+  padding-top: max(0.5rem, env(safe-area-inset-top, 0px));
+}
+body {
+  /* 3rem = altezza navbar senza il suo padding-top + 1rem di respiro. */
+  padding-top: calc(3rem + max(0.5rem, env(safe-area-inset-top, 0px)) + 1rem);
+}
+html {
+  /* Gli anchor/focus scroll non devono finire sotto la barra fissa. */
+  scroll-padding-top: 4.5rem;
+}
+
+/* Chips informative (metadati di lega/squadra: periodo, iscritti, owner…) */
+.fm-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.5rem;
+  align-items: center;
+}
+.fm-fact {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.65rem;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 2rem;
+  background: var(--bs-body-bg);
+  font-size: 0.85rem;
+  color: var(--bs-body-color);
+  white-space: nowrap;
+}
+.fm-fact .fm-fact-icon { opacity: 0.7; }
+.fm-fact a { text-decoration: none; }
+
+/* Tile compatte per le regole della lega (riepilogo + regolamento) */
+.fm-stat {
+  height: 100%;
+  padding: 0.6rem 0.5rem;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.5rem;
+  background: var(--bs-body-bg);
+  text-align: center;
+}
+.fm-stat-value {
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.fm-stat-value code { font-size: 0.85em; }
+.fm-stat-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bs-secondary-color);
+}
+
 /* Accessibilità: focus visibile e skip link */
 
 :focus-visible {

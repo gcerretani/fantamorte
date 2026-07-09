@@ -269,6 +269,69 @@ class SharedSessionAndTimeoutTest(TestCase):
         self.assertEqual(mock_get.call_args.kwargs['timeout'], 8)
 
 
+class MulLabelFallbackTest(TestCase):
+    """Fallback label it → mul → en → QID.
+
+    La lingua speciale `mul` è la label "di default per tutte le lingue" di
+    Wikidata: alcune entità (es. Q22686) hanno SOLO quella, e senza fallback
+    l'app mostrerebbe il QID nudo.
+    """
+
+    def _payload(self, labels, descriptions=None):
+        return {'entities': {'Q22686': {
+            'labels': labels,
+            'descriptions': descriptions or {},
+            'claims': {},
+            'sitelinks': {},
+        }}}
+
+    def _entity(self, labels, descriptions=None):
+        client = WikidataClient()
+        with patch.object(client, '_get', return_value=self._payload(labels, descriptions)):
+            return client.get_entity('Q22686')
+
+    def test_label_mul_usata_se_manca_it(self):
+        entity = self._entity({'mul': {'value': 'Donald Trump'}})
+        self.assertEqual(entity['name_it'], 'Donald Trump')
+
+    def test_it_ha_precedenza_su_mul(self):
+        entity = self._entity({
+            'it': {'value': 'Nome Italiano'},
+            'mul': {'value': 'Default Name'},
+        })
+        self.assertEqual(entity['name_it'], 'Nome Italiano')
+
+    def test_mul_ha_precedenza_su_en(self):
+        entity = self._entity({
+            'mul': {'value': 'Default Name'},
+            'en': {'value': 'English Name'},
+        })
+        self.assertEqual(entity['name_it'], 'Default Name')
+
+    def test_qid_solo_come_ultima_spiaggia(self):
+        entity = self._entity({})
+        self.assertEqual(entity['name_it'], 'Q22686')
+
+    def test_descrizione_con_fallback_mul(self):
+        entity = self._entity(
+            {'mul': {'value': 'Donald Trump'}},
+            descriptions={'mul': {'value': 'presidente USA'}},
+        )
+        self.assertEqual(entity['description_it'], 'presidente USA')
+
+    def test_fetch_labels_fallback_mul(self):
+        client = WikidataClient()
+        payload = {'entities': {
+            'Q1': {'labels': {'mul': {'value': 'Solo Mul'}}},
+            'Q2': {'labels': {'it': {'value': 'Anche It'}, 'mul': {'value': 'ignorata'}}},
+        }}
+        with patch.object(client, '_get', return_value=payload) as mock_get:
+            labels = client._fetch_labels(['Q1', 'Q2'])
+        self.assertEqual(labels, {'Q1': 'Solo Mul', 'Q2': 'Anche It'})
+        # `mul` va anche richiesta esplicitamente a wbgetentities.
+        self.assertIn('mul', mock_get.call_args[0][1]['languages'].split('|'))
+
+
 class CombinedLabelsFetchTest(TestCase):
     """get_entity risolve occupazione e cittadinanza con UNA sola wbgetentities."""
 

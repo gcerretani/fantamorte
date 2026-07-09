@@ -981,6 +981,36 @@ class AddPersonView(LoginRequiredMixin, View):
         })
 
 
+class RemovePersonView(LoginRequiredMixin, View):
+    """Rimuove un membro dalla rosa finché la squadra è modificabile.
+
+    Consentito solo in fase di composizione (stesse regole di AddPersonView):
+    membro attivo, persona ancora viva e non subentrata a una sostituzione
+    (rimuoverla riattiverebbe il membro sostituito).
+    """
+
+    def post(self, request, pk, member_pk):
+        team = get_object_or_404(Team, pk=pk)
+        if team.manager != request.user and not request.user.is_staff:
+            return JsonResponse({'error': 'Permesso negato'}, status=403)
+        if not _can_edit_team(team, request.user):
+            return JsonResponse({'error': 'La squadra non è più modificabile.'}, status=400)
+        member = get_object_or_404(TeamMember, pk=member_pk, team=team)
+        if not member.is_active():
+            return JsonResponse({'error': 'Membro già sostituito.'}, status=400)
+        if member.person.is_dead:
+            return JsonResponse(
+                {'error': f'{member.person.name_it} è deceduto/a: usa la sostituzione.'},
+                status=400)
+        if TeamMember.objects.filter(replaced_by=member).exists():
+            return JsonResponse(
+                {'error': 'Questo membro è subentrato con una sostituzione e non può essere rimosso.'},
+                status=400)
+        name = member.person.name_it
+        member.delete()
+        return JsonResponse({'success': True, 'name': name})
+
+
 class SubstituteMemberView(LoginRequiredMixin, View):
     template_name = 'game/substitute_member.html'
 
@@ -1110,8 +1140,61 @@ def _refresh_person_summary(person):
         person.save(update_fields=['summary_it', 'summary_fetched_at'])
 
 
+def _potential_league_bonuses(person, league):
+    """Bonus automatici (Wikidata/età) che scatterebbero per questa persona
+    se il decesso avvenisse oggi, con i punti effettivi della lega.
+
+    Solo per persone vive: per i decessi reali fanno fede i DeathBonus.
+    Il match Wikidata usa i claim in cache (+ eventuale check gerarchico,
+    a sua volta cachato 7 giorni dal client); il risultato complessivo è
+    cachato 1 ora per non rallentare l'apertura del modal.
+    """
+    if person.is_dead:
+        return []
+    cache_key = f'fm_potential:{league.pk}:{person.pk}'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    age = person.get_current_age()
+    league_bonuses = list(
+        league.league_bonuses.filter(is_active=True).select_related('bonus_type')
+    )
+    client = WikidataClient()
+    client.delay = 0          # richiesta interattiva (modal aperto)
+    client.sparql_timeout = 8  # fail-fast sui check gerarchici non in cache
+    wikidata_types = [
+        lb.bonus_type for lb in league_bonuses
+        if lb.bonus_type.detection_method == BonusType.DETECTION_WIKIDATA
+    ]
+    try:
+        detected = client.detect_bonuses(
+            person.wikidata_id, person.claims_cache or {}, wikidata_types)
+    except Exception:
+        logger.warning('Detection bonus potenziali fallita per %s',
+                       person.wikidata_id, exc_info=True)
+        detected = []
+    detected_pks = {bt.pk for bt in detected}
+    rows = []
+    for lb in league_bonuses:
+        bt = lb.bonus_type
+        if bt.detection_method == BonusType.DETECTION_WIKIDATA:
+            hit = bt.pk in detected_pks
+        elif bt.detection_method == BonusType.DETECTION_AGE:
+            hit = age is not None and client.detect_age_bonus(age, bt)
+        else:
+            continue
+        if hit:
+            rows.append({'name': bt.name, 'points': lb.compute_points(age=age)})
+    cache.set(cache_key, rows, 3600)
+    return rows
+
+
 class PersonInfoView(LoginRequiredMixin, View):
-    """Endpoint JSON per il pannello dettagli persona (open su click)."""
+    """Endpoint JSON per il pannello dettagli persona (open su click).
+
+    Con ``?league=<slug>`` include anche i bonus automatici della lega che
+    scatterebbero se il decesso avvenisse oggi (solo per persone vive).
+    """
 
     def get(self, request, pk):
         person = get_object_or_404(WikipediaPerson, pk=pk)
@@ -1135,6 +1218,13 @@ class PersonInfoView(LoginRequiredMixin, View):
             'summary_stale': _summary_is_stale(person),
             'wikidata_url': f'https://www.wikidata.org/wiki/{person.wikidata_id}',
         }
+        league_slug = request.GET.get('league', '').strip()
+        if league_slug and not person.is_dead:
+            league = League.objects.filter(slug=league_slug).first()
+            if league and league.can_user_view(request.user):
+                data['league_name'] = league.name
+                data['base_points'] = league.base_points
+                data['potential_bonuses'] = _potential_league_bonuses(person, league)
         return JsonResponse(data)
 
 

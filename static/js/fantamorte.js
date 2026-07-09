@@ -252,7 +252,25 @@
       : '<p class="text-muted small">(Nessuna biografia disponibile.)</p>';
   }
 
-  window.fmShowPerson = async function (pk) {
+  // Blocco "bonus potenziali": presente solo se il server ha ricevuto il
+  // contesto lega (?league=) e la persona è viva.
+  function renderPotentialBonuses(p) {
+    if (!Array.isArray(p.potential_bonuses)) return '';
+    var items = ['<span class="badge text-bg-secondary">Punti base +' + p.base_points + '</span>'];
+    p.potential_bonuses.forEach(function (b) {
+      items.push('<span class="badge text-bg-info">' + escapeHtml(b.name) +
+        ' ' + (b.points >= 0 ? '+' : '') + b.points + '</span>');
+    });
+    return '<div class="mt-3 pt-2 border-top">' +
+      '<h6 class="mb-1">Se morisse oggi <small class="text-body-secondary fw-normal">— ' +
+      escapeHtml(p.league_name) + '</small></h6>' +
+      '<div class="d-flex flex-wrap gap-1">' + items.join(' ') + '</div>' +
+      '<div class="small text-body-secondary mt-1">Bonus automatici rilevati da Wikidata/età; ' +
+      'esclusi quelli manuali e speciali, più eventuali moltiplicatori di squadra.</div>' +
+      '</div>';
+  }
+
+  window.fmShowPerson = async function (pk, leagueSlug) {
     const modalEl = document.getElementById('fmPersonModal');
     if (!modalEl) return;
     currentPersonPk = pk;
@@ -270,7 +288,9 @@
     const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
     modal.show();
     try {
-      const resp = await fetch(`/api/persona/${pk}/`);
+      const url = `/api/persona/${pk}/` +
+        (leagueSlug ? `?league=${encodeURIComponent(leagueSlug)}` : '');
+      const resp = await fetch(url);
       if (!resp.ok) throw new Error('persona non trovata');
       const p = await resp.json();
       if (currentPersonPk !== pk) return;
@@ -303,6 +323,7 @@
             ${p.description_it ? `<p class="text-muted">${escapeHtml(p.description_it)}</p>` : ''}
             <ul class="list-unstyled small mb-2">${meta.join('')}</ul>
             <div class="mb-2">${links.join(' ')}</div>
+            ${renderPotentialBonuses(p)}
             ${summary}
           </div>
         </div>`;
@@ -327,12 +348,15 @@
     }
   };
 
-  // Click handler per qualsiasi elemento con data-fm-person-pk
+  // Click handler per qualsiasi elemento con data-fm-person-pk. Il contesto
+  // lega (per i bonus potenziali nel modal) si eredita dal più vicino
+  // antenato con data-fm-league (di norma il <main> della pagina).
   document.addEventListener('click', function (e) {
     const t = e.target.closest('[data-fm-person-pk]');
     if (!t) return;
     e.preventDefault();
-    window.fmShowPerson(t.dataset.fmPersonPk);
+    const leagueEl = t.closest('[data-fm-league]');
+    window.fmShowPerson(t.dataset.fmPersonPk, leagueEl ? leagueEl.dataset.fmLeague : '');
   });
 
   // -------- Countdown sostituzioni --------

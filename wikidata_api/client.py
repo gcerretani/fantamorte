@@ -175,9 +175,22 @@ class WikidataClient:
         descriptions = entity.get('descriptions', {})
         claims = entity.get('claims', {})
 
-        name_it = labels.get('it', {}).get('value') or labels.get('en', {}).get('value', wikidata_id)
+        # Fallback label: it → mul → en → QID. La lingua speciale `mul` è la
+        # label "di default per tutte le lingue" di Wikidata: certe entità
+        # (es. Q22686) hanno SOLO quella, senza il fallback resterebbe il QID.
+        name_it = (
+            labels.get('it', {}).get('value')
+            or labels.get('mul', {}).get('value')
+            or labels.get('en', {}).get('value')
+            or wikidata_id
+        )
         name_en = labels.get('en', {}).get('value', '')
-        description_it = descriptions.get('it', {}).get('value') or descriptions.get('en', {}).get('value', '')
+        description_it = (
+            descriptions.get('it', {}).get('value')
+            or descriptions.get('mul', {}).get('value')
+            or descriptions.get('en', {}).get('value')
+            or ''
+        )
 
         birth_date, birth_year = self._parse_date_claim(claims.get('P569', []))
         death_date, death_year = self._parse_date_claim(claims.get('P570', []))
@@ -276,7 +289,7 @@ class WikidataClient:
             'action': 'wbgetentities',
             'ids': '|'.join(qids),
             'props': 'labels',
-            'languages': f'{lang}|en',
+            'languages': f'{lang}|mul|en',
             'format': 'json',
         }
         data = self._get('https://www.wikidata.org/w/api.php', params)
@@ -284,7 +297,7 @@ class WikidataClient:
         labels = {}
         for qid in qids:
             lbls = entities.get(qid, {}).get('labels', {})
-            lbl = (lbls.get(lang) or lbls.get('en') or {}).get('value')
+            lbl = (lbls.get(lang) or lbls.get('mul') or lbls.get('en') or {}).get('value')
             if lbl:
                 labels[qid] = lbl
         return labels

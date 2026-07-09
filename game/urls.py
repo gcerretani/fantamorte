@@ -31,6 +31,7 @@ urlpatterns = [
     path('squadra/<int:pk>/modifica/', views.TeamEditView.as_view(), name='team_edit'),
     path('squadra/<int:pk>/elimina/', views.TeamDeleteView.as_view(), name='team_delete'),
     path('squadra/<int:pk>/aggiungi/', views.AddPersonView.as_view(), name='add_person'),
+    path('squadra/<int:pk>/rimuovi/<int:member_pk>/', views.RemovePersonView.as_view(), name='remove_person'),
     path('squadra/<int:pk>/sostituisci/<int:member_pk>/', views.SubstituteMemberView.as_view(), name='substitute_member'),
     path('squadra/<int:pk>/what-if/', views.TeamWhatIfView.as_view(), name='team_what_if'),
 
