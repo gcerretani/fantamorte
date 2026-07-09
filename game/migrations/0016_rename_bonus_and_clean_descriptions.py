@@ -12,16 +12,7 @@ from django.db import migrations
 UPDATES = {
     'Premio Nobel': (None, 'La persona ha ricevuto un premio Nobel, in qualsiasi disciplina.'),
     'Premio Oscar': (None, 'La persona ha ricevuto un premio Oscar.'),
-    'Campione olimpico': (None, 'La persona è stata campione olimpico.'),
     'Senatore a vita': (None, 'La persona è stata senatore a vita italiano.'),
-    'Capo di stato/governo/parlamento': (
-        None,
-        'Capo di stato, di governo o del parlamento di un qualsiasi stato, '
-        'in carica al momento della morte.',
-    ),
-    'Morte violenta': (None, 'Decesso per causa violenta.'),
-    'Morte in diretta TV': (None, 'Decesso avvenuto in diretta televisiva.'),
-    'Morte per COVID-19': (None, 'Decesso causato dal COVID-19.'),
     'Morte under 60': (
         'Morte giovane',
         'Punti proporzionali agli anni mancanti alla soglia dei 60.',
