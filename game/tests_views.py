@@ -1069,3 +1069,100 @@ class TeamWhatIfTest(ViewsBaseTestCase):
         self.assertContains(resp, 'Con Nascita')
         # self.person è senza dati di nascita: fallback a 80 anni, niente crash.
         self.assertContains(resp, self.person.name_it)
+
+
+class ClaimsRefreshOnCheckTest(ViewsBaseTestCase):
+    """Il controllo giocatori (diff/apply) rinfresca claims_cache e le cache bonus.
+
+    Regressione per il caso "Mario Monti": una persona viva già in rosa non
+    aveva alcun percorso che aggiornasse i claim in cache, quindi un bonus
+    Wikidata acquisito (o corretto) dopo l'ingresso in rosa non veniva mai
+    rilevato dal modal "se morisse oggi".
+    """
+
+    ENTITY = {
+        'name_it': 'Silvio Berlusconi', 'name_en': '', 'description_it': '',
+        'birth_date': None, 'birth_year': None,
+        'death_date': None, 'death_year': None,
+        'image_url': '', 'occupation': None, 'nationality': None,
+        'wikipedia_url_it': '', 'wiki_title_it': '',
+        'claims_cache': {'P39': [{'mainsnak': {
+            'snaktype': 'value',
+            'datavalue': {'type': 'wikibase-entityid', 'value': {'id': 'Q826589'}},
+        }}]},
+    }
+
+    def setUp(self):
+        super().setUp()
+        from django.core.cache import cache
+        cache.clear()
+
+    def _run_diff(self):
+        return self.client.post(
+            reverse('league_wikidata_diff', args=['lega-privata']),
+            data='{"person_pks": [%d]}' % self.person.pk,
+            content_type='application/json',
+        )
+
+    @patch('wikidata_api.client.WikidataClient.get_entity')
+    def test_diff_rinfresca_claims_cache(self, mock_entity):
+        mock_entity.return_value = dict(self.ENTITY)
+        self.assertEqual(self.person.claims_cache, {})
+        self.client.login(username='owner', password='x')
+        resp = self._run_diff()
+        self.assertEqual(resp.status_code, 200)
+        self.person.refresh_from_db()
+        self.assertIn('P39', self.person.claims_cache)
+
+    @patch('wikidata_api.client.WikidataClient.get_entity')
+    def test_diff_invalida_cache_bonus_potenziali(self, mock_entity):
+        """Scenario Monti completo: modal senza bonus → controllo → bonus rilevato."""
+        from .models import BonusType, LeagueBonus
+        mock_entity.return_value = dict(self.ENTITY)
+        senatore = BonusType.objects.get(name='Senatore a vita', league__isnull=True)
+        LeagueBonus.objects.create(league=self.private_league, bonus_type=senatore)
+
+        info_url = reverse('person_info', args=[self.person.pk]) + '?league=lega-privata'
+        self.client.login(username='owner', password='x')
+
+        # Prima del controllo: claims vuoti, nessun bonus (e risultato cachato 1h).
+        names = [b['name'] for b in self.client.get(info_url).json()['potential_bonuses']]
+        self.assertNotIn('Senatore a vita', names)
+
+        self.assertEqual(self._run_diff().status_code, 200)
+
+        # Dopo il controllo: claims freschi e cache invalidata, il bonus appare.
+        names = [b['name'] for b in self.client.get(info_url).json()['potential_bonuses']]
+        self.assertIn('Senatore a vita', names)
+
+    @patch('wikidata_api.client.WikidataClient.get_entity')
+    def test_diff_invalida_cache_check_gerarchico(self, mock_entity):
+        from django.core.cache import cache
+        mock_entity.return_value = dict(self.ENTITY)
+        # Esito negativo cachato dal check gerarchico SPARQL (TTL 7 giorni)
+        # per il bonus di sistema Senatore a vita (P39=Q826589).
+        stale_key = f'wd_bonus:{self.person.wikidata_id}:P39:Q826589'
+        cache.set(stale_key, False, 3600)
+        self.client.login(username='owner', password='x')
+        self.assertEqual(self._run_diff().status_code, 200)
+        self.assertIsNone(cache.get(stale_key))
+
+    @patch('wikidata_api.client.WikidataClient.get_entity')
+    def test_apply_rinfresca_claims_anche_senza_campi_toccati(self, mock_entity):
+        mock_entity.return_value = dict(self.ENTITY)
+        # occupation: nuovo valore None e valore esistente non vuoto → il campo
+        # viene saltato (touched=False), ma i claim vanno salvati comunque.
+        self.person.occupation = 'politico'
+        self.person.save()
+        self.client.login(username='owner', password='x')
+        resp = self.client.post(
+            reverse('league_wikidata_apply', args=['lega-privata']),
+            data=('{"updates": [{"person_pk": %d, "field": "occupation"}]}'
+                  % self.person.pk),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['applied'], 0)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.occupation, 'politico')
+        self.assertIn('P39', self.person.claims_cache)

@@ -1189,6 +1189,35 @@ def _potential_league_bonuses(person, league):
     return rows
 
 
+def _refresh_person_claims(person, entity):
+    """Salva i claim appena scaricati e invalida le cache che ne derivano.
+
+    Chiamato dagli endpoint diff/apply, che hanno già pagato la fetch
+    dell'entità: senza questo refresh il ``claims_cache`` di una persona
+    viva non viene mai più aggiornato (il cron ``check_deaths`` rinfresca i
+    claim solo dei morti), quindi i bonus Wikidata acquisiti dopo l'ingresso
+    in rosa non verrebbero mai rilevati.
+
+    Cache invalidate:
+    - ``fm_potential:<league>:<person>``: bonus "se morisse oggi" del modal,
+      per tutte le leghe in cui la persona è in una rosa attiva;
+    - ``wd_bonus:<qid>:<prop>:<value>``: esito (7 giorni) dei check
+      gerarchici SPARQL, per tutti i bonus Wikidata attivi.
+    """
+    person.claims_cache = entity.get('claims_cache', {})
+    league_pks = League.objects.filter(
+        teams__members__person=person,
+        teams__members__replaced_by__isnull=True,
+    ).distinct().values_list('pk', flat=True)
+    cache.delete_many([f'fm_potential:{lpk}:{person.pk}' for lpk in league_pks])
+    cache.delete_many([
+        f'wd_bonus:{person.wikidata_id}:{bt.wikidata_property}:{bt.wikidata_value}'
+        for bt in BonusType.objects.filter(
+            detection_method=BonusType.DETECTION_WIKIDATA, is_active=True,
+        ).exclude(wikidata_property='').exclude(wikidata_value='')
+    ])
+
+
 class PersonInfoView(LoginRequiredMixin, View):
     """Endpoint JSON per il pannello dettagli persona (open su click).
 
@@ -1561,6 +1590,12 @@ class LeagueBulkDiffView(LoginRequiredMixin, View):
                 })
                 continue
             changes = _compute_diff(person, entity)
+            # La fetch è già stata pagata: rinfresca anche i claim in cache
+            # (bonus detection), che per i vivi nessun altro percorso aggiorna.
+            # last_checked resta invariato: bumparlo qui ritarderebbe il
+            # rilevamento del decesso da parte del cron check_deaths.
+            _refresh_person_claims(person, entity)
+            person.save(update_fields=['claims_cache'])
             results.append({
                 'person_pk': person.pk,
                 'wikidata_id': person.wikidata_id,
@@ -1655,9 +1690,13 @@ class LeagueBulkApplyView(LoginRequiredMixin, View):
                 touched = True
                 applied += 1
 
+            # Come nel diff: la fetch c'è già stata, rinfresca i claim.
+            _refresh_person_claims(person, entity)
             if touched:
                 person.last_checked = timezone.now()
                 person.save()
+            else:
+                person.save(update_fields=['claims_cache'])
 
         return JsonResponse({'applied': applied, 'errors': errors})
 
