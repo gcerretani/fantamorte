@@ -1,13 +1,17 @@
-/* Fantamorte service worker */
+{% load static %}/* Fantamorte service worker */
 const CACHE = 'fantamorte-v{{ cache_version }}';
+// Asset propri risolti dal tag static di Django: in produzione
+// (ManifestStaticFilesStorage) sono i nomi con hash, gli stessi che le
+// pagine referenziano — i path non hashati non verrebbero mai riusati e
+// nginx li serve con cache lunga (30 giorni), rischiando stale.
 const PRECACHE = [
   '/',
   '/offline/',
-  '/static/css/fantamorte.css',
-  '/static/js/fantamorte.js',
-  '/static/pwa/icon.svg',
-  '/static/pwa/icon-192.png',
-  '/static/pwa/icon-512.png',
+  '{% static "css/fantamorte.css" %}',
+  '{% static "js/fantamorte.js" %}',
+  '{% static "pwa/icon.svg" %}',
+  '{% static "pwa/icon-192.png" %}',
+  '{% static "pwa/icon-512.png" %}',
   'https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css',
   'https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js',
 ];
@@ -73,8 +77,8 @@ self.addEventListener('push', function (event) {
   const title = data.title || '☠ Fantamorte';
   const options = {
     body: data.body || '',
-    icon: '/static/pwa/icon-192.png',
-    badge: '/static/pwa/icon-192.png',
+    icon: '{% static "pwa/icon-192.png" %}',
+    badge: '{% static "pwa/icon-192.png" %}',
     tag: data.tag || 'fantamorte',
     data: { url: data.url || '/' },
     requireInteraction: !!data.urgent,

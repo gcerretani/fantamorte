@@ -10,12 +10,17 @@
   padding-top: max(0.5rem, env(safe-area-inset-top, 0px));
 }
 body {
+  /* Fallback per browser senza max()/env(): la riga sotto lo sovrascrive. */
+  padding-top: 4.5rem;
   /* 3rem = altezza navbar senza il suo padding-top + 1rem di respiro. */
   padding-top: calc(3rem + max(0.5rem, env(safe-area-inset-top, 0px)) + 1rem);
 }
 html {
   /* Gli anchor/focus scroll non devono finire sotto la barra fissa. */
   scroll-padding-top: 4.5rem;
+  /* L'area scoperta dall'overscroll/rubber-band deve avere il colore
+     della pagina (bg-body-tertiary), non il bianco/nero di default. */
+  background-color: var(--bs-tertiary-bg);
 }
 
 /* Chips informative (metadati di lega/squadra: periodo, iscritti, owner…) */
