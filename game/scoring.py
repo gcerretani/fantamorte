@@ -265,7 +265,8 @@ def _compute_league_rankings_uncached(league):
     return rankings
 
 
-def simulate_team_points_for_person(team, person, death_age, death_month=None):
+def simulate_team_points_for_person(team, person, death_age, death_month=None,
+                                    extra_bonus_points=0):
     """Simula i punti che `team` farebbe se `person` morisse oggi con l'età data.
 
     Pensata per il simulatore "what-if". Non persiste nulla. Se `person` non
@@ -273,13 +274,17 @@ def simulate_team_points_for_person(team, person, death_age, death_month=None):
 
     death_month (1-12) abilita il moltiplicatore jolly se coincide col mese
     jolly del team. Se None, non considera il jolly.
+
+    extra_bonus_points somma al punteggio grezzo (prima dei moltiplicatori)
+    i bonus automatici della lega rilevati dal chiamante, ad es. con
+    `_potential_league_bonuses` (Wikidata/età, punti già calcolati per lega).
     """
     league = _league_of(team)
     member = team.members.filter(person=person, replaced_by__isnull=True).first()
     if member is None:
         return 0
 
-    raw = _base_points(league)
+    raw = _base_points(league) + extra_bonus_points
     if member.is_original and league is not None:
         for lb in _league_bonus_map(league).values():
             if lb.is_active and lb.bonus_type.detection_method == BonusType.DETECTION_ORIGINAL:

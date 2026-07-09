@@ -1069,3 +1069,38 @@ class TeamWhatIfTest(ViewsBaseTestCase):
         self.assertContains(resp, 'Con Nascita')
         # self.person è senza dati di nascita: fallback a 80 anni, niente crash.
         self.assertContains(resp, self.person.name_it)
+
+    def test_include_bonus_automatici_della_lega(self):
+        from django.core.cache import cache
+        from django.utils import timezone
+        from .models import BonusType, LeagueBonus
+        cache.clear()  # _potential_league_bonuses cacherebbe run precedenti
+        today = timezone.now().date()
+        # ~50 anni, con un claim P166=Q103360 (match esatto: niente rete).
+        self.person.birth_date = date(today.year - 50, 1, 1)
+        self.person.claims_cache = {'P166': [{'mainsnak': {
+            'snaktype': 'value',
+            'datavalue': {'type': 'wikibase-entityid', 'value': {'id': 'Q103360'}},
+        }}]}
+        self.person.save()
+        oscar = BonusType.objects.create(
+            name='Premio Oscar', points=20, detection_method='wikidata',
+            wikidata_property='P166', wikidata_value='Q103360',
+        )
+        giovane = BonusType.objects.create(
+            name='Morte giovane', points=0, points_formula='60-age',
+            detection_method='age', age_formula='age < 60',
+        )
+        manuale = BonusType.objects.create(
+            name='Bonus Manuale', points=30, detection_method='manual',
+        )
+        for bt in (oscar, giovane, manuale):
+            LeagueBonus.objects.create(league=self.private_league, bonus_type=bt)
+        self.client.login(username='member', password='x')
+        resp = self.client.get(reverse('team_what_if', args=[self.private_team.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Premio Oscar +20')
+        self.assertContains(resp, 'Morte giovane +10')  # 60-age con age=50
+        self.assertNotContains(resp, 'Bonus Manuale')
+        # base 50 + Oscar 20 + Morte giovane 10 = 80 (nessun moltiplicatore).
+        self.assertContains(resp, '<td class="text-end fw-bold">80</td>', html=True)
