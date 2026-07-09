@@ -229,8 +229,8 @@ class HierarchicalBonusCheckTest(TestCase):
         """Regressione per il fix del valore Wikidata di "Senatore a vita".
 
         Q3373168 era il valore sbagliato per P39; il corretto è Q826589
-        (seed in 0005_align_bonuses_with_rulebook). Un claim P39 con il
-        valore giusto deve matchare in match esatto, senza richieste di rete.
+        (migrazione 0017). Un claim P39 con il valore giusto deve matchare
+        in match esatto, senza richieste di rete.
         """
         client = WikidataClient()
         with patch.object(WikidataClient, '_sparql', side_effect=AssertionError('rete non attesa')):
@@ -239,9 +239,10 @@ class HierarchicalBonusCheckTest(TestCase):
         self.assertTrue(ok)
 
     def test_p166_assente_non_matcha_campione_olimpico(self):
-        """Motivo per cui "Campione olimpico" (P166=Q27020041) non è tra i
-        bonus di sistema: un admin di lega può crearlo come bonus
-        personalizzato con lo stesso P/Q, ma la detection resta inaffidabile.
+        """Motivo per cui "Campione olimpico" (P166=Q27020041) è stato
+        rimosso dai bonus di sistema (migrazione 0018): un admin di lega può
+        ricrearlo come bonus personalizzato con lo stesso P/Q, ma la
+        detection resta inaffidabile.
 
         Marcell Jacobs (oro nei 100 m a Tokyo 2020, QID reale Q25366209):
         molti risultati olimpici recenti sono codificati su Wikidata con

@@ -2,10 +2,9 @@
 from django.db import migrations
 
 
-# Stato target dei tipi di bonus secondo il regolamento. Solo bonus con
-# detection automatica (wikidata/age) o speciale (original, first/last death):
-# i bonus manuali non hanno un default di sistema, ogni lega crea i propri
-# dal pannello admin.
+# Stato target dei tipi di bonus secondo il regolamento.
+# Per Wikidata "ruolo politico" (P39) usiamo solo `wikidata_property` lasciando
+# vuoto il valore: la rilevazione manuale resta sempre possibile.
 TARGET = [
     {
         'name': 'Premio Nobel', 'points': 20, 'detection_method': 'wikidata',
@@ -18,9 +17,31 @@ TARGET = [
         'description': '20 punti per la morte di un premio Oscar.', 'ordering': 11,
     },
     {
+        'name': 'Campione olimpico', 'points': 20, 'detection_method': 'wikidata',
+        'wikidata_property': 'P166', 'wikidata_value': 'Q27020041',
+        'description': '20 punti per la morte di un campione olimpico.', 'ordering': 12,
+    },
+    {
         'name': 'Senatore a vita', 'points': 20, 'detection_method': 'wikidata',
-        'wikidata_property': 'P39', 'wikidata_value': 'Q826589',
+        'wikidata_property': 'P39', 'wikidata_value': 'Q3373168',
         'description': '20 punti per la morte di un senatore a vita italiano.', 'ordering': 13,
+    },
+    {
+        'name': 'Capo di stato/governo/parlamento', 'points': 30, 'detection_method': 'manual',
+        'description': '30 punti per la morte del capo di stato, di governo o del parlamento '
+                       'di un qualsiasi stato in carica al momento della morte.', 'ordering': 14,
+    },
+    {
+        'name': 'Morte violenta', 'points': 20, 'detection_method': 'manual',
+        'description': '20 punti per la morte violenta.', 'ordering': 15,
+    },
+    {
+        'name': 'Morte in diretta TV', 'points': 30, 'detection_method': 'manual',
+        'description': '30 punti per la morte in diretta televisiva.', 'ordering': 16,
+    },
+    {
+        'name': 'Morte per COVID-19', 'points': 100, 'detection_method': 'manual',
+        'description': '100 punti per la morte per COVID-19.', 'ordering': 17,
     },
     {
         'name': 'Morte under 60', 'points': 0, 'points_formula': '3*(60-age)',
