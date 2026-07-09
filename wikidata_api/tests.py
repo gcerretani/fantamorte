@@ -208,19 +208,20 @@ class HierarchicalBonusCheckTest(TestCase):
             self.assertTrue(client._check_wikidata_bonus('Q937', bonus, claims))
 
     def test_oscar_categoria_specifica_matcha_gerarchia(self):
-        # Esempio illustrativo (QID di persona/categoria a memoria, da
-        # riverificare su wikidata.org prima di fidarsene come fonte di
-        # verità): un vincitore reale di un Oscar di categoria ha P166 sulla
-        # categoria specifica ("Academy Award for Best Actor", Q103360), non
-        # sul bonus generico "Premio Oscar" (Q19020, il valore configurato in
-        # BonusType). La query gerarchica deve comunque far scattare il match.
+        # NON un esempio reale verificato: una versione precedente di questo
+        # test attribuiva Q41421/Q103360 a una persona/categoria Oscar reali
+        # a memoria, ma erano sbagliati (Q41421 non è chi si credeva).
+        # QID segnaposto: il punto del test è solo che, se il claim P166
+        # punta a una categoria specifica invece che al bonus generico
+        # configurato in BonusType, il match deve avvenire per via
+        # gerarchica (SPARQL), non per uguaglianza diretta.
         client = WikidataClient()
         with patch.object(WikidataClient, '_sparql', return_value={'boolean': True}) as mock_sparql:
             ok = client._check_wikidata_bonus(
-                'Q41421', self.FakeBonus('P166', 'Q19020'), self._claims('P166', 'Q103360'))
+                'Q1', self.FakeBonus('P166', 'Q19020'), self._claims('P166', 'Q2'))
         self.assertTrue(ok)
         query = mock_sparql.call_args[0][0]
-        self.assertIn('wd:Q41421', query)
+        self.assertIn('wd:Q1', query)
         self.assertIn('wdt:P166', query)
         self.assertIn('wd:Q19020', query)
 
