@@ -289,7 +289,7 @@ Note di efficienza (importanti se tocchi il client):
 /squadra/<pk>/aggiungi/         POST AJAX: aggiunge persona (Wikidata)
 /squadra/<pk>/rimuovi/<member_pk>/        POST AJAX: rimuove persona (solo fase composizione, mai morti/subentrati)
 /squadra/<pk>/sostituisci/<member_pk>/    flusso sostituzione
-/squadra/<pk>/what-if/          simulatore punti (capitano/jolly)
+/squadra/<pk>/what-if/          simulatore punti (capitano/jolly + bonus automatici di lega)
 
 /persona/<pk>/                  pagina dettaglio (con bio Wikipedia)
 /morte/<pk>/                    dettaglio decesso con bonus e squadre coinvolte

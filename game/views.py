@@ -1705,7 +1705,8 @@ class LeagueBulkApplyView(LoginRequiredMixin, View):
 
 class TeamWhatIfView(LoginRequiredMixin, View):
     """Simulatore: per una squadra dell'utente, mostra i punti che farebbe
-    ogni membro vivo se morisse oggi. Aiuta a scegliere capitano/jolly."""
+    ogni membro vivo se morisse oggi (bonus automatici della lega inclusi).
+    Aiuta a scegliere capitano/jolly."""
 
     template_name = 'game/team_what_if.html'
 
@@ -1720,6 +1721,7 @@ class TeamWhatIfView(LoginRequiredMixin, View):
             month = timezone.now().month
         month = max(1, min(12, month))
 
+        league = team.league if team.league_id else None
         active_members = team.members.filter(replaced_by__isnull=True).select_related('person')
         rows = []
         for m in active_members:
@@ -1728,11 +1730,18 @@ class TeamWhatIfView(LoginRequiredMixin, View):
             age = person.get_current_age()
             if age is None:
                 age = 80
-            points = scoring.simulate_team_points_for_person(team, person, age, death_month=month)
+            # Bonus automatici (Wikidata/età, anche personalizzati di lega):
+            # stessa detection e stessa cache del modal "se morisse oggi".
+            bonuses = _potential_league_bonuses(person, league) if league else []
+            points = scoring.simulate_team_points_for_person(
+                team, person, age, death_month=month,
+                extra_bonus_points=sum(b['points'] for b in bonuses),
+            )
             rows.append({
                 'member': m,
                 'person': person,
                 'simulated_age': age,
+                'bonuses': bonuses,
                 'points_now': points,
                 'is_jolly_month': team.jolly_month == month,
             })
