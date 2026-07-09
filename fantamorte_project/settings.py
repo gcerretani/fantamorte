@@ -127,8 +127,18 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # In produzione usa il manifest storage per cache busting automatico (hash nei
 # nomi file). In sviluppo si tiene il default per evitare overhead di collectstatic.
+# NB: va configurato via STORAGES (Django >= 4.2): la vecchia impostazione
+# STATICFILES_STORAGE è stata rimossa in Django 5.1 e verrebbe ignorata in
+# silenzio, lasciando i file senza hash (e nginx li serve con cache 30 giorni).
 if not DEBUG:
-    STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.ManifestStaticFilesStorage'
+    STORAGES = {
+        'default': {
+            'BACKEND': 'django.core.files.storage.FileSystemStorage',
+        },
+        'staticfiles': {
+            'BACKEND': 'django.contrib.staticfiles.storage.ManifestStaticFilesStorage',
+        },
+    }
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

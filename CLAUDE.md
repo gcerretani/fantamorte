@@ -72,7 +72,7 @@ fantamorte/
 ├── requirements.txt
 ├── Dockerfile
 ├── docker-compose.yml
-├── entrypoint.sh            # Migrations + gunicorn
+├── entrypoint.sh            # Migrations + collectstatic + gunicorn
 └── .env.example             # Tutti i parametri runtime
 ```
 
@@ -181,7 +181,14 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
 - **Service worker** servito da `/sw.js` (template Django, niente static).
   Cache offline: network-first per HTML, cache-first per asset; gestisce push.
   Il `cache_version` nel nome della cache è parametrico nel template Django
-  per evitare stale assets.
+  per evitare stale assets. Gli asset propri nel precache passano da
+  `{% static %}`: in produzione risolvono ai nomi con hash del
+  ManifestStaticFilesStorage (i path non hashati sarebbero a rischio stale,
+  nginx li serve con cache 30 giorni).
+- **Static in produzione**: `STATIC_ROOT` è un named volume condiviso con
+  nginx che **oscura** a ogni deploy il collectstatic fatto in build:
+  per questo `entrypoint.sh` riesegue `collectstatic --noinput` a ogni
+  avvio del container web. Non rimuoverlo.
 - **VAPID**: chiavi in env (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`,
   `VAPID_CLAIM_EMAIL`). Genera con `python manage.py generate_vapid_keys`.
   Senza VAPID, i tentativi di push sono no-op (non crashano).
