@@ -904,6 +904,154 @@ class LeagueDeleteTest(ViewsBaseTestCase):
         self.assertTrue(League.objects.filter(slug='lega-privata').exists())
 
 
+class RemoveMemberTest(ViewsBaseTestCase):
+    """Rimozione di un giocatore dalla rosa finché la squadra è modificabile."""
+
+    def setUp(self):
+        super().setUp()
+        self.member_row = self.private_team.members.get(person=self.person)
+
+    def _remove(self, member_pk=None):
+        return self.client.post(reverse(
+            'remove_person',
+            args=[self.private_team.pk, member_pk or self.member_row.pk],
+        ))
+
+    def test_manager_rimuove_membro_vivo(self):
+        self.client.login(username='member', password='x')
+        resp = self._remove()
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()['success'])
+        self.assertFalse(TeamMember.objects.filter(pk=self.member_row.pk).exists())
+
+    def test_estraneo_non_rimuove(self):
+        self.client.login(username='outsider', password='x')
+        resp = self._remove()
+        self.assertEqual(resp.status_code, 403)
+        self.assertTrue(TeamMember.objects.filter(pk=self.member_row.pk).exists())
+
+    def test_membro_morto_non_rimovibile(self):
+        self.person.is_dead = True
+        self.person.save()
+        self.client.login(username='member', password='x')
+        resp = self._remove()
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('sostituzione', resp.json()['error'])
+        self.assertTrue(TeamMember.objects.filter(pk=self.member_row.pk).exists())
+
+    def test_squadra_bloccata_non_rimuove(self):
+        self.private_team.is_locked = True
+        self.private_team.save()
+        self.client.login(username='member', password='x')
+        resp = self._remove()
+        self.assertEqual(resp.status_code, 400)
+        self.assertTrue(TeamMember.objects.filter(pk=self.member_row.pk).exists())
+
+    def test_registrazioni_chiuse_non_rimuove(self):
+        self.private_league.registration_closes = date(2020, 1, 1)
+        self.private_league.save()
+        self.client.login(username='member', password='x')
+        resp = self._remove()
+        self.assertEqual(resp.status_code, 400)
+        self.assertTrue(TeamMember.objects.filter(pk=self.member_row.pk).exists())
+
+    def test_subentrato_a_sostituzione_non_rimovibile(self):
+        # Rimuovere il subentrato riattiverebbe il membro morto sostituito.
+        sub = WikipediaPerson.objects.create(wikidata_id='Q90700', name_it='Subentrato')
+        new_member = TeamMember.objects.create(team=self.private_team, person=sub)
+        self.member_row.replaced_by = new_member
+        self.member_row.save()
+        self.client.login(username='member', password='x')
+        resp = self._remove(member_pk=new_member.pk)
+        self.assertEqual(resp.status_code, 400)
+        self.assertTrue(TeamMember.objects.filter(pk=new_member.pk).exists())
+
+    def test_membro_di_altra_squadra_404(self):
+        other_team = Team.objects.create(
+            name='Altra', manager=self.owner, league=self.private_league,
+        )
+        other_person = WikipediaPerson.objects.create(wikidata_id='Q90701', name_it='Altro')
+        other_member = TeamMember.objects.create(team=other_team, person=other_person)
+        self.client.login(username='member', password='x')
+        resp = self.client.post(reverse(
+            'remove_person', args=[self.private_team.pk, other_member.pk]))
+        self.assertEqual(resp.status_code, 404)
+        self.assertTrue(TeamMember.objects.filter(pk=other_member.pk).exists())
+
+
+class PersonInfoPotentialBonusTest(ViewsBaseTestCase):
+    """Il modal persona mostra i bonus automatici che scatterebbero nella lega."""
+
+    def setUp(self):
+        super().setUp()
+        from django.core.cache import cache
+        from django.utils import timezone
+        from .models import BonusType, LeagueBonus
+        cache.clear()  # _potential_league_bonuses cacherebbe run precedenti
+        today = timezone.now().date()
+        # ~50 anni, con un claim P166=Q7191 (match esatto: niente rete).
+        self.person.birth_date = date(today.year - 50, 1, 1)
+        self.person.claims_cache = {'P166': [{'mainsnak': {
+            'snaktype': 'value',
+            'datavalue': {'type': 'wikibase-entityid', 'value': {'id': 'Q7191'}},
+        }}]}
+        self.person.save()
+        self.wd_bonus = BonusType.objects.create(
+            name='Premio Nobel', points=20, detection_method='wikidata',
+            wikidata_property='P166', wikidata_value='Q7191',
+        )
+        self.age_bonus = BonusType.objects.create(
+            name='Morte giovane', points=0, points_formula='3*(60-age)',
+            detection_method='age', age_formula='age < 60',
+        )
+        self.manual_bonus = BonusType.objects.create(
+            name='Bonus Manuale', points=30, detection_method='manual',
+        )
+        for bt in (self.wd_bonus, self.age_bonus, self.manual_bonus):
+            LeagueBonus.objects.create(league=self.private_league, bonus_type=bt)
+
+    def _info(self, league='lega-privata'):
+        url = reverse('person_info', args=[self.person.pk])
+        if league:
+            url += f'?league={league}'
+        return self.client.get(url).json()
+
+    def test_bonus_wikidata_e_eta_rilevati_con_punti_di_lega(self):
+        self.client.login(username='member', password='x')
+        data = self._info()
+        names = {b['name']: b['points'] for b in data['potential_bonuses']}
+        self.assertEqual(names.get('Premio Nobel'), 20)
+        # Formula 3*(60-age) valutata sull'età attuale (50).
+        self.assertEqual(names.get('Morte giovane'), 30)
+        self.assertNotIn('Bonus Manuale', names)
+        self.assertEqual(data['base_points'], 50)
+        self.assertEqual(data['league_name'], 'Lega Privata')
+
+    def test_override_punti_della_lega_applicato(self):
+        from .models import LeagueBonus
+        LeagueBonus.objects.filter(bonus_type=self.wd_bonus).update(override_points=99)
+        self.client.login(username='member', password='x')
+        names = {b['name']: b['points'] for b in self._info()['potential_bonuses']}
+        self.assertEqual(names.get('Premio Nobel'), 99)
+
+    def test_senza_parametro_league_nessun_blocco(self):
+        self.client.login(username='member', password='x')
+        data = self._info(league='')
+        self.assertNotIn('potential_bonuses', data)
+
+    def test_lega_privata_non_visibile_all_estraneo(self):
+        self.client.login(username='outsider', password='x')
+        data = self._info()
+        self.assertNotIn('potential_bonuses', data)
+
+    def test_persona_morta_nessun_blocco(self):
+        self.person.is_dead = True
+        self.person.save()
+        self.client.login(username='member', password='x')
+        data = self._info()
+        self.assertNotIn('potential_bonuses', data)
+
+
 class TeamWhatIfTest(ViewsBaseTestCase):
     """La pagina what-if deve renderizzare con membri in rosa (con e senza dati di nascita)."""
 

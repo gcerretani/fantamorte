@@ -1,0 +1,51 @@
+{% comment %}
+Riepilogo visuale delle regole di una lega come griglia di tile compatte.
+Uso: {% include 'game/_league_rules_summary.html' with league=league %}
+Ogni tile è un numero-chiave con etichetta: leggibile a colpo d'occhio
+sia su mobile (2 colonne) sia su desktop.
+{% endcomment %}
+<div class="row g-2 row-cols-2 row-cols-sm-3">
+  <div class="col">
+    <div class="fm-stat">
+      <div class="fm-stat-value">{{ league.max_captains }}&#8202;C + {{ league.max_non_captains }}</div>
+      <div class="fm-stat-label">Composizione rosa</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="fm-stat">
+      <div class="fm-stat-value">{{ league.base_points }}</div>
+      <div class="fm-stat-label">Punti base a decesso</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="fm-stat">
+      <div class="fm-stat-value">&times;{{ league.captain_multiplier }}</div>
+      <div class="fm-stat-label">Capitano</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="fm-stat">
+      {% if league.jolly_enabled %}
+        <div class="fm-stat-value">&times;{{ league.jolly_multiplier }}</div>
+        <div class="fm-stat-label">Mese jolly</div>
+      {% else %}
+        <div class="fm-stat-value">&mdash;</div>
+        <div class="fm-stat-label">Jolly disattivato</div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col">
+    <div class="fm-stat">
+      <div class="fm-stat-value">{{ league.substitution_deadline_days }} gg</div>
+      <div class="fm-stat-label">Per sostituire</div>
+    </div>
+  </div>
+  {% if league.max_total_age %}
+  <div class="col">
+    <div class="fm-stat">
+      <div class="fm-stat-value">{{ league.max_total_age }}</div>
+      <div class="fm-stat-label">Età max rosa (somma)</div>
+    </div>
+  </div>
+  {% endif %}
+</div>

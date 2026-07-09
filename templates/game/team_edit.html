@@ -15,7 +15,22 @@
       </ol>
     </nav>
 
-    <h2>Modifica: {{ team.name }}</h2>
+    <h2 class="mb-2">Modifica squadra</h2>
+    <div class="fm-facts mb-3">
+      <span class="fm-fact" title="Squadra">
+        <span class="fm-fact-icon" aria-hidden="true">&#9760;</span>
+        {{ team.name }}
+      </span>
+      {% if league %}
+        <span class="fm-fact" title="Lega">
+          <span class="fm-fact-icon" aria-hidden="true">&#127942;</span>
+          <a href="{% url 'league_detail' league.slug %}">{{ league.name }}</a>
+        </span>
+      {% endif %}
+      {% if can_edit and league %}
+        <span class="badge text-bg-success">Modificabile fino al {{ league.registration_closes|date:"d/m/Y" }}</span>
+      {% endif %}
+    </div>
 
     {% if not can_edit %}
     <div class="alert alert-info">
@@ -94,7 +109,7 @@
           <th>Persona</th>
           <th>Nascita</th>
           <th>Stato</th>
-          {% if can_edit %}<th>Capitano</th>{% endif %}
+          {% if can_edit %}<th>Capitano</th><th><span class="visually-hidden">Rimuovi</span></th>{% endif %}
         </tr>
       </thead>
       <tbody>
@@ -133,6 +148,15 @@
             {% if can_edit %}
             <td>
               <input type="radio" name="captain_id" value="{{ member.pk }}" form="teamForm" {% if member.is_captain %}checked{% endif %}>
+            </td>
+            <td class="text-end">
+              {% if not member.person.is_dead and not member.replaces %}
+                <button type="button" class="btn btn-outline-danger btn-sm"
+                        data-fm-remove-member="{{ member.pk }}"
+                        data-fm-remove-name="{{ member.person.name_it }}"
+                        title="Rimuovi {{ member.person.name_it }} dalla rosa"
+                        aria-label="Rimuovi {{ member.person.name_it }} dalla rosa">&times;</button>
+              {% endif %}
             </td>
             {% endif %}
           </tr>
@@ -251,6 +275,40 @@
     } finally {
       btn.innerHTML = originalLabel;
       btn.disabled = !document.getElementById('selectedQid').value;
+    }
+  });
+
+  // Rimozione di un membro dalla rosa. Delega sul documento: la tabella
+  // viene sostituita in-place da refreshRoster, i listener diretti si
+  // perderebbero.
+  document.addEventListener('click', async function (e) {
+    const btn = e.target.closest('[data-fm-remove-member]');
+    if (!btn) return;
+    const name = btn.dataset.fmRemoveName || 'questo membro';
+    if (!confirm('Rimuovere ' + name + ' dalla rosa?')) return;
+    btn.disabled = true;
+
+    const fd = new FormData();
+    fd.append('csrfmiddlewaretoken', csrfToken);
+    try {
+      const resp = await fetch(`/squadra/${teamPk}/rimuovi/${btn.dataset.fmRemoveMember}/`,
+                               { method: 'POST', body: fd });
+      const data = await resp.json();
+      if (data.success) {
+        try {
+          await refreshRoster();
+        } catch (err) {
+          location.reload();
+          return;
+        }
+        fmToast('Rimosso: ' + data.name, 'success');
+      } else {
+        fmToast(data.error || 'Errore sconosciuto', 'danger');
+        btn.disabled = false;
+      }
+    } catch (err) {
+      fmToast('Errore di rete', 'danger');
+      btn.disabled = false;
     }
   });
 })();

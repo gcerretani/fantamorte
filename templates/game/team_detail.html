@@ -12,28 +12,39 @@
   </ol>
 </nav>
 
-<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
   <div>
-    <h2>{{ team.name }}</h2>
-    <p class="text-muted mb-0">
-      Gestore: <strong>{{ team.manager.username }}</strong>
+    <h2 class="mb-2">{{ team.name }}</h2>
+    <div class="fm-facts">
+      <span class="fm-fact" title="Gestore della squadra">
+        <span class="fm-fact-icon" aria-hidden="true">&#128100;</span>
+        {{ team.manager.username }}
+      </span>
       {% if team.league %}
-        &mdash; Lega: <a href="{% url 'league_detail' team.league.slug %}">{{ team.league.name }}</a>
+        <span class="fm-fact" title="Lega">
+          <span class="fm-fact-icon" aria-hidden="true">&#127942;</span>
+          <a href="{% url 'league_detail' team.league.slug %}">{{ team.league.name }}</a>
+        </span>
       {% endif %}
       {% if team.jolly_month %}
-        &mdash; Mese jolly: <span class="badge text-bg-info">{{ team.get_jolly_month_display }}</span>
+        <span class="fm-fact" title="Mese jolly: i punti del mese valgono ×{{ team.league.jolly_multiplier|default:2 }}">
+          <span class="fm-fact-icon" aria-hidden="true">&#127183;</span>
+          Jolly: {{ team.get_jolly_month_display }}
+        </span>
       {% endif %}
-    </p>
+    </div>
   </div>
   <div class="text-end">
-    <div class="display-5 fw-bold">{{ score }}</div>
-    <small class="text-muted">punti</small>
+    <div class="display-5 fw-bold lh-1">{{ score }}</div>
+    <small class="text-body-secondary">punti</small>
   </div>
 </div>
 
 {% if user == team.manager or user.is_staff %}
-  <a href="{% url 'team_edit' team.pk %}" class="btn btn-outline-secondary btn-sm mb-3">Modifica squadra</a>
-  <a href="{% url 'team_what_if' team.pk %}" class="btn btn-outline-secondary btn-sm mb-3">Simula "what if"</a>
+<div class="d-flex gap-2 mb-3">
+  <a href="{% url 'team_edit' team.pk %}" class="btn btn-outline-secondary btn-sm">Modifica squadra</a>
+  <a href="{% url 'team_what_if' team.pk %}" class="btn btn-outline-secondary btn-sm">Simula "what if"</a>
+</div>
 {% endif %}
 
 <div class="row">

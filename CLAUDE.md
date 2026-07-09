@@ -223,7 +223,9 @@ In `wikidata_api/client.py`. Nessun modello Django — è utility pura.
   (`HUMAN_SEARCH_QUERY`) per filtrare solo umani (P31=Q5) e, opzionalmente, solo persone
   con una pagina nelle wiki indicate (es. `['itwiki','enwiki']`). Più preciso del vecchio
   flusso Wikipedia-search → pageprops.
-- `get_entity(qid)`: fetch completo (labels, claims, immagine Commons, occupazione, nazionalità, URL Wikipedia)
+- `get_entity(qid)`: fetch completo (labels, claims, immagine Commons, occupazione, nazionalità, URL Wikipedia).
+  Fallback label/descrizione: `it → mul → en → QID` — la lingua speciale `mul`
+  è la label "default per tutte le lingue" di Wikidata, certe entità hanno solo quella
 - `get_summary(wiki_title)`: intro da Wikipedia italiana (cacheata 30 giorni)
 - `check_deaths_batch(qids, year)`: query SPARQL batch per morti in un dato anno
 - `detect_bonuses(qid, claims_cache, bonus_types)`: verifica proprietà Wikidata per i bonus
@@ -272,12 +274,14 @@ Note di efficienza (importanti se tocchi il client):
 /squadra/<pk>/                  dettaglio squadra
 /squadra/<pk>/modifica/         edit squadra (rosa, capitano, jolly)
 /squadra/<pk>/aggiungi/         POST AJAX: aggiunge persona (Wikidata)
+/squadra/<pk>/rimuovi/<member_pk>/        POST AJAX: rimuove persona (solo fase composizione, mai morti/subentrati)
 /squadra/<pk>/sostituisci/<member_pk>/    flusso sostituzione
 /squadra/<pk>/what-if/          simulatore punti (capitano/jolly)
 
 /persona/<pk>/                  pagina dettaglio (con bio Wikipedia)
 /morte/<pk>/                    dettaglio decesso con bonus e squadre coinvolte
-/api/persona/<pk>/              JSON per il modal (solo dati in DB + summary_stale)
+/api/persona/<pk>/              JSON per il modal (solo dati in DB + summary_stale; con
+                                ?league=<slug> aggiunge i bonus automatici "se morisse oggi")
 /api/persona/<pk>/summary/      refresh sincrono del summary Wikipedia (lazy dal modal)
 /api/search-person/             autocomplete Wikidata (accetta ?q=&league=<slug> per filtrare per lingua)
 /api/leghe/<slug>/wikidata-diff/    JSON POST: diff campi Wikidata vs DB (admin, max 10 persone)
@@ -336,7 +340,18 @@ Note di efficienza (importanti se tocchi il client):
   `<a href="#" data-fm-person-pk="{{ person.pk }}">…</a>` — il listener
   globale fa il resto. Il modal apre con uno skeleton
   (`<template id="fmPersonSkeleton">` in base.html) e carica la biografia
-  scaduta in lazy da `/api/persona/<pk>/summary/`.
+  scaduta in lazy da `/api/persona/<pk>/summary/`. Il contesto lega si
+  eredita dal più vicino antenato con `data-fm-league` (il `<main>` di
+  base.html lo imposta quando `league` o `team` sono in contesto): con la
+  lega nota, il modal mostra i bonus automatici "se morisse oggi".
+- La **navbar è `fixed-top`** (mai sticky: si muoverebbe con l'overscroll);
+  il body compensa l'altezza con un `padding-top` in `fantamorte.css` che
+  assorbe anche la safe area dei notch. Se cambi l'altezza della barra,
+  aggiorna quel padding.
+- **Chips e tile riusabili**: metadati di pagina (periodo, iscritti, owner,
+  jolly…) come chips `.fm-facts`/`.fm-fact`; numeri-chiave delle regole come
+  tile `.fm-stat` via partial `_league_rules_summary.html` (usato da
+  league_detail e league_scoring: non duplicare le regole nei template).
 - Per il **countdown** della deadline sostituzione, usa
   `<span class="fm-countdown" data-fm-countdown="{{ deadline|date:'U' }}">…</span>`
   (initializzato da `fmInitCountdowns`, richiamabile su un sottoalbero dopo
