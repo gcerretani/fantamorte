@@ -207,6 +207,59 @@ class HierarchicalBonusCheckTest(TestCase):
         with patch.object(WikidataClient, '_sparql', return_value={'boolean': True}):
             self.assertTrue(client._check_wikidata_bonus('Q937', bonus, claims))
 
+    def test_oscar_categoria_specifica_matcha_gerarchia(self):
+        # NON un esempio reale verificato: una versione precedente di questo
+        # test attribuiva Q41421/Q103360 a una persona/categoria Oscar reali
+        # a memoria, ma erano sbagliati (Q41421 non è chi si credeva).
+        # QID segnaposto: il punto del test è solo che, se il claim P166
+        # punta a una categoria specifica invece che al bonus generico
+        # configurato in BonusType, il match deve avvenire per via
+        # gerarchica (SPARQL), non per uguaglianza diretta.
+        client = WikidataClient()
+        with patch.object(WikidataClient, '_sparql', return_value={'boolean': True}) as mock_sparql:
+            ok = client._check_wikidata_bonus(
+                'Q1', self.FakeBonus('P166', 'Q19020'), self._claims('P166', 'Q2'))
+        self.assertTrue(ok)
+        query = mock_sparql.call_args[0][0]
+        self.assertIn('wd:Q1', query)
+        self.assertIn('wdt:P166', query)
+        self.assertIn('wd:Q19020', query)
+
+    def test_senatore_a_vita_valore_corretto_matcha_esatto(self):
+        """Regressione per il fix del valore Wikidata di "Senatore a vita".
+
+        Q3373168 era il valore sbagliato per P39; il corretto è Q826589
+        (migrazione 0017). Un claim P39 con il valore giusto deve matchare
+        in match esatto, senza richieste di rete.
+        """
+        client = WikidataClient()
+        with patch.object(WikidataClient, '_sparql', side_effect=AssertionError('rete non attesa')):
+            ok = client._check_wikidata_bonus(
+                'Q12345', self.FakeBonus('P39', 'Q826589'), self._claims('P39', 'Q826589'))
+        self.assertTrue(ok)
+
+    def test_p166_assente_non_matcha_campione_olimpico(self):
+        """Motivo per cui "Campione olimpico" (P166=Q27020041) è stato
+        rimosso dai bonus di sistema (migrazione 0018): un admin di lega può
+        ricrearlo come bonus personalizzato con lo stesso P/Q, ma la
+        detection resta inaffidabile.
+
+        Marcell Jacobs (oro nei 100 m a Tokyo 2020, QID reale Q25366209):
+        molti risultati olimpici recenti sono codificati su Wikidata con
+        "participant in" (P1344) + qualificatore "ranking" (P1352), non con
+        "award received" (P166) — non verificato dal vivo in questa sandbox,
+        ma è il pattern noto del WikiProject Olympics. Con P166 assente dai
+        claim, la detection non può rilevare il bonus: nessuna richiesta di
+        rete, nessun match.
+        """
+        client = WikidataClient()
+        claims = {'P1344': [{'mainsnak': {'snaktype': 'value', 'datavalue': {
+            'type': 'wikibase-entityid', 'value': {'id': 'Q106506757'}}}}]}
+        with patch.object(WikidataClient, '_sparql', side_effect=AssertionError('rete non attesa')):
+            ok = client._check_wikidata_bonus(
+                'Q25366209', self.FakeBonus('P166', 'Q27020041'), claims)
+        self.assertFalse(ok)
+
 
 class ThrottleTest(TestCase):
     """_throttle: mai prima della prima richiesta, sì tra richieste ravvicinate."""
