@@ -10,8 +10,13 @@
   </ol>
 </nav>
 
-<h2 class="mb-1">Gestione: {{ league.name }}</h2>
-<p class="text-muted">Solo admin/owner possono modificare queste impostazioni.</p>
+<div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-1">
+  <h2 class="mb-0">Gestione: {{ league.name }}</h2>
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'league_players_refresh' slug=league.slug %}">
+    &#8635; Controlla giocatori
+  </a>
+</div>
+<p class="text-body-secondary">Solo admin/owner possono modificare queste impostazioni.</p>
 
 <ul class="nav nav-tabs mb-3" id="adminTabs">
   <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tabRules">Regole</a></li>
@@ -20,11 +25,6 @@
   {% if league.visibility == 'private' %}
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabInvite">Codice invito</a></li>
   {% endif %}
-  <li class="nav-item ms-auto">
-    <a class="nav-link text-secondary" href="{% url 'league_players_refresh' slug=league.slug %}">
-      ↻ Controlla aggiornamenti giocatori
-    </a>
-  </li>
 </ul>
 
 <div class="tab-content">
@@ -133,7 +133,7 @@
 
   <!-- BONUS -->
   <div class="tab-pane fade" id="tabBonus">
-    <p class="small text-muted mb-2">
+    <p class="small text-body-secondary mb-2">
       La colonna <em>Assegnazione</em> mostra il criterio effettivo con cui il bonus viene
       applicato (letto dalla configurazione reale, non dalla descrizione).
       I bonus <span class="badge text-bg-secondary">manuale</span> si assegnano dalla
@@ -155,7 +155,7 @@
               <td>
                 <strong>{{ lb.bonus_type.name }}</strong>
                 {% if lb.bonus_type.league_id %}<span class="badge text-bg-info ms-1">personalizzato</span>{% endif %}
-                {% if lb.bonus_type.description %}<br><small class="text-muted">{{ lb.bonus_type.description }}</small>{% endif %}
+                {% if lb.bonus_type.description %}<br><small class="text-body-secondary">{{ lb.bonus_type.description }}</small>{% endif %}
               </td>
               <td>{% include 'game/_bonus_detection.html' with bt=lb.bonus_type %}</td>
               <td>
@@ -179,7 +179,7 @@
 
     <hr class="my-4">
     <h5>Nuovo bonus personalizzato</h5>
-    <p class="small text-muted mb-2">
+    <p class="small text-body-secondary mb-2">
       Con una proprietà Wikidata il bonus viene <strong>rilevato automaticamente</strong>
       quando la persona deceduta ha quella proprietà.
       Esempi: <code>P166</code>=<code>Q41254</code> (Grammy Award), <code>P509</code>=<code>Q84263196</code>
@@ -253,7 +253,7 @@
       <tbody>
         {% for m in memberships %}
           <tr>
-            <td>{{ m.user.username }} <small class="text-muted">{{ m.user.email }}</small></td>
+            <td>{{ m.user.username }} <small class="text-body-secondary d-none d-md-inline">{{ m.user.email }}</small></td>
             <td>
               {% if m.role == 'owner' %}<span class="badge text-bg-secondary">Owner</span>
               {% elif m.role == 'admin' %}<span class="badge text-bg-secondary">Admin</span>
@@ -274,7 +274,7 @@
                     {% csrf_token %}
                     <input type="hidden" name="action" value="promote_admin">
                     <input type="hidden" name="membership_id" value="{{ m.pk }}">
-                    <button class="btn btn-outline-info btn-sm">Promuovi admin</button>
+                    <button class="btn btn-outline-secondary btn-sm">Promuovi admin</button>
                   </form>
                 {% endif %}
                 <form method="post" class="d-inline" onsubmit="return confirm('Trasferire la proprietà a {{ m.user.username }}?');">
@@ -314,7 +314,7 @@
              value="{{ request.scheme }}://{{ request.get_host }}{% url 'league_join' league.slug %}?code={{ league.invite_code }}">
       <button type="button" class="btn btn-outline-secondary" id="copyInviteLink">Copia</button>
     </div>
-    <p class="small text-muted">Codice invito: <code>{{ league.invite_code }}</code></p>
+    <p class="small text-body-secondary">Codice invito: <code>{{ league.invite_code }}</code></p>
     <form method="post" onsubmit="return confirm('Rigenerando il codice, i link di invito già condivisi smetteranno di funzionare. Continuare?');">
       {% csrf_token %}
       <input type="hidden" name="action" value="rotate_invite">

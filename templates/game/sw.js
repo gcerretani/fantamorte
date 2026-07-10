@@ -40,7 +40,28 @@ self.addEventListener('fetch', function (event) {
   const sameOrigin = url.origin === self.location.origin;
   const isBootstrap = url.host === 'cdn.jsdelivr.net';
   if (!sameOrigin && !isBootstrap) return;
-  // Network-first per HTML, cache-first per asset statici
+  // Cache-first SOLO per asset immutabili: static (nomi con hash), media,
+  // CDN. Mai per le API: una risposta JSON cachata qui verrebbe riservita
+  // per sempre e il modal persona mostrerebbe bonus/dati vecchi anche a
+  // server aggiornato.
+  const isAsset = isBootstrap
+    || url.pathname.startsWith('/static/')
+    || url.pathname.startsWith('/media/');
+  if (isAsset) {
+    event.respondWith(
+      caches.match(req).then(function (cached) {
+        return cached || fetch(req).then(function (resp) {
+          if (resp.ok) {
+            const copy = resp.clone();
+            caches.open(CACHE).then(function (c) { c.put(req, copy); });
+          }
+          return resp;
+        });
+      })
+    );
+    return;
+  }
+  // Network-first con fallback offline per le pagine HTML.
   if (req.headers.get('accept') && req.headers.get('accept').includes('text/html')) {
     event.respondWith(
       fetch(req).then(function (resp) {
@@ -55,19 +76,8 @@ self.addEventListener('fetch', function (event) {
         return caches.match(req).then(function (m) { return m || caches.match('/offline/'); });
       })
     );
-  } else {
-    event.respondWith(
-      caches.match(req).then(function (cached) {
-        return cached || fetch(req).then(function (resp) {
-          if (resp.ok) {
-            const copy = resp.clone();
-            caches.open(CACHE).then(function (c) { c.put(req, copy); });
-          }
-          return resp;
-        });
-      })
-    );
   }
+  // Tutto il resto (API JSON, manifest, ...): non intercettare, va in rete.
 });
 
 // -------- Push --------

@@ -1143,10 +1143,29 @@ class ClaimsRefreshOnCheckTest(ViewsBaseTestCase):
     def test_diff_rinfresca_claims_cache(self, mock_entity):
         mock_entity.return_value = dict(self.ENTITY)
         self.assertEqual(self.person.claims_cache, {})
+        self.assertIsNone(self.person.last_checked)
         self.client.login(username='owner', password='x')
         resp = self._run_diff()
         self.assertEqual(resp.status_code, 200)
         self.person.refresh_from_db()
+        self.assertIn('P39', self.person.claims_cache)
+        # Persona viva su Wikidata: il diff vale come check, last_checked
+        # aggiornato e riportato nella risposta (la pagina aggiorna la colonna).
+        self.assertIsNotNone(self.person.last_checked)
+        self.assertTrue(resp.json()['results'][0]['last_checked'])
+
+    @patch('wikidata_api.client.WikidataClient.get_entity')
+    def test_diff_non_bumpa_last_checked_se_morto(self, mock_entity):
+        """Se Wikidata riporta il decesso, last_checked resta invariato:
+        il cron check_deaths deve processare la persona al più presto."""
+        entity = dict(self.ENTITY)
+        entity['death_date'] = date(2026, 7, 1)
+        entity['death_year'] = 2026
+        mock_entity.return_value = entity
+        self.client.login(username='owner', password='x')
+        self.assertEqual(self._run_diff().status_code, 200)
+        self.person.refresh_from_db()
+        self.assertIsNone(self.person.last_checked)
         self.assertIn('P39', self.person.claims_cache)
 
     @patch('wikidata_api.client.WikidataClient.get_entity')

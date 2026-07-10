@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Controlla giocatori – {{ league.name }}{% endblock %}
+{% block title %}Controlla giocatori — {{ league.name }}{% endblock %}
 {% block content %}
 
 <nav aria-label="breadcrumb" class="mb-3">
@@ -18,7 +18,7 @@
     Controlla tutti
   </button>
 </div>
-<p class="text-muted small">
+<p class="text-body-secondary small">
   Recupera i dati aggiornati da Wikidata e mostra le differenze rispetto al database locale.
   Puoi scegliere quali modifiche importare. Il controllo aggiorna anche i dati
   usati per il rilevamento automatico dei bonus (es. premi e cariche
@@ -31,7 +31,7 @@
     <thead>
       <tr>
         <th>Nome</th>
-        <th>Wikidata</th>
+        <th class="d-none d-md-table-cell">Wikidata</th>
         <th>Ultimo controllo</th>
         <th>Stato</th>
         <th></th>
@@ -46,8 +46,8 @@
           <span class="badge text-bg-secondary ms-1" title="Escluso dai controlli automatici">Frozen</span>
           {% endif %}
         </td>
-        <td><code class="small">{{ person.wikidata_id }}</code></td>
-        <td class="text-muted small">
+        <td class="d-none d-md-table-cell"><code class="small">{{ person.wikidata_id }}</code></td>
+        <td class="text-body-secondary small" id="lastcheck-{{ person.pk }}">
           {% if person.last_checked %}
             {{ person.last_checked|date:"d/m/Y H:i" }}
           {% else %}
@@ -75,14 +75,14 @@
   </table>
 </div>
 {% else %}
-<p class="text-muted">Nessun giocatore attivo in questa lega.</p>
+<p class="text-body-secondary">Nessun giocatore attivo in questa lega.</p>
 {% endif %}
 
 <!-- Sezione diff -->
 <div id="diff-section" class="d-none mt-4">
   <hr>
   <h4>Aggiornamenti disponibili</h4>
-  <p class="text-muted small">
+  <p class="text-body-secondary small">
     Le modifiche <span class="badge text-bg-success">verdi</span> aggiungono dati nuovi.
     Le modifiche <span class="badge text-bg-danger">rosse</span> rimuovono un valore esistente: verificale con attenzione prima di importare.
   </p>
@@ -131,7 +131,7 @@
 
     const withChanges = results.filter(r => !r.error && r.changes.length > 0);
     if (!withChanges.length) {
-      wrapper.innerHTML = '<p class="text-muted">Nessuna differenza trovata.</p>';
+      wrapper.innerHTML = '<p class="text-body-secondary">Nessuna differenza trovata.</p>';
       document.getElementById('diff-section').classList.remove('d-none');
       updateApplyButton();
       return;
@@ -148,8 +148,8 @@
         const rowspan = i === 0 ? ` rowspan="${person.changes.length}"` : '';
         const nameCell = i === 0 ? `<td${rowspan}><strong>${fmEscapeHtml(person.name_it)}</strong><br><code class="small">${fmEscapeHtml(person.wikidata_id)}</code></td>` : '';
         const rowClass = ch.is_removal ? 'table-danger' : (ch.field === 'death_date' || ch.field === 'death_year' ? 'table-success' : '');
-        const oldDisplay = ch.old !== null ? fmEscapeHtml(ch.old) : '<em class="text-muted">—</em>';
-        const newDisplay = ch.new !== null ? fmEscapeHtml(ch.new) : '<em class="text-muted">—</em>';
+        const oldDisplay = ch.old !== null ? fmEscapeHtml(ch.old) : '<em class="text-body-secondary">—</em>';
+        const newDisplay = ch.new !== null ? fmEscapeHtml(ch.new) : '<em class="text-body-secondary">—</em>';
         const badge = ch.is_removal ? '<span class="badge text-bg-danger ms-1">Rimozione</span>' : '';
         newValues.push(ch.new !== null ? ch.new : '');
         html += `<tr class="${rowClass}">
@@ -195,7 +195,13 @@
   const allResults = new Map();
 
   function mergeResults(results) {
-    results.forEach(r => allResults.set(r.person_pk, r));
+    results.forEach(r => {
+      allResults.set(r.person_pk, r);
+      if (r.last_checked) {
+        const td = document.getElementById('lastcheck-' + r.person_pk);
+        if (td) td.textContent = r.last_checked;
+      }
+    });
     renderDiff(Array.from(allResults.values()));
   }
 
@@ -314,7 +320,7 @@
         if (resp.ok) {
           applied += data.applied || 0;
           if (data.errors) errors.push(...data.errors);
-          resultSpan.className = 'ms-2 small text-muted';
+          resultSpan.className = 'ms-2 small text-body-secondary';
           resultSpan.textContent = `${applied} modifiche importate…`;
         } else {
           errors.push(data.error || 'Errore sconosciuto');

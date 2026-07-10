@@ -14,8 +14,8 @@
 </nav>
 
 <h2>Nomina sostituto per {{ member.person.name_it }}</h2>
-<p class="text-muted mb-1">
-  &#9760; Morto/a il {{ member.person.death_date }}
+<p class="text-body-secondary mb-1">
+  &#9760; Morto/a il {{ member.person.death_date|date:"d/m/Y" }}
   {% if member.is_captain %} &mdash; <span class="badge text-bg-primary">Capitano</span>{% endif %}
 </p>
 
@@ -36,7 +36,7 @@
   <form method="post" id="substituteForm">
     {% csrf_token %}
     <input type="hidden" id="selectedQid" name="wikidata_id">
-    <p id="selectedName" class="text-muted">Nessuna persona selezionata</p>
+    <p id="selectedName" class="text-body-secondary">Nessuna persona selezionata</p>
     <button type="submit" id="submitBtn" class="btn btn-primary" disabled>Conferma sostituzione</button>
     <a href="{% url 'team_edit' team.pk %}" class="btn btn-outline-secondary ms-2">Annulla</a>
   </form>
@@ -50,7 +50,7 @@
   fmPersonSearch(document.querySelector('[data-fm-person-search]'), {
     onSelect: function (p) {
       document.getElementById('selectedQid').value = p.wikidata_id;
-      document.getElementById('selectedName').textContent = p.name_it + ' (' + p.wikidata_id + ')';
+      document.getElementById('selectedName').textContent = p.name_it;
       document.getElementById('submitBtn').disabled = false;
     },
   });

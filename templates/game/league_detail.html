@@ -9,47 +9,17 @@
   </ol>
 </nav>
 
-{# ---- Header: nome, stato, metadati come chips, azioni ---- #}
+{# ---- Header: nome, descrizione, azione primaria, fatti essenziali ---- #}
 <div class="mb-4">
-  <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
-    <div>
-      <h2 class="mb-1 d-flex align-items-center gap-2 flex-wrap">
-        {{ league.name }}
-        <span class="badge {% if league.visibility == 'public' %}text-bg-success{% else %}text-bg-secondary{% endif %} fs-6 fw-normal">
-          {% if league.visibility == 'public' %}Pubblica{% else %}Privata{% endif %}
-        </span>
-      </h2>
-      {% if league.description %}<p class="text-body-secondary mb-2">{{ league.description }}</p>{% endif %}
-    </div>
-    <div class="d-flex gap-2 flex-wrap">
-      {% if is_admin %}
-        <a href="{% url 'league_admin' league.slug %}" class="btn btn-outline-secondary btn-sm">Gestisci</a>
-      {% endif %}
-      {% if is_member %}
-        {% if my_team %}
-          <a href="{% url 'team_edit' my_team.pk %}" class="btn btn-primary btn-sm">La mia squadra</a>
-        {% elif league.is_registration_open %}
-          <a href="{% url 'team_create' league.slug %}" class="btn btn-primary btn-sm">Crea squadra</a>
-        {% endif %}
-        {% if not is_owner %}
-        <form method="post" action="{% url 'league_leave' league.slug %}" class="d-inline" onsubmit="return confirm('Sicuro di voler abbandonare la lega?');">
-          {% csrf_token %}
-          <button class="btn btn-outline-danger btn-sm">Esci</button>
-        </form>
-        {% endif %}
-      {% else %}
-        <form method="post" action="{% url 'league_join' league.slug %}" class="d-inline">
-          {% csrf_token %}
-          {% if league.visibility == 'private' %}
-            <input type="text" name="invite_code" placeholder="Codice invito" class="form-control form-control-sm d-inline-block fm-input-narrow">
-          {% endif %}
-          <button class="btn btn-primary btn-sm">Iscriviti</button>
-        </form>
-      {% endif %}
-    </div>
-  </div>
+  <h2 class="mb-1 d-flex align-items-center gap-2 flex-wrap">
+    {{ league.name }}
+    <span class="badge {% if league.visibility == 'public' %}text-bg-success{% else %}text-bg-secondary{% endif %} fs-6 fw-normal">
+      {% if league.visibility == 'public' %}Pubblica{% else %}Privata{% endif %}
+    </span>
+  </h2>
+  {% if league.description %}<p class="text-body-secondary mb-2">{{ league.description }}</p>{% endif %}
 
-  <div class="fm-facts mt-1">
+  <div class="fm-facts mb-3">
     <span class="fm-fact" title="Periodo di gioco">
       <span class="fm-fact-icon" aria-hidden="true">&#128197;</span>
       {{ league.start_date|date:"d/m/Y" }} &rarr; {{ league.end_date|date:"d/m/Y" }}
@@ -58,14 +28,31 @@
       <span class="fm-fact-icon" aria-hidden="true">&#128101;</span>
       {{ league.memberships.count }} iscritt{{ league.memberships.count|pluralize:"o,i" }}
     </span>
-    <span class="fm-fact" title="Proprietario della lega">
-      <span class="fm-fact-icon" aria-hidden="true">&#128100;</span>
-      {{ league.owner.username }}
-    </span>
     {% if league.is_registration_open %}
       <span class="badge text-bg-success">Iscrizioni aperte fino al {{ league.registration_closes|date:"d/m/Y" }}</span>
     {% else %}
       <span class="badge text-bg-secondary">Iscrizioni chiuse</span>
+    {% endif %}
+  </div>
+
+  <div class="d-flex gap-2 flex-wrap">
+    {% if is_member %}
+      {% if my_team %}
+        <a href="{% url 'team_edit' my_team.pk %}" class="btn btn-primary">La mia squadra</a>
+      {% elif league.is_registration_open %}
+        <a href="{% url 'team_create' league.slug %}" class="btn btn-primary">Crea squadra</a>
+      {% endif %}
+    {% else %}
+      <form method="post" action="{% url 'league_join' league.slug %}" class="d-inline">
+        {% csrf_token %}
+        {% if league.visibility == 'private' %}
+          <input type="text" name="invite_code" placeholder="Codice invito" class="form-control form-control-sm d-inline-block fm-input-narrow">
+        {% endif %}
+        <button class="btn btn-primary">Iscriviti</button>
+      </form>
+    {% endif %}
+    {% if is_admin %}
+      <a href="{% url 'league_admin' league.slug %}" class="btn btn-outline-secondary">Gestisci</a>
     {% endif %}
   </div>
 </div>
@@ -125,6 +112,20 @@
       della lega; il totale è moltiplicato per capitano e/o mese jolly.
     </p>
   </div>
+</div>
+
+{# ---- Footer: meta secondaria e azioni rare ---- #}
+<div class="mt-5 pt-3 border-top d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <small class="text-body-secondary">
+    <span aria-hidden="true">&#128100;</span>
+    Lega creata da <strong>{{ league.owner.username }}</strong>
+  </small>
+  {% if is_member and not is_owner %}
+  <form method="post" action="{% url 'league_leave' league.slug %}" class="d-inline" onsubmit="return confirm('Sicuro di voler abbandonare la lega?');">
+    {% csrf_token %}
+    <button class="btn btn-outline-danger btn-sm">Abbandona la lega</button>
+  </form>
+  {% endif %}
 </div>
 
 {% endblock %}

@@ -2,13 +2,20 @@
 {% block title %}{{ person.name_it }} — Fantamorte{% endblock %}
 {% block content %}
 
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb mb-2">
+    <li class="breadcrumb-item"><a href="{% url 'home' %}">Home</a></li>
+    <li class="breadcrumb-item active" aria-current="page">{{ person.name_it }}</li>
+  </ol>
+</nav>
+
 <div class="row">
   <div class="col-md-4 mb-3">
     {% if person.image_url %}
       <img src="{{ person.image_url }}" alt="Foto di {{ person.name_it }}"
         loading="lazy" decoding="async" class="img-fluid rounded shadow-sm">
     {% else %}
-      <div class="bg-secondary text-light text-center rounded p-5">
+      <div class="bg-body-secondary text-body-secondary text-center rounded p-5">
         <span class="fs-1">&#128100;</span>
       </div>
     {% endif %}
@@ -16,7 +23,7 @@
   <div class="col-md-8">
     <h2 class="mb-1">{{ person.name_it }}</h2>
     {% if person.description_it %}
-      <p class="text-muted mb-2">{{ person.description_it }}</p>
+      <p class="text-body-secondary mb-2">{{ person.description_it }}</p>
     {% endif %}
     <ul class="list-unstyled small">
       {% if person.birth_date or person.birth_year %}
@@ -61,7 +68,7 @@
         &mdash; {{ tm.team.manager.username }})
         {% if tm.is_captain %}<span class="badge text-bg-primary">capitano</span>{% endif %}
         {% if tm.is_original %}<span class="badge text-bg-info">originale</span>{% endif %}
-        {% if tm.replaced_by %}<small class="text-muted">— sostituito/a</small>{% endif %}
+        {% if tm.replaced_by %}<small class="text-body-secondary">— sostituito/a</small>{% endif %}
       </li>
     {% endfor %}
   </ul>

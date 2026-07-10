@@ -15,7 +15,7 @@
 
 <div class="mb-3">
   <h2 class="mb-1">Simulatore "What if"</h2>
-  <p class="text-muted">
+  <p class="text-body-secondary">
     Stima dei punti che la squadra otterrebbe se ciascun membro vivo morisse oggi nel mese selezionato.
     Utile per scegliere capitano e mese jolly informati.
   </p>
@@ -35,7 +35,7 @@
   </div>
   {% if team.jolly_month %}
     <div class="col-auto">
-      <small class="text-muted">Mese jolly attuale: <strong>{{ team.get_jolly_month_display }}</strong></small>
+      <small class="text-body-secondary">Mese jolly attuale: <strong>{{ team.get_jolly_month_display }}</strong></small>
     </div>
   {% endif %}
 </form>
@@ -56,7 +56,7 @@
     </thead>
     <tbody>
       {% for r in rows %}
-        <tr {% if r.points_now == 0 %}class="text-muted"{% endif %}>
+        <tr {% if r.points_now == 0 %}class="text-body-secondary"{% endif %}>
           <th scope="row">{{ forloop.counter }}</th>
           <td>
             <a href="#" data-fm-person-pk="{{ r.person.pk }}">{{ r.person.name_it }}</a>
@@ -73,13 +73,13 @@
           <td class="text-end fw-bold">{{ r.points_now }}</td>
         </tr>
       {% empty %}
-        <tr><td colspan="7" class="text-center text-muted">Nessun membro attivo da simulare.</td></tr>
+        <tr><td colspan="7" class="text-center text-body-secondary">Nessun membro attivo da simulare.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
 
-<p class="small text-muted">
+<p class="small text-body-secondary">
   La stima include i bonus automatici della lega (Wikidata ed età, anche personalizzati)
   rilevati sui dati attuali, come nel dettaglio persona "se morisse oggi". Non considera
   i bonus assegnati manualmente né quelli di primo/ultimo decesso della stagione:

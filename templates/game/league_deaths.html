@@ -19,7 +19,7 @@
 </div>
 
 {% if is_admin and assignable_bonuses %}
-  <p class="small text-muted mb-2">
+  <p class="small text-body-secondary mb-2">
     Come admin puoi assegnare a mano i bonus ai decessi (i punti mostrati sono quelli
     effettivi di questa lega, override inclusi). Attenzione: i bonus <em>di sistema</em>
     valgono in tutte le leghe che li hanno attivati; solo quelli
@@ -36,7 +36,7 @@
             <h5 class="mb-1">
               <a href="{% url 'person_detail' row.death.person.pk %}" data-fm-person-pk="{{ row.death.person.pk }}">{{ row.death.person.name_it }}</a>
             </h5>
-            <small class="text-muted">
+            <small class="text-body-secondary">
               {{ row.death.death_date|date:"d F Y" }}{% if row.death.death_age %} &middot; {{ row.death.death_age }} anni{% endif %}
             </small>
           </div>
@@ -82,7 +82,7 @@
     {% endfor %}
   </div>
 {% else %}
-  <p class="text-muted">Nessun decesso registrato in questa lega.</p>
+  <p class="text-body-secondary">Nessun decesso registrato in questa lega.</p>
 {% endif %}
 
 {% endblock %}

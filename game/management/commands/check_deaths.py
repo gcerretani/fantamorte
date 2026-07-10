@@ -12,6 +12,7 @@ from django.utils import timezone
 from game.models import (
     BonusType, Death, DeathBonus, League, SiteSettings, WikipediaPerson,
 )
+from game.scoring import invalidate_person_bonus_caches
 from wikidata_api.client import WikidataClient
 
 
@@ -115,6 +116,10 @@ class Command(BaseCommand):
             person.claims_cache = entity.get('claims_cache', {})
             person.last_checked = timezone.now()
             person.save()
+            # I claim sono appena stati rinfrescati: un esito negativo cachato
+            # del check gerarchico (wd_bonus, 7 giorni) non deve far perdere
+            # bonus alla detect_bonuses qui sotto.
+            invalidate_person_bonus_caches(person)
 
             year_for_death = (death_date or date_cls(death_year, 1, 1)).year
 

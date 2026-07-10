@@ -20,9 +20,9 @@
             <div class="d-flex justify-content-between align-items-center">
               <div>
                 <strong>{{ entry.league.name }}</strong>
-                <small class="text-muted">— {{ entry.league.start_date|date:"Y" }}</small>
-                {% if entry.role == 'owner' %}<span class="badge text-bg-secondary">owner</span>
-                {% elif entry.role == 'admin' %}<span class="badge text-bg-secondary">admin</span>{% endif %}
+                <small class="text-body-secondary">— {{ entry.league.start_date|date:"Y" }}</small>
+                {% if entry.role == 'owner' %}<span class="badge text-bg-secondary">Owner</span>
+                {% elif entry.role == 'admin' %}<span class="badge text-bg-secondary">Admin</span>{% endif %}
               </div>
               <div class="text-end">
                 {% if entry.team %}
@@ -44,7 +44,7 @@
       </div>
     {% else %}
       <div class="card">
-        <div class="card-body text-center text-muted">
+        <div class="card-body text-center text-body-secondary">
           <p class="mb-2">Non sei iscritto a nessuna lega.</p>
           <a href="{% url 'league_list' %}" class="btn btn-primary">Esplora leghe</a>
           <a href="{% url 'league_create' %}" class="btn btn-outline-secondary">Crea la tua</a>
@@ -62,15 +62,15 @@
             <div class="d-flex justify-content-between">
               <div>
                 <strong>{{ league.name }}</strong><br>
-                <small class="text-muted">{{ league.description|truncatewords:12 }}</small>
+                <small class="text-body-secondary">{{ league.description|truncatewords:12 }}</small>
               </div>
-              <small class="text-muted">{{ league.start_date|date:"Y" }}</small>
+              <small class="text-body-secondary">{{ league.start_date|date:"Y" }}</small>
             </div>
           </a>
         {% endfor %}
       </div>
     {% else %}
-      <p class="text-muted small">Nessuna lega pubblica al momento.</p>
+      <p class="text-body-secondary small">Nessuna lega pubblica al momento.</p>
     {% endif %}
   </div>
 </div>

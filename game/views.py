@@ -1102,7 +1102,9 @@ class PersonDetailView(LoginRequiredMixin, DetailView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         person = self.object
-        if not person.summary_it and person.wikipedia_url_it:
+        # _refresh_person_summary è già no-op se il summary è fresco: la
+        # guardia su summary_it lo lascerebbe stale per sempre oltre i 30 gg.
+        if person.wikipedia_url_it:
             _refresh_person_summary(person)
         members = TeamMember.objects.filter(person=person).select_related(
             'team__manager', 'team__league',
@@ -1151,7 +1153,9 @@ def _potential_league_bonuses(person, league):
     """
     if person.is_dead:
         return []
-    cache_key = f'fm_potential:{league.pk}:{person.pk}'
+    # La chiave include la versione di cache della lega: cambi a regole o
+    # bonus (pannello admin) la fanno scadere subito, senza attendere il TTL.
+    cache_key = f'fm_potential:{league.pk}:{scoring.league_cache_version(league.pk)}:{person.pk}'
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -1197,25 +1201,9 @@ def _refresh_person_claims(person, entity):
     viva non viene mai più aggiornato (il cron ``check_deaths`` rinfresca i
     claim solo dei morti), quindi i bonus Wikidata acquisiti dopo l'ingresso
     in rosa non verrebbero mai rilevati.
-
-    Cache invalidate:
-    - ``fm_potential:<league>:<person>``: bonus "se morisse oggi" del modal,
-      per tutte le leghe in cui la persona è in una rosa attiva;
-    - ``wd_bonus:<qid>:<prop>:<value>``: esito (7 giorni) dei check
-      gerarchici SPARQL, per tutti i bonus Wikidata attivi.
     """
     person.claims_cache = entity.get('claims_cache', {})
-    league_pks = League.objects.filter(
-        teams__members__person=person,
-        teams__members__replaced_by__isnull=True,
-    ).distinct().values_list('pk', flat=True)
-    cache.delete_many([f'fm_potential:{lpk}:{person.pk}' for lpk in league_pks])
-    cache.delete_many([
-        f'wd_bonus:{person.wikidata_id}:{bt.wikidata_property}:{bt.wikidata_value}'
-        for bt in BonusType.objects.filter(
-            detection_method=BonusType.DETECTION_WIKIDATA, is_active=True,
-        ).exclude(wikidata_property='').exclude(wikidata_value='')
-    ])
+    scoring.invalidate_person_bonus_caches(person)
 
 
 class PersonInfoView(LoginRequiredMixin, View):
@@ -1592,15 +1580,25 @@ class LeagueBulkDiffView(LoginRequiredMixin, View):
             changes = _compute_diff(person, entity)
             # La fetch è già stata pagata: rinfresca anche i claim in cache
             # (bonus detection), che per i vivi nessun altro percorso aggiorna.
-            # last_checked resta invariato: bumparlo qui ritarderebbe il
-            # rilevamento del decesso da parte del cron check_deaths.
             _refresh_person_claims(person, entity)
-            person.save(update_fields=['claims_cache'])
+            update_fields = ['claims_cache']
+            # Persona viva su Wikidata: il controllo appena fatto equivale a
+            # un check del cron, aggiorna last_checked. Se invece l'entità
+            # riporta un decesso NON bumpare: check_deaths deve processarla
+            # al più presto (Death, bonus, notifiche).
+            if not entity.get('death_date') and not entity.get('death_year'):
+                person.last_checked = timezone.now()
+                update_fields.append('last_checked')
+            person.save(update_fields=update_fields)
             results.append({
                 'person_pk': person.pk,
                 'wikidata_id': person.wikidata_id,
                 'name_it': person.name_it,
                 'changes': changes,
+                'last_checked': (
+                    timezone.localtime(person.last_checked).strftime('%d/%m/%Y %H:%M')
+                    if person.last_checked else None
+                ),
             })
         return JsonResponse({'results': results})
 

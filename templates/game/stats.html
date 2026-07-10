@@ -34,13 +34,13 @@
         </table>
       </div>
     {% else %}
-      <p class="text-muted">Non hai ancora squadre: iscriviti a una lega per iniziare.</p>
+      <p class="text-body-secondary">Non hai ancora squadre: iscriviti a una lega per iniziare.</p>
     {% endif %}
   </div>
 
   <div class="col-lg-6 mb-4">
     <h4>Leaderboard all-time</h4>
-    <p class="text-muted small mb-2">Punti cumulati in tutte le leghe pubbliche e nelle tue leghe private.</p>
+    <p class="text-body-secondary small mb-2">Punti cumulati in tutte le leghe pubbliche e nelle tue leghe private.</p>
     {% if all_time %}
       <div class="table-responsive">
         <table class="table table-hover align-middle">
@@ -55,7 +55,7 @@
           </thead>
           <tbody>
             {% for a in all_time %}
-              <tr {% if a.manager == user %}class="table-warning"{% endif %}>
+              <tr {% if a.manager == user %}class="table-active"{% endif %}>
                 <td>{{ forloop.counter }}</td>
                 <td>{{ a.manager.username }}</td>
                 <td class="text-end"><strong>{{ a.points }}</strong></td>
@@ -67,7 +67,7 @@
         </table>
       </div>
     {% else %}
-      <p class="text-muted">Nessuna lega con squadre al momento.</p>
+      <p class="text-body-secondary">Nessuna lega con squadre al momento.</p>
     {% endif %}
   </div>
 </div>

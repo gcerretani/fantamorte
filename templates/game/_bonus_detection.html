@@ -5,22 +5,22 @@ usati dalla detection (detection_method, wikidata_property/value, age_formula):
 {% endcomment %}
 {% if bt.detection_method == 'wikidata' %}
   <span class="badge text-bg-info">automatico</span>
-  <small class="text-muted">Wikidata
+  <small class="text-body-secondary">Wikidata
     <code>{{ bt.wikidata_property }}{% if bt.wikidata_value %}={{ bt.wikidata_value }}{% endif %}</code>{% if not bt.wikidata_value %} (qualsiasi valore){% endif %},
     anche via gerarchia (istanza/sottoclasse/parte)</small>
 {% elif bt.detection_method == 'age' %}
   <span class="badge text-bg-info">automatico</span>
-  <small class="text-muted">in base all'età{% if bt.age_formula %}: <code>{{ bt.age_formula }}</code>{% endif %}</small>
+  <small class="text-body-secondary">in base all'età{% if bt.age_formula %}: <code>{{ bt.age_formula }}</code>{% endif %}</small>
 {% elif bt.detection_method == 'original' %}
   <span class="badge text-bg-info">speciale</span>
-  <small class="text-muted">calcolato automaticamente per ogni squadra (giocata originale)</small>
+  <small class="text-body-secondary">calcolato automaticamente per ogni squadra (giocata originale)</small>
 {% elif bt.detection_method == 'first_death' %}
   <span class="badge text-bg-info">speciale</span>
-  <small class="text-muted">calcolato automaticamente: primo decesso del periodo della lega</small>
+  <small class="text-body-secondary">calcolato automaticamente: primo decesso del periodo della lega</small>
 {% elif bt.detection_method == 'last_death' %}
   <span class="badge text-bg-info">speciale</span>
-  <small class="text-muted">calcolato automaticamente: ultimo decesso del periodo della lega (a lega conclusa)</small>
+  <small class="text-body-secondary">calcolato automaticamente: ultimo decesso del periodo della lega (a lega conclusa)</small>
 {% else %}
   <span class="badge text-bg-secondary">manuale</span>
-  <small class="text-muted">assegnato dagli admin della lega dalla pagina decessi</small>
+  <small class="text-body-secondary">assegnato dagli admin della lega dalla pagina decessi</small>
 {% endif %}
