@@ -4,15 +4,13 @@ Una lega è "in corso" quando `start_date <= oggi <= end_date`. Per ogni
 anno coperto da almeno una lega in corso, vengono controllate le
 persone che fanno parte di quelle leghe (TeamMember attivi, non sostituiti).
 """
-from datetime import date as date_cls, timedelta
+from datetime import timedelta
 from django.core.management.base import BaseCommand
 from django.db.models import Q
 from django.utils import timezone
 
-from game.models import (
-    BonusType, Death, DeathBonus, League, SiteSettings, WikipediaPerson,
-)
-from game.scoring import invalidate_person_bonus_caches
+from game.models import League, SiteSettings, WikipediaPerson
+from game.person_sync import sync_person_from_entity
 from wikidata_api.client import WikidataClient
 
 
@@ -57,9 +55,6 @@ class Command(BaseCommand):
             years = sorted({y for l in leagues for y in range(l.start_date.year, l.end_date.year + 1)})
 
         client = WikidataClient()
-        bonus_types = BonusType.objects.filter(
-            is_active=True, detection_method__in=['wikidata', 'age']
-        )
 
         # Persone candidate: membri attivi di queste leghe, non già morti
         active_persons = WikipediaPerson.objects.filter(
@@ -110,55 +105,13 @@ class Command(BaseCommand):
                 self.stdout.write(f'[DRY] {person.name_it} ({qid}) † {death_date or death_year}')
                 continue
 
-            person.death_date = death_date
-            person.death_year = death_year
-            person.is_dead = True
-            person.claims_cache = entity.get('claims_cache', {})
-            person.last_checked = timezone.now()
-            person.save()
-            # I claim sono appena stati rinfrescati: un esito negativo cachato
-            # del check gerarchico (wd_bonus, 7 giorni) non deve far perdere
-            # bonus alla detect_bonuses qui sotto.
-            invalidate_person_bonus_caches(person)
-
-            year_for_death = (death_date or date_cls(death_year, 1, 1)).year
-
-            death, created = Death.objects.get_or_create(
-                person=person,
-                defaults={
-                    'death_date': death_date or date_cls(year_for_death, 12, 31),
-                    'death_age': person.get_age_at_death(),
-                    'source': Death.SOURCE_WIKIDATA,
-                    # Il dato arriva da Wikidata con data valida: si conferma
-                    # subito (punti + notifiche via signal). Revocabile da admin;
-                    # data_frozen sulla persona esclude dai check successivi.
-                    'is_confirmed': autoconfirm,
-                },
+            # L'applicazione dei dati (campi, claims, cache, Death + bonus)
+            # è la stessa di ogni altro percorso: core condiviso.
+            death, _created = sync_person_from_entity(
+                person, entity, client=client, autoconfirm=autoconfirm,
             )
 
-            if created:
-                # Auto-rileva bonus
-                for bt in client.detect_bonuses(qid, person.claims_cache, bonus_types):
-                    DeathBonus.objects.get_or_create(
-                        death=death, bonus_type=bt,
-                        defaults={'points_awarded': bt.points, 'is_auto_detected': True},
-                    )
-                age = person.get_age_at_death()
-                if age is not None:
-                    for bt in bonus_types.filter(detection_method='age'):
-                        if client.detect_age_bonus(age, bt):
-                            DeathBonus.objects.get_or_create(
-                                death=death, bonus_type=bt,
-                                defaults={'points_awarded': bt.points, 'is_auto_detected': True},
-                            )
-
-            if not created and autoconfirm and not death.is_confirmed:
-                # Decesso già registrato ma mai confermato: promuovilo
-                # (la transizione False→True fa scattare punti e notifiche).
-                death.is_confirmed = True
-                death.save()
-
-            status = 'confermato' if death.is_confirmed else 'da confermare'
+            status = 'confermato' if death and death.is_confirmed else 'da confermare'
             self.stdout.write(self.style.SUCCESS(
                 f'Decesso ({status}): {person.name_it} ({qid}) † {death_date or death_year}'
             ))

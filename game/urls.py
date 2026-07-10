@@ -42,9 +42,9 @@ urlpatterns = [
     path('api/persona/<int:pk>/summary/', views.PersonSummaryView.as_view(), name='person_summary'),
     path('api/search-person/', views.PersonSearchView.as_view(), name='person_search'),
 
-    # Wikidata diff/apply (per pannello admin lega)
+    # Sync Wikidata dei giocatori (per pannello admin lega); stesso core del
+    # cron check_deaths, vedi game/person_sync.py.
     path('api/leghe/<slug:slug>/wikidata-diff/', views.LeagueBulkDiffView.as_view(), name='league_wikidata_diff'),
-    path('api/leghe/<slug:slug>/wikidata-apply/', views.LeagueBulkApplyView.as_view(), name='league_wikidata_apply'),
 
     # Push
     path('api/push/subscribe/', views.PushSubscribeView.as_view(), name='push_subscribe'),

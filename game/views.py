@@ -24,7 +24,7 @@ from django.views.generic import TemplateView, DetailView, View
 
 from wikidata_api.client import WikidataClient
 
-from . import scoring
+from . import person_sync, scoring
 from .models import (
     MONTHS_IT, BonusType, Death, DeathBonus, League, LeagueBonus,
     LeagueMembership, PushSubscription, SiteSettings, Team, TeamMember,
@@ -787,35 +787,21 @@ def _get_or_refresh_person(wikidata_id):
 
     Se la persona è in cache locale ed è stata verificata entro
     ``wikidata_check_interval_hours`` non tocca la rete; altrimenti fa il
-    fetch da Wikidata e aggiorna (o crea) il record.
+    fetch da Wikidata e sincronizza (o crea) il record con lo stesso core
+    del cron ``check_deaths`` e della pagina admin giocatori.
     """
     interval = SiteSettings.get().wikidata_check_interval_hours
     threshold = timezone.now() - timedelta(hours=interval)
     existing = WikipediaPerson.objects.filter(wikidata_id=wikidata_id).first()
     if existing and existing.last_checked and existing.last_checked >= threshold:
         return existing, None
+    client = WikidataClient()
     try:
-        entity = WikidataClient().get_entity(wikidata_id)
+        entity = client.get_entity(wikidata_id)
     except Exception as e:
         return existing, f'Errore Wikidata: {e}'
-    person, _ = WikipediaPerson.objects.update_or_create(
-        wikidata_id=wikidata_id,
-        defaults={
-            'name_it': entity['name_it'],
-            'name_en': entity.get('name_en', ''),
-            'description_it': entity.get('description_it', ''),
-            'birth_date': entity.get('birth_date'),
-            'birth_year': entity.get('birth_year'),
-            'death_date': entity.get('death_date'),
-            'is_dead': entity.get('death_date') is not None or entity.get('death_year') is not None,
-            'image_url': entity.get('image_url', ''),
-            'occupation': entity.get('occupation') or '',
-            'nationality': entity.get('nationality') or '',
-            'claims_cache': entity.get('claims_cache', {}),
-            'wikipedia_url_it': entity.get('wikipedia_url_it', ''),
-            'last_checked': timezone.now(),
-        }
-    )
+    person = existing or WikipediaPerson(wikidata_id=wikidata_id)
+    person_sync.sync_person_from_entity(person, entity, client=client)
     return person, None
 
 
@@ -1193,19 +1179,6 @@ def _potential_league_bonuses(person, league):
     return rows
 
 
-def _refresh_person_claims(person, entity):
-    """Salva i claim appena scaricati e invalida le cache che ne derivano.
-
-    Chiamato dagli endpoint diff/apply, che hanno già pagato la fetch
-    dell'entità: senza questo refresh il ``claims_cache`` di una persona
-    viva non viene mai più aggiornato (il cron ``check_deaths`` rinfresca i
-    claim solo dei morti), quindi i bonus Wikidata acquisiti dopo l'ingresso
-    in rosa non verrebbero mai rilevati.
-    """
-    person.claims_cache = entity.get('claims_cache', {})
-    scoring.invalidate_person_bonus_caches(person)
-
-
 class PersonInfoView(LoginRequiredMixin, View):
     """Endpoint JSON per il pannello dettagli persona (open su click).
 
@@ -1477,10 +1450,6 @@ DIFF_FIELDS = [
     ('nationality', 'Nazionalità'),
 ]
 
-DEATH_FIELDS = {'death_date', 'death_year'}
-APPLYABLE_FIELDS = {f for f, _ in DIFF_FIELDS}
-
-
 def _league_persons(league):
     """Tutti i WikipediaPerson distinti in team attivi (non sostituiti) della lega."""
     return WikipediaPerson.objects.filter(
@@ -1529,14 +1498,21 @@ class LeaguePlayersRefreshView(LoginRequiredMixin, View):
         })
 
 
-# Numero massimo di persone per singola richiesta diff/apply: il fetch da
+# Numero massimo di persone per singola richiesta di sync: il fetch da
 # Wikidata è sequenziale, un batch illimitato sfora il timeout Gunicorn
 # (60s). Il client spezza il "Controlla tutti" in blocchi di questa taglia.
 MAX_DIFF_BATCH = 10
 
 
 class LeagueBulkDiffView(LoginRequiredMixin, View):
-    """POST JSON → restituisce i diff Wikidata per un blocco di persone."""
+    """POST JSON → sincronizza da Wikidata un blocco di persone della lega.
+
+    È l'equivalente manuale del cron ``check_deaths``: stesso core
+    (:func:`game.person_sync.sync_person_from_entity`), quindi stessa
+    applicazione di campi, claims, cache e registrazione dei decessi con
+    punti e notifiche. La risposta riporta le differenze applicate.
+    Le persone ``data_frozen`` vengono saltate, come nei check automatici.
+    """
 
     def post(self, request, slug):
         league = get_object_or_404(League, slug=slug)
@@ -1566,6 +1542,18 @@ class LeagueBulkDiffView(LoginRequiredMixin, View):
         client = WikidataClient()
         results = []
         for person in persons:
+            # data_frozen = "i dati Wikidata di questa persona sono
+            # errati/incompleti, non applicarli": vale anche per la
+            # sincronizzazione manuale, come per il cron.
+            if person.data_frozen:
+                results.append({
+                    'person_pk': person.pk,
+                    'wikidata_id': person.wikidata_id,
+                    'name_it': person.name_it,
+                    'frozen': True,
+                    'changes': [],
+                })
+                continue
             try:
                 entity = client.get_entity(person.wikidata_id)
             except Exception as e:
@@ -1577,126 +1565,26 @@ class LeagueBulkDiffView(LoginRequiredMixin, View):
                     'changes': [],
                 })
                 continue
+            # Report delle differenze calcolato PRIMA della sync (per il
+            # rendering); l'applicazione vera è il core condiviso, identico
+            # al cron: campi, claims, cache, registrazione decesso.
             changes = _compute_diff(person, entity)
-            # La fetch è già stata pagata: rinfresca anche i claim in cache
-            # (bonus detection), che per i vivi nessun altro percorso aggiorna.
-            _refresh_person_claims(person, entity)
-            update_fields = ['claims_cache']
-            # Persona viva su Wikidata: il controllo appena fatto equivale a
-            # un check del cron, aggiorna last_checked. Se invece l'entità
-            # riporta un decesso NON bumpare: check_deaths deve processarla
-            # al più presto (Death, bonus, notifiche).
-            if not entity.get('death_date') and not entity.get('death_year'):
-                person.last_checked = timezone.now()
-                update_fields.append('last_checked')
-            person.save(update_fields=update_fields)
+            death, death_created = person_sync.sync_person_from_entity(
+                person, entity, client=client,
+            )
             results.append({
                 'person_pk': person.pk,
                 'wikidata_id': person.wikidata_id,
                 'name_it': person.name_it,
                 'changes': changes,
+                'is_dead': person.is_dead,
+                'death_registered': death_created,
                 'last_checked': (
                     timezone.localtime(person.last_checked).strftime('%d/%m/%Y %H:%M')
                     if person.last_checked else None
                 ),
             })
         return JsonResponse({'results': results})
-
-
-class LeagueBulkApplyView(LoginRequiredMixin, View):
-    """POST JSON → riapplica i campi selezionati dai dati Wikidata.
-
-    Il client indica solo QUALI campi applicare (person_pk + field): i valori
-    vengono sempre rifetchati da Wikidata server-side. WikipediaPerson è un
-    record globale condiviso fra tutte le leghe, quindi non si accettano mai
-    valori arbitrari dal body della richiesta.
-    """
-
-    def post(self, request, slug):
-        league = get_object_or_404(League, slug=slug)
-        if not league.is_admin(request.user):
-            return JsonResponse({'error': 'Permesso negato'}, status=403)
-
-        try:
-            body = json.loads(request.body or '{}')
-        except (ValueError, UnicodeDecodeError):
-            return JsonResponse({'error': 'JSON non valido'}, status=400)
-
-        updates = body.get('updates', [])
-        if not isinstance(updates, list):
-            return JsonResponse({'error': 'updates deve essere una lista'}, status=400)
-
-        # Verifica che tutte le persone appartengano alla lega
-        valid_pks = set(
-            WikipediaPerson.objects.filter(
-                team_members__team__league=league,
-                team_members__replaced_by__isnull=True,
-            ).distinct().values_list('pk', flat=True)
-        )
-
-        errors = []
-
-        # Raggruppa i campi richiesti per persona: una sola fetch Wikidata ciascuna.
-        fields_by_pk = {}
-        for upd in updates:
-            if not isinstance(upd, dict):
-                errors.append('Elemento di updates non valido.')
-                continue
-            person_pk = upd.get('person_pk')
-            field = upd.get('field')
-
-            if person_pk not in valid_pks:
-                errors.append(f'Persona {person_pk} non appartiene a questa lega.')
-                continue
-            if field not in APPLYABLE_FIELDS:
-                errors.append(f'Campo non modificabile: {field}')
-                continue
-            fields_by_pk.setdefault(person_pk, set()).add(field)
-
-        if len(fields_by_pk) > MAX_DIFF_BATCH:
-            return JsonResponse(
-                {'error': f'Troppe persone in una richiesta (max {MAX_DIFF_BATCH}): applica a blocchi'},
-                status=400)
-
-        client = WikidataClient()
-        applied = 0
-
-        for person_pk, fields in fields_by_pk.items():
-            try:
-                person = WikipediaPerson.objects.get(pk=person_pk)
-            except WikipediaPerson.DoesNotExist:
-                errors.append(f'Persona {person_pk} non trovata.')
-                continue
-
-            try:
-                entity = client.get_entity(person.wikidata_id)
-            except Exception as e:
-                errors.append(f'Wikidata non raggiungibile per {person.name_it}: {e}')
-                continue
-
-            touched = False
-            for field in fields:
-                new_value = entity.get(field)
-                old_value = getattr(person, field)
-                # None = dato non determinabile da Wikidata (es. timeout label
-                # lookup): non cancellare il valore esistente, come nel diff.
-                if new_value is None and old_value not in (None, ''):
-                    continue
-                setattr(person, field, new_value)
-                if field in DEATH_FIELDS:
-                    person.is_dead = bool(person.death_date or person.death_year)
-                touched = True
-                applied += 1
-
-            # Come nel diff: la fetch c'è già stata, rinfresca i claim.
-            _refresh_person_claims(person, entity)
-            if touched:
-                person.last_checked = timezone.now()
-                person.save()
-            else:
-                person.save(update_fields=['claims_cache'])
-
-        return JsonResponse({'applied': applied, 'errors': errors})
 
 
 # ---------------- Simulatore What-If ----------------

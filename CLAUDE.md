@@ -45,6 +45,7 @@ fantamorte/
 │   ├── admin.py             # Django admin
 │   ├── forms.py             # Form allauth con classi Bootstrap (ACCOUNT_FORMS)
 │   ├── scoring.py           # Calcolo punteggi (sorgente di verità: la League)
+│   ├── person_sync.py       # Core UNICO di sync persona da Wikidata (campi, claims, Death)
 │   ├── push.py              # Web Push (VAPID + broadcast)
 │   ├── email.py             # Email transazionali (decesso, reminder sostituzione)
 │   ├── signals.py           # Hook su Death.is_confirmed → push + email
@@ -259,15 +260,18 @@ Note di efficienza (importanti se tocchi il client):
 - Il summary Wikipedia è **lazy**: `/api/persona/<pk>/` risponde solo con i
   dati in DB + flag `summary_stale`; il refresh sincrono sta in
   `/api/persona/<pk>/summary/`, chiamato dal client dopo il render del modal.
-- Gli endpoint bulk diff/apply accettano **max 10 persone per richiesta**
+- **Tutti i percorsi che applicano dati Wikidata a una persona passano da
+  `game/person_sync.py`** (`sync_person_from_entity`): campi anagrafici (con
+  guardia sui None), `claims_cache` + invalidazione cache bonus derivate,
+  `last_checked`, registrazione `Death` con auto-detect bonus e conferma.
+  I chiamanti sono tre — il cron `check_deaths`, l'endpoint sync della
+  pagina admin giocatori, `_get_or_refresh_person` (aggiunta in rosa) — e
+  differiscono solo per la *strategia di selezione* delle persone, mai per
+  come applicano i dati. Non aggiungere percorsi di scrittura paralleli.
+- L'endpoint sync giocatori accetta **max 10 persone per richiesta**
   (`MAX_DIFF_BATCH`): il fan-out lo fa il browser a blocchi con concorrenza
   2 (vedi `league_players_refresh.html`), mai una singola richiesta lunga.
-  Entrambi, avendo già pagato la fetch dell'entità, rinfrescano anche
-  `claims_cache` e invalidano le cache bonus derivate
-  (`_refresh_person_claims` in `views.py`): per una persona **viva** è
-  l'unico percorso che aggiorna i claim (il cron `check_deaths` li rinfresca
-  solo per i morti). Il diff non tocca `last_checked`: bumparlo
-  ritarderebbe il rilevamento decessi del cron.
+  Le persone `data_frozen` vengono saltate anche dalla sync manuale.
 
 ## URL principali (mappa)
 
@@ -281,7 +285,7 @@ Note di efficienza (importanti se tocchi il client):
 /leghe/<slug>/regolamento/      riepilogo regole+bonus della lega (visibile a tutti i membri)
 /leghe/<slug>/classifica/       classifica completa
 /leghe/<slug>/decessi/          timeline decessi (con assegnazione manuale bonus per gli admin)
-/leghe/<slug>/giocatori/        refresh Wikidata giocatori della lega (admin)
+/leghe/<slug>/giocatori/        sync Wikidata giocatori della lega (admin)
 /leghe/<slug>/squadra/nuova/    crea la mia squadra in questa lega
 
 /squadra/<pk>/                  dettaglio squadra
@@ -297,8 +301,7 @@ Note di efficienza (importanti se tocchi il client):
                                 ?league=<slug> aggiunge i bonus automatici "se morisse oggi")
 /api/persona/<pk>/summary/      refresh sincrono del summary Wikipedia (lazy dal modal)
 /api/search-person/             autocomplete Wikidata (accetta ?q=&league=<slug> per filtrare per lingua)
-/api/leghe/<slug>/wikidata-diff/    JSON POST: diff campi Wikidata vs DB (admin, max 10 persone)
-/api/leghe/<slug>/wikidata-apply/   JSON POST: applica campi selezionati (admin, max 10 persone)
+/api/leghe/<slug>/wikidata-diff/    JSON POST: sync Wikidata + report differenze (admin, max 10 persone)
 
 /profilo/                       preferenze utente (push/email/dark mode)
 /statistiche/                   statistiche cross-lega (storico + leaderboard all-time)
