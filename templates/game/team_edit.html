@@ -67,7 +67,7 @@
       <h5 class="mb-0" id="fmRosterHeader">
         Rosa ({{ active_count }} / {{ max_captains|add:max_non_captains|default:12 }})
         {% if league.max_total_age %}
-          <small class="text-muted fw-normal">— età totale {{ total_age }} / {{ league.max_total_age }}</small>
+          <small class="text-body-secondary fw-normal">— età totale {{ total_age }} / {{ league.max_total_age }}</small>
         {% endif %}
       </h5>
       {% if can_edit %}
@@ -83,7 +83,7 @@
         </div>
         <div class="d-flex gap-2 align-items-center">
           <input type="hidden" id="selectedQid" name="wikidata_id">
-          <span id="selectedName" class="text-muted small flex-grow-1">Nessuna persona selezionata</span>
+          <span id="selectedName" class="text-body-secondary small flex-grow-1">Nessuna persona selezionata</span>
           <div class="form-check form-check-inline">
             <input class="form-check-input" type="checkbox" id="isCaptain" value="1">
             <label class="form-check-label" for="isCaptain">Capitano</label>
@@ -130,10 +130,10 @@
             <td><small>{% if member.person.birth_date %}{{ member.person.birth_date.year }}{% elif member.person.birth_year %}{{ member.person.birth_year }}{% endif %}</small></td>
             <td>
               {% if member.person.is_dead %}
-                <span class="text-danger">&#9760; {{ member.person.death_date }}</span>
+                <span class="text-danger">&#9760; {{ member.person.death_date|date:"d/m/Y" }}</span>
                 {% with deadline=member.get_substitution_deadline %}
                   {% if deadline %}
-                    <br><small class="text-muted">scade <span class="fm-countdown" data-fm-countdown="{{ deadline|date:'U' }}">…</span></small>
+                    <br><small class="text-body-secondary">scade <span class="fm-countdown" data-fm-countdown="{{ deadline|date:'U' }}">…</span></small>
                   {% endif %}
                   {% if can_edit and member.can_be_substituted %}
                     <a href="{% url 'substitute_member' team.pk member.pk %}" class="btn btn-primary btn-sm ms-1">Sostituisci</a>
@@ -166,7 +166,7 @@
     </table>
     </div>
     {% else %}
-    <p class="text-muted">La rosa è vuota: cerca un personaggio qui sopra per aggiungerlo.</p>
+    <p class="text-body-secondary">La rosa è vuota: cerca un personaggio qui sopra per aggiungerlo.</p>
     {% endif %}
 
     {% if can_edit %}
@@ -217,7 +217,7 @@
     onSelect: function (p) {
       document.getElementById('addError').classList.add('d-none');
       document.getElementById('selectedQid').value = p.wikidata_id;
-      document.getElementById('selectedName').textContent = p.name_it + ' (' + p.wikidata_id + ')';
+      document.getElementById('selectedName').textContent = p.name_it;
       document.getElementById('addBtn').disabled = false;
     },
   });

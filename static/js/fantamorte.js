@@ -249,7 +249,7 @@
   function renderSummaryBlock(summaryText) {
     return summaryText
       ? `<h6 class="mt-3">Biografia</h6><p class="fm-preline">${nl2br(summaryText)}</p>`
-      : '<p class="text-muted small">(Nessuna biografia disponibile.)</p>';
+      : '<p class="text-body-secondary small">(Nessuna biografia disponibile.)</p>';
   }
 
   // Blocco "bonus potenziali": presente solo se il server ha ricevuto il
@@ -283,7 +283,7 @@
     if (skeleton) {
       body.appendChild(skeleton.content.cloneNode(true));
     } else {
-      body.innerHTML = '<div class="text-center text-muted py-5"><div class="spinner-border" role="status"></div></div>';
+      body.innerHTML = '<div class="text-center text-body-secondary py-5"><div class="spinner-border" role="status"></div></div>';
     }
     const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
     modal.show();
@@ -320,7 +320,7 @@
         <div class="row">
           <div class="col-md-4">${img}</div>
           <div class="col-md-8">
-            ${p.description_it ? `<p class="text-muted">${escapeHtml(p.description_it)}</p>` : ''}
+            ${p.description_it ? `<p class="text-body-secondary">${escapeHtml(p.description_it)}</p>` : ''}
             <ul class="list-unstyled small mb-2">${meta.join('')}</ul>
             <div class="mb-2">${links.join(' ')}</div>
             ${renderPotentialBonuses(p)}

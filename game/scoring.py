@@ -12,7 +12,7 @@ import time
 from django.core.cache import cache
 from django.utils import timezone
 
-from .models import Death, BonusType, LeagueBonus
+from .models import Death, BonusType, League, LeagueBonus
 
 
 # ---------- helpers ----------
@@ -95,11 +95,49 @@ def invalidate_league_rankings(league_id):
     """Bumpa la versione della cache dei rankings per una lega.
 
     Pensata per essere chiamata da signal quando cambiano dati che influenzano
-    il punteggio (Death, DeathBonus, LeagueBonus, TeamMember, Team).
+    il punteggio (Death, DeathBonus, LeagueBonus, TeamMember, Team, League).
     """
     if league_id is None:
         return
     cache.set(_RANKINGS_VERSION_KEY.format(league_id=league_id), int(time.time() * 1000), None)
+
+
+def league_cache_version(league_id):
+    """Versione corrente della cache di lega (vedi invalidate_league_rankings).
+
+    Usata anche come componente di chiavi derivate (es. i bonus potenziali del
+    modal persona): ogni invalidazione dei rankings — regole o bonus della
+    lega cambiati — le fa scadere in blocco.
+    """
+    return _rankings_version(league_id)
+
+
+def invalidate_person_bonus_caches(person):
+    """Invalida le cache bonus derivate dai claim di una persona.
+
+    - ``fm_potential:<league>:<ver>:<person>``: bonus "se morisse oggi" del
+      modal, per tutte le leghe in cui la persona è in una rosa attiva;
+    - ``wd_bonus:<qid>:<prop>:<value>``: esito (7 giorni) dei check
+      gerarchici SPARQL, per tutti i bonus Wikidata attivi.
+
+    Da chiamare ogni volta che ``claims_cache`` viene rinfrescato (diff/apply
+    della pagina admin giocatori, ``check_deaths``): un esito negativo
+    cachato prima del refresh non deve sopravvivere ai claim nuovi.
+    """
+    league_pks = League.objects.filter(
+        teams__members__person=person,
+        teams__members__replaced_by__isnull=True,
+    ).distinct().values_list('pk', flat=True)
+    cache.delete_many([
+        f'fm_potential:{lpk}:{_rankings_version(lpk)}:{person.pk}'
+        for lpk in league_pks
+    ])
+    cache.delete_many([
+        f'wd_bonus:{person.wikidata_id}:{bt.wikidata_property}:{bt.wikidata_value}'
+        for bt in BonusType.objects.filter(
+            detection_method=BonusType.DETECTION_WIKIDATA, is_active=True,
+        ).exclude(wikidata_property='').exclude(wikidata_value='')
+    ])
 
 
 def _confirmed_deaths_for_league(league):

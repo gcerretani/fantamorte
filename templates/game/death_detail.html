@@ -2,10 +2,18 @@
 {% block title %}{{ death.person.name_it }} — Fantamorte{% endblock %}
 {% block content %}
 
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb mb-2">
+    <li class="breadcrumb-item"><a href="{% url 'home' %}">Home</a></li>
+    <li class="breadcrumb-item"><a href="{% url 'person_detail' death.person.pk %}">{{ death.person.name_it }}</a></li>
+    <li class="breadcrumb-item active" aria-current="page">Decesso</li>
+  </ol>
+</nav>
+
 <div class="row">
   <div class="col-md-8">
     <h2>&#9760; <a href="{% url 'person_detail' death.person.pk %}" class="text-decoration-none">{{ death.person.name_it }}</a></h2>
-    <p class="text-muted">
+    <p class="text-body-secondary">
       {% if death.person.birth_date %}Nato/a: {{ death.person.birth_date|date:"d/m/Y" }} &mdash; {% endif %}
       Morto/a: {{ death.death_date|date:"d/m/Y" }}
       {% if death.death_age %} ({{ death.death_age }} anni){% endif %}
@@ -39,12 +47,12 @@
         </tbody>
       </table>
       </div>
-      <p class="text-muted small">
+      <p class="text-body-secondary small">
         I punti mostrati sono quelli di default: i punti effettivi dipendono dalla
         configurazione di ogni lega (vedi la pagina "Regolamento" della lega).
       </p>
     {% else %}
-      <p class="text-muted">Nessun bonus per questo decesso.</p>
+      <p class="text-body-secondary">Nessun bonus per questo decesso.</p>
     {% endif %}
 
     {% if death.notes %}
@@ -64,7 +72,7 @@
         {% endfor %}
       </ul>
     {% else %}
-      <p class="text-muted">Nessuna squadra coinvolta.</p>
+      <p class="text-body-secondary">Nessuna squadra coinvolta.</p>
     {% endif %}
   </div>
 </div>

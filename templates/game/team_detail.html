@@ -43,7 +43,7 @@
 {% if user == team.manager or user.is_staff %}
 <div class="d-flex gap-2 mb-3">
   <a href="{% url 'team_edit' team.pk %}" class="btn btn-outline-secondary btn-sm">Modifica squadra</a>
-  <a href="{% url 'team_what_if' team.pk %}" class="btn btn-outline-secondary btn-sm">Simula "what if"</a>
+  <a href="{% url 'team_what_if' team.pk %}" class="btn btn-outline-secondary btn-sm">Simulatore "What if"</a>
 </div>
 {% endif %}
 
@@ -60,9 +60,9 @@
               {{ member.person.name_it }}
             </a>
             {% if member.person.birth_date %}
-              <small class="text-muted">(n. {{ member.person.birth_date.year }})</small>
+              <small class="text-body-secondary">(n. {{ member.person.birth_date.year }})</small>
             {% elif member.person.birth_year %}
-              <small class="text-muted">(n. {{ member.person.birth_year }})</small>
+              <small class="text-body-secondary">(n. {{ member.person.birth_year }})</small>
             {% endif %}
           </div>
           <div>
@@ -105,7 +105,7 @@
       </table>
       </div>
     {% else %}
-      <p class="text-muted">Nessun punto ancora.</p>
+      <p class="text-body-secondary">Nessun punto ancora.</p>
     {% endif %}
   </div>
 </div>

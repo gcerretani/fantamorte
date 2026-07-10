@@ -26,7 +26,7 @@
         <th>#</th>
         <th>Squadra</th>
         <th>Gestore</th>
-        <th>Morti</th>
+        <th class="d-none d-md-table-cell">Morti</th>
         <th class="text-end">Punti</th>
       </tr>
     </thead>
@@ -40,8 +40,8 @@
             <a href="{% url 'team_detail' entry.team.pk %}" class="fw-bold text-decoration-none">{{ entry.team.name }}</a>
             {% if entry.team.jolly_month %}<span class="badge text-bg-info ms-1" title="Mese jolly">J</span>{% endif %}
           </td>
-          <td><small class="text-muted">{{ entry.team.manager.username }}</small></td>
-          <td>
+          <td><small class="text-body-secondary">{{ entry.team.manager.username }}</small></td>
+          <td class="d-none d-md-table-cell">
             {% for d in entry.deaths %}
               <span class="badge {% if d.is_captain %}text-bg-primary{% else %}text-bg-secondary{% endif %} me-1"
                     title="{{ d.death.person.name_it }}{% if d.is_captain %} (capitano){% endif %}{% if d.jolly %} mese jolly{% endif %}">
@@ -58,7 +58,7 @@
   </table>
 </div>
 {% else %}
-  <p class="text-muted">Nessuna squadra ancora.</p>
+  <p class="text-body-secondary">Nessuna squadra ancora.</p>
 {% endif %}
 
 {% endblock %}

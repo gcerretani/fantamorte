@@ -115,8 +115,10 @@ html {
 /* Utility */
 .fm-preline { white-space: pre-line; }
 .fm-input-narrow { max-width: 160px; }
-/* Pulsante di rimozione dentro un badge (bonus assegnati a mano). */
-.fm-badge-close { font-size: 0.55em; vertical-align: middle; margin-left: 0.25rem; }
+/* Pulsante di rimozione dentro un badge (bonus assegnati a mano).
+   Il padding allarga l'area cliccabile (tap target mobile) senza
+   ingrandire la ✕ visibile. */
+.fm-badge-close { font-size: 0.55em; vertical-align: middle; margin-left: 0.25rem; padding: 0.45em; }
 
 /* Le varianti di riga delle tabelle (.table-danger ecc.) hanno colori
    fissi in Bootstrap e non seguono data-bs-theme: in dark diventano una

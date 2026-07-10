@@ -3,7 +3,7 @@
 {% block content %}
 
 <h2>Profilo di {{ user.username }}</h2>
-<p class="text-muted">{{ user.email|default:'(email non impostata)' }}</p>
+<p class="text-body-secondary">{{ user.email|default:'(email non impostata)' }}</p>
 
 <div class="row g-4">
   <div class="col-md-6">
@@ -28,7 +28,7 @@
               <input class="form-check-input" type="radio" name="theme_preference" id="themeAuto"
                 value="auto" {% if profile.theme_preference == 'auto' %}checked{% endif %}>
               <label class="form-check-label" for="themeAuto">
-                Automatico <span class="text-muted small">(segue il dispositivo)</span>
+                Automatico <span class="text-body-secondary small">(segue il dispositivo)</span>
               </label>
             </div>
             <div class="form-check">
@@ -52,7 +52,7 @@
     <div class="card">
       <div class="card-body">
         <h5 class="card-title">Notifiche push su questo dispositivo</h5>
-        <p class="text-muted small">
+        <p class="text-body-secondary small">
           Ricevi una notifica quando un personaggio decede. Funziona anche con app installata.
         </p>
         <div class="d-flex gap-2 flex-wrap">
@@ -71,9 +71,9 @@
         {% if push_subscriptions %}
           <hr>
           <p class="small mb-1"><strong>{{ push_subscriptions|length }}</strong> dispositivo/i registrato/i:</p>
-          <ul class="small text-muted mb-0">
+          <ul class="small text-body-secondary mb-0">
             {% for s in push_subscriptions %}
-              <li>{{ s.user_agent|truncatechars:60|default:'(unknown)' }} &mdash; {{ s.created_at|date:"d/m/Y" }}</li>
+              <li>{{ s.user_agent|truncatechars:60|default:'(sconosciuto)' }} &mdash; {{ s.created_at|date:"d/m/Y" }}</li>
             {% endfor %}
           </ul>
         {% endif %}
@@ -89,7 +89,7 @@
         <div class="d-flex flex-wrap gap-2">
           {% for t in teams %}
             <a href="{% url 'team_edit' t.pk %}" class="btn btn-outline-secondary btn-sm">
-              {{ t.name }}{% if t.league %} <small class="text-muted">— {{ t.league.name }}</small>{% endif %}
+              {{ t.name }}{% if t.league %} <small class="text-body-secondary">— {{ t.league.name }}</small>{% endif %}
             </a>
           {% endfor %}
         </div>

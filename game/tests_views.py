@@ -143,47 +143,52 @@ class LeagueAdminPermessiTest(ViewsBaseTestCase):
         self.assertEqual(self.private_league.start_date, date(2020, 1, 1))
 
 
-class BulkApplyServerSideTest(ViewsBaseTestCase):
-    """L'apply non deve mai fidarsi dei valori inviati dal client."""
+class BulkSyncServerSideTest(ViewsBaseTestCase):
+    """La sync giocatori applica solo dati Wikidata, mai input del client."""
+
+    ENTITY = {
+        'name_it': 'Nome Da Wikidata', 'name_en': '', 'description_it': '',
+        'birth_date': None, 'birth_year': None,
+        'death_date': None, 'death_year': None,
+        'image_url': '', 'occupation': None, 'nationality': None,
+        'claims_cache': {}, 'wikipedia_url_it': '', 'wiki_title_it': '',
+    }
+
+    def _sync(self):
+        return self.client.post(
+            reverse('league_wikidata_diff', args=['lega-privata']),
+            data='{"person_pks": [%d]}' % self.person.pk,
+            content_type='application/json',
+        )
 
     def test_non_admin_rifiutato(self):
         self.client.login(username='member', password='x')
-        resp = self.client.post(
-            reverse('league_wikidata_apply', args=['lega-privata']),
-            data='{"updates": []}', content_type='application/json',
-        )
-        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(self._sync().status_code, 403)
 
     @patch('wikidata_api.client.WikidataClient.get_entity')
-    def test_valore_client_ignorato_si_usa_wikidata(self, mock_entity):
-        mock_entity.return_value = {
-            'name_it': 'Nome Da Wikidata', 'name_en': '', 'description_it': '',
-            'birth_date': None, 'birth_year': None,
-            'death_date': None, 'death_year': None,
-            'image_url': '', 'occupation': '', 'nationality': '',
-            'claims_cache': {}, 'wikipedia_url_it': '', 'wiki_title_it': '',
-        }
+    def test_sync_applica_i_dati_wikidata(self, mock_entity):
+        mock_entity.return_value = dict(self.ENTITY)
         self.client.login(username='owner', password='x')
-        resp = self.client.post(
-            reverse('league_wikidata_apply', args=['lega-privata']),
-            data=('{"updates": [{"person_pk": %d, "field": "name_it",'
-                  ' "new_value": "<script>hacked</script>"}]}' % self.person.pk),
-            content_type='application/json',
-        )
+        resp = self._sync()
         self.assertEqual(resp.status_code, 200)
         self.person.refresh_from_db()
         self.assertEqual(self.person.name_it, 'Nome Da Wikidata')
+        changes = resp.json()['results'][0]['changes']
+        self.assertIn('name_it', [c['field'] for c in changes])
 
-    def test_campo_non_applicabile_rifiutato(self):
+    @patch('wikidata_api.client.WikidataClient.get_entity')
+    def test_persona_frozen_non_viene_toccata(self, mock_entity):
+        """data_frozen esclude dagli aggiornamenti anche il percorso manuale."""
+        mock_entity.side_effect = AssertionError('rete non attesa per persona frozen')
+        self.person.data_frozen = True
+        self.person.save()
         self.client.login(username='owner', password='x')
-        resp = self.client.post(
-            reverse('league_wikidata_apply', args=['lega-privata']),
-            data=('{"updates": [{"person_pk": %d, "field": "data_frozen",'
-                  ' "new_value": true}]}' % self.person.pk),
-            content_type='application/json',
-        )
+        resp = self._sync()
         self.assertEqual(resp.status_code, 200)
-        self.assertIn('Campo non modificabile', resp.json()['errors'][0])
+        result = resp.json()['results'][0]
+        self.assertTrue(result['frozen'])
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.name_it, 'Silvio Berlusconi')
 
 
 class PushCsrfTest(ViewsBaseTestCase):
@@ -624,26 +629,6 @@ class BulkDiffBatchLimitTest(ViewsBaseTestCase):
         results = resp.json()['results']
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]['person_pk'], self.person.pk)
-
-    def test_apply_troppe_persone_rifiutato(self):
-        import json as jsonlib
-        updates = [{'person_pk': pk, 'field': 'name_it'} for pk in range(1, 13)]
-        self.client.login(username='owner', password='x')
-        # Serve che i pk appartengano alla lega: creiamo 12 persone in rosa.
-        team = Team.objects.create(name='T2', manager=self.owner, league=self.private_league)
-        pks = []
-        for i in range(12):
-            p = WikipediaPerson.objects.create(wikidata_id=f'Q77{i}', name_it=f'P{i}')
-            TeamMember.objects.create(team=team, person=p)
-            pks.append(p.pk)
-        updates = [{'person_pk': pk, 'field': 'name_it'} for pk in pks]
-        resp = self.client.post(
-            reverse('league_wikidata_apply', args=['lega-privata']),
-            jsonlib.dumps({'updates': updates}), content_type='application/json',
-        )
-        self.assertEqual(resp.status_code, 400)
-        self.assertIn('blocchi', resp.json()['error'])
-
 
 class LazySummaryTest(ViewsBaseTestCase):
     """Il modal persona apre subito; la biografia arriva da un endpoint dedicato."""
@@ -1107,7 +1092,7 @@ class TeamWhatIfTest(ViewsBaseTestCase):
 
 
 class ClaimsRefreshOnCheckTest(ViewsBaseTestCase):
-    """Il controllo giocatori (diff/apply) rinfresca claims_cache e le cache bonus.
+    """La sync giocatori (core person_sync) rinfresca claims e cache bonus.
 
     Regressione per il caso "Mario Monti": una persona viva già in rosa non
     aveva alcun percorso che aggiornasse i claim in cache, quindi un bonus
@@ -1143,11 +1128,42 @@ class ClaimsRefreshOnCheckTest(ViewsBaseTestCase):
     def test_diff_rinfresca_claims_cache(self, mock_entity):
         mock_entity.return_value = dict(self.ENTITY)
         self.assertEqual(self.person.claims_cache, {})
+        self.assertIsNone(self.person.last_checked)
         self.client.login(username='owner', password='x')
         resp = self._run_diff()
         self.assertEqual(resp.status_code, 200)
         self.person.refresh_from_db()
         self.assertIn('P39', self.person.claims_cache)
+        # Persona viva su Wikidata: il diff vale come check, last_checked
+        # aggiornato e riportato nella risposta (la pagina aggiorna la colonna).
+        self.assertIsNotNone(self.person.last_checked)
+        self.assertTrue(resp.json()['results'][0]['last_checked'])
+
+    @patch('wikidata_api.client.WikidataClient.get_entity')
+    def test_diff_registra_il_decesso_come_il_cron(self, mock_entity):
+        """La sync manuale è equivalente al cron: se Wikidata riporta il
+        decesso, la Death viene registrata subito, confermata e con i bonus
+        auto-rilevati — senza attendere il passaggio di check_deaths."""
+        from .models import Death
+        entity = dict(self.ENTITY)
+        entity['death_date'] = date(2026, 7, 1)
+        entity['death_year'] = 2026
+        mock_entity.return_value = entity
+        self.client.login(username='owner', password='x')
+        resp = self._run_diff()
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()['results'][0]
+        self.assertTrue(result['death_registered'])
+        self.assertTrue(result['is_dead'])
+        self.person.refresh_from_db()
+        self.assertTrue(self.person.is_dead)
+        self.assertIsNotNone(self.person.last_checked)
+        death = Death.objects.get(person=self.person)
+        self.assertTrue(death.is_confirmed)
+        # Bonus auto-rilevato dal claim P39=Q826589 (Senatore a vita, match
+        # esatto sui claim in cache: nessuna rete).
+        self.assertTrue(death.bonuses.filter(
+            bonus_type__name='Senatore a vita', is_auto_detected=True).exists())
 
     @patch('wikidata_api.client.WikidataClient.get_entity')
     def test_diff_invalida_cache_bonus_potenziali(self, mock_entity):
@@ -1183,54 +1199,13 @@ class ClaimsRefreshOnCheckTest(ViewsBaseTestCase):
         self.assertIsNone(cache.get(stale_key))
 
     @patch('wikidata_api.client.WikidataClient.get_entity')
-    def test_apply_rinfresca_claims_anche_senza_campi_toccati(self, mock_entity):
-        mock_entity.return_value = dict(self.ENTITY)
-        # occupation: nuovo valore None e valore esistente non vuoto → il campo
-        # viene saltato (touched=False), ma i claim vanno salvati comunque.
+    def test_none_non_sovrascrive_valori_esistenti(self, mock_entity):
+        """None nell'entità = dato non determinabile: il valore locale resta."""
+        mock_entity.return_value = dict(self.ENTITY)  # occupation: None
         self.person.occupation = 'politico'
         self.person.save()
         self.client.login(username='owner', password='x')
-        resp = self.client.post(
-            reverse('league_wikidata_apply', args=['lega-privata']),
-            data=('{"updates": [{"person_pk": %d, "field": "occupation"}]}'
-                  % self.person.pk),
-            content_type='application/json',
-        )
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()['applied'], 0)
+        self.assertEqual(self._run_diff().status_code, 200)
         self.person.refresh_from_db()
         self.assertEqual(self.person.occupation, 'politico')
         self.assertIn('P39', self.person.claims_cache)
-        from django.core.cache import cache
-        from django.utils import timezone
-        from .models import BonusType, LeagueBonus
-        cache.clear()  # _potential_league_bonuses cacherebbe run precedenti
-        today = timezone.now().date()
-        # ~50 anni, con un claim P166=Q103360 (match esatto: niente rete).
-        self.person.birth_date = date(today.year - 50, 1, 1)
-        self.person.claims_cache = {'P166': [{'mainsnak': {
-            'snaktype': 'value',
-            'datavalue': {'type': 'wikibase-entityid', 'value': {'id': 'Q103360'}},
-        }}]}
-        self.person.save()
-        oscar = BonusType.objects.create(
-            name='Premio Oscar', points=20, detection_method='wikidata',
-            wikidata_property='P166', wikidata_value='Q103360',
-        )
-        giovane = BonusType.objects.create(
-            name='Morte giovane', points=0, points_formula='60-age',
-            detection_method='age', age_formula='age < 60',
-        )
-        manuale = BonusType.objects.create(
-            name='Bonus Manuale', points=30, detection_method='manual',
-        )
-        for bt in (oscar, giovane, manuale):
-            LeagueBonus.objects.create(league=self.private_league, bonus_type=bt)
-        self.client.login(username='member', password='x')
-        resp = self.client.get(reverse('team_what_if', args=[self.private_team.pk]))
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'Premio Oscar +20')
-        self.assertContains(resp, 'Morte giovane +10')  # 60-age con age=50
-        self.assertNotContains(resp, 'Bonus Manuale')
-        # base 50 + Oscar 20 + Morte giovane 10 = 80 (nessun moltiplicatore).
-        self.assertContains(resp, '<td class="text-end fw-bold">80</td>', html=True)

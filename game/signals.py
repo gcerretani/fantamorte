@@ -76,6 +76,14 @@ def _invalidate_rankings_on_death_bonus_change(sender, instance, **kwargs):
     _invalidate_for_leagues_with_death(instance.death)
 
 
+@receiver(post_save, sender=League)
+def _invalidate_rankings_on_league_change(sender, instance, **kwargs):
+    """Le regole della lega (base_points, moltiplicatori, date) entrano nel
+    calcolo del punteggio: un salvataggio dal pannello admin deve invalidare
+    subito la classifica, non attendere il TTL di 5 minuti."""
+    invalidate_league_rankings(instance.pk)
+
+
 @receiver(post_save, sender=LeagueBonus)
 @receiver(post_delete, sender=LeagueBonus)
 def _invalidate_rankings_on_league_bonus_change(sender, instance, **kwargs):
