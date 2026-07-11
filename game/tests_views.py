@@ -1246,7 +1246,7 @@ class TeamWhatIfTest(ViewsBaseTestCase):
         self.assertContains(resp, 'Morte giovane +10')  # 60-age con age=50
         self.assertNotContains(resp, 'Bonus Manuale')
         # base 50 + Oscar 20 + Morte giovane 10 = 80 (nessun moltiplicatore).
-        self.assertContains(resp, '<td class="text-end fw-bold">80</td>', html=True)
+        self.assertContains(resp, '<span class="fm-metric-value fm-whatif-points">80</span>', html=True)
 
 
 class ClaimsRefreshOnCheckTest(ViewsBaseTestCase):

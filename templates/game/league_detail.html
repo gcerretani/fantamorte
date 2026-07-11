@@ -50,11 +50,10 @@
         <button class="btn btn-primary">Iscriviti</button>
       </form>
     {% endif %}
-    {% if is_admin %}
-      <a href="{% url 'league_admin' league.slug %}" class="btn btn-outline-secondary">Gestisci</a>
-    {% endif %}
   </div>
 </header>
+
+{% include 'game/_league_nav.html' %}
 
 <div class="row g-4">
   <div class="col-lg-7">
@@ -65,13 +64,16 @@
     {% if rankings %}
       <div class="list-group mb-4">
         {% for entry in top_rankings %}
-          <a href="{% url 'team_detail' entry.team.pk %}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
-            <div>
-              {% if forloop.counter == 1 %}<span class="me-2">&#127942;</span>{% elif forloop.counter == 2 %}<span class="me-2">&#129352;</span>{% else %}<span class="me-2">&#129353;</span>{% endif %}
+          <a href="{% url 'team_detail' entry.team.pk %}" class="list-group-item list-group-item-action d-flex align-items-center gap-2 py-3{% if forloop.counter == 1 %} fm-rank-first{% endif %}">
+            <span class="fm-pos{% if forloop.counter == 1 %} fm-pos-first{% endif %}">{{ forloop.counter }}</span>
+            <div class="fm-row-main">
               <strong>{{ entry.team.name }}</strong>
-              <small class="text-body-secondary ms-2">{{ entry.team.manager.username }}</small>
+              <div class="small text-body-secondary">{{ entry.team.manager.username }}</div>
             </div>
-            <span class="badge text-bg-secondary fs-6">{{ entry.score }} pt</span>
+            <div class="fm-metric">
+              <span class="fm-metric-value">{{ entry.score }}</span>
+              <span class="fm-metric-unit">punti</span>
+            </div>
           </a>
         {% endfor %}
       </div>

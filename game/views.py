@@ -554,6 +554,7 @@ class LeagueRankingsView(LoginRequiredMixin, View):
         return render(request, 'game/league_rankings.html', {
             'league': league,
             'rankings': scoring.compute_league_rankings(league),
+            'is_admin': league.is_admin(request.user),
         })
 
 

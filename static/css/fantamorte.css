@@ -401,6 +401,63 @@ html {
   left: 0;
 }
 
+/* ---- Navigazione di sezione della lega (pill scrollabili) ----
+   Partial templates/game/_league_nav.html, sotto l'header delle pagine
+   di lega. Su mobile scorre in orizzontale senza andare a capo. */
+.fm-league-nav {
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin-left: calc(var(--bs-gutter-x, 1.5rem) * -0.5);
+  margin-right: calc(var(--bs-gutter-x, 1.5rem) * -0.5);
+  padding: 0 calc(var(--bs-gutter-x, 1.5rem) * 0.5) 0.25rem;
+}
+.fm-league-nav::-webkit-scrollbar { display: none; }
+.fm-league-nav .nav { gap: 0.25rem; }
+.fm-league-nav .nav-link { white-space: nowrap; }
+
+/* ---- Righe-lista (classifiche, punti, storico) ----
+   Sostituiscono le tabelle larghe: posizione, blocco principale con
+   linea primaria+secondaria, metrica numerica a destra. */
+.fm-pos {
+  width: 1.9rem;
+  text-align: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--bs-secondary-color);
+  flex-shrink: 0;
+}
+.fm-pos-first { color: var(--fm-accent); }
+.fm-row-main { flex: 1 1 auto; min-width: 0; }
+.fm-metric {
+  text-align: right;
+  flex-shrink: 0;
+  line-height: 1.15;
+}
+.fm-metric .fm-metric-value {
+  font-weight: 700;
+  font-size: 1.2rem;
+  font-variant-numeric: tabular-nums;
+}
+.fm-metric .fm-metric-unit {
+  display: block;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--bs-secondary-color);
+}
+/* Evidenze in classifica: primo posto tinta ottone, la riga dell'utente
+   marcata da una barra laterale. */
+.list-group-item.fm-rank-first { background-color: rgba(var(--bs-primary-rgb), 0.07); }
+.list-group-item.fm-rank-me { box-shadow: inset 3px 0 0 var(--fm-accent); }
+/* Riga di un membro deceduto (rosa in modifica). */
+.list-group-item.fm-row-dead { background-color: rgba(var(--bs-danger-rgb), 0.07); }
+/* Icona inline dimensionata sul testo (sprite <use>). */
+.fm-ico {
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.125em;
+}
+
 /* Timeline decessi */
 .fm-timeline { position: relative; padding-left: 1.5rem; border-left: 3px solid var(--bs-border-color); }
 .fm-timeline-item { position: relative; margin-bottom: 1.25rem; }

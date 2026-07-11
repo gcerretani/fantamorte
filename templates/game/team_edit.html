@@ -101,22 +101,13 @@
     {# niente reload completo della pagina. #}
     <div id="fmRosterRegion">
     {% if active_count %}
-    <div class="table-responsive">
-    <table class="table table-sm align-middle">
-      <thead>
-        <tr>
-          <th>Persona</th>
-          <th>Nascita</th>
-          <th>Stato</th>
-          {% if can_edit %}<th>Capitano</th><th><span class="visually-hidden">Rimuovi</span></th>{% endif %}
-        </tr>
-      </thead>
-      <tbody>
-        {% for member in members %}
-          {% if member.is_active %}
-          <tr {% if member.person.is_dead %}class="table-danger"{% endif %}>
-            <td>
-              <a href="#" class="text-decoration-none" data-fm-person-pk="{{ member.person.pk }}">
+    <ul class="list-group mb-3">
+      {% for member in members %}
+        {% if member.is_active %}
+        <li class="list-group-item py-3{% if member.person.is_dead %} fm-row-dead{% endif %}">
+          <div class="d-flex align-items-center gap-2">
+            <div class="fm-row-main">
+              <a href="#" class="text-decoration-none fw-semibold" data-fm-person-pk="{{ member.person.pk }}">
                 {{ member.person.name_it }}
               </a>
               {% if member.is_captain %}
@@ -125,32 +116,37 @@
               {% if member.is_original %}
                 <span class="badge text-bg-info" title="Giocata originale">★</span>
               {% endif %}
-            </td>
-            <td><small>{% if member.person.birth_date %}{{ member.person.birth_date.year }}{% elif member.person.birth_year %}{{ member.person.birth_year }}{% endif %}</small></td>
-            <td>
+              <div class="small text-body-secondary">
+                {% if member.person.birth_date %}n. {{ member.person.birth_date.year }}{% elif member.person.birth_year %}n. {{ member.person.birth_year }}{% endif %}
+                {% if member.person.is_dead %}
+                  &middot; <span class="text-danger"><svg class="fm-ico" aria-hidden="true"><use href="#fmIcoSkull"/></svg> {{ member.person.death_date|date:"d/m/Y" }}</span>
+                {% else %}
+                  &middot; <span class="text-success">Vivo/a</span>
+                {% endif %}
+              </div>
               {% if member.person.is_dead %}
-                <span class="text-danger">&#9760; {{ member.person.death_date|date:"d/m/Y" }}</span>
                 {% with deadline=member.get_substitution_deadline %}
                   {% if deadline %}
-                    <br><small class="text-body-secondary">scade <span class="fm-countdown" data-fm-countdown="{{ deadline|date:'U' }}">…</span></small>
+                    <div class="small text-body-secondary">
+                      sostituzione entro <span class="fm-countdown" data-fm-countdown="{{ deadline|date:'U' }}">…</span>
+                    </div>
                   {% endif %}
                   {# La sostituzione in stagione è governata da can_be_substituted, #}
                   {# NON dalla finestra di modifica (che in stagione è chiusa). #}
                   {% if member.can_be_substituted %}
-                    <a href="{% url 'substitute_member' team.pk member.pk %}" class="btn btn-primary btn-sm ms-1">Sostituisci</a>
+                    <a href="{% url 'substitute_member' team.pk member.pk %}" class="btn btn-primary btn-sm mt-2">Sostituisci</a>
                   {% elif deadline %}
-                    <span class="badge text-bg-secondary ms-1" title="Tempi scaduti">scaduto</span>
+                    <span class="badge text-bg-secondary" title="Tempi scaduti">scaduto</span>
                   {% endif %}
                 {% endwith %}
-              {% else %}
-                <span class="text-success">Vivo/a</span>
               {% endif %}
-            </td>
+            </div>
             {% if can_edit %}
-            <td>
-              <input type="radio" name="captain_id" value="{{ member.pk }}" form="teamForm" {% if member.is_captain %}checked{% endif %}>
-            </td>
-            <td class="text-end">
+              <div class="form-check mb-0 me-1">
+                <input class="form-check-input" type="radio" name="captain_id" id="captainRadio{{ member.pk }}"
+                       value="{{ member.pk }}" form="teamForm" {% if member.is_captain %}checked{% endif %}>
+                <label class="form-check-label small" for="captainRadio{{ member.pk }}">Capitano</label>
+              </div>
               {% if not member.person.is_dead and not member.replaces %}
                 <button type="button" class="btn btn-outline-danger btn-sm"
                         data-fm-remove-member="{{ member.pk }}"
@@ -158,14 +154,12 @@
                         title="Rimuovi {{ member.person.name_it }} dalla rosa"
                         aria-label="Rimuovi {{ member.person.name_it }} dalla rosa">&times;</button>
               {% endif %}
-            </td>
             {% endif %}
-          </tr>
-          {% endif %}
-        {% endfor %}
-      </tbody>
-    </table>
-    </div>
+          </div>
+        </li>
+        {% endif %}
+      {% endfor %}
+    </ul>
     {% else %}
     <p class="text-body-secondary">La rosa è vuota: cerca un personaggio qui sopra per aggiungerlo.</p>
     {% endif %}

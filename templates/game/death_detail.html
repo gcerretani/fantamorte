@@ -2,51 +2,51 @@
 {% block title %}{{ death.person.name_it }} — Fantamorte{% endblock %}
 {% block content %}
 
-<nav aria-label="breadcrumb">
-  <ol class="breadcrumb mb-2">
-    <li class="breadcrumb-item"><a href="{% url 'home' %}">Home</a></li>
-    <li class="breadcrumb-item"><a href="{% url 'person_detail' death.person.pk %}">{{ death.person.name_it }}</a></li>
-    <li class="breadcrumb-item active" aria-current="page">Decesso</li>
-  </ol>
-</nav>
+<header class="fm-page-header">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'home' %}">Home</a></li>
+      <li class="breadcrumb-item"><a href="{% url 'person_detail' death.person.pk %}">{{ death.person.name_it }}</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Decesso</li>
+    </ol>
+  </nav>
+  <h2 class="d-flex align-items-center gap-2 flex-wrap">
+    <svg class="fm-ico text-danger" aria-hidden="true"><use href="#fmIcoSkull"/></svg>
+    <a href="{% url 'person_detail' death.person.pk %}" class="text-decoration-none">{{ death.person.name_it }}</a>
+    <span class="badge {% if death.is_confirmed %}text-bg-success{% else %}text-bg-warning{% endif %} fs-6 fw-normal">
+      {% if death.is_confirmed %}Confermato{% else %}Non confermato{% endif %}
+    </span>
+  </h2>
+  <div class="fm-facts">
+    {% if death.person.birth_date %}
+      <span class="fm-fact" title="Data di nascita">n. {{ death.person.birth_date|date:"d/m/Y" }}</span>
+    {% endif %}
+    <span class="fm-fact" title="Data del decesso">&dagger; {{ death.death_date|date:"d/m/Y" }}{% if death.death_age %} &middot; {{ death.death_age }} anni{% endif %}</span>
+    {% if death.person.wikipedia_url_it %}
+      <a href="{{ death.person.wikipedia_url_it }}" target="_blank" class="fm-fact">Wikipedia &nearr;</a>
+    {% endif %}
+  </div>
+</header>
 
 <div class="row">
   <div class="col-md-8">
-    <h2>&#9760; <a href="{% url 'person_detail' death.person.pk %}" class="text-decoration-none">{{ death.person.name_it }}</a></h2>
-    <p class="text-body-secondary">
-      {% if death.person.birth_date %}Nato/a: {{ death.person.birth_date|date:"d/m/Y" }} &mdash; {% endif %}
-      Morto/a: {{ death.death_date|date:"d/m/Y" }}
-      {% if death.death_age %} ({{ death.death_age }} anni){% endif %}
-      &mdash; <span class="badge {% if death.is_confirmed %}text-bg-success{% else %}text-bg-warning{% endif %}">
-        {% if death.is_confirmed %}Confermato{% else %}Non confermato{% endif %}
-      </span>
-    </p>
-    {% if death.person.wikipedia_url_it %}
-      <a href="{{ death.person.wikipedia_url_it }}" target="_blank" class="btn btn-outline-secondary btn-sm mb-3">Wikipedia</a>
-    {% endif %}
-
     <h5>Bonus applicati</h5>
     {% if bonuses %}
-      <div class="table-responsive">
-      <table class="table table-sm">
-        <thead><tr><th>Bonus</th><th>Punti</th><th>Tipo</th></tr></thead>
-        <tbody>
-          {% for b in bonuses %}
-            <tr>
-              <td>{{ b.bonus_type.name }}</td>
-              <td>+{{ b.points_awarded }}</td>
-              <td>
-                {% if b.is_auto_detected %}
-                  <span class="badge text-bg-info">automatico</span>
-                {% else %}
-                  <span class="badge text-bg-secondary">manuale</span>
-                {% endif %}
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      </div>
+      <ul class="list-group mb-2">
+        {% for b in bonuses %}
+          <li class="list-group-item d-flex align-items-center gap-2">
+            <div class="fm-row-main">
+              {{ b.bonus_type.name }}
+              {% if b.is_auto_detected %}
+                <span class="badge text-bg-info">automatico</span>
+              {% else %}
+                <span class="badge text-bg-secondary">manuale</span>
+              {% endif %}
+            </div>
+            <span class="fw-bold">+{{ b.points_awarded }}</span>
+          </li>
+        {% endfor %}
+      </ul>
       <p class="text-body-secondary small">
         I punti mostrati sono quelli di default: i punti effettivi dipendono dalla
         configurazione di ogni lega (vedi la pagina "Regolamento" della lega).
