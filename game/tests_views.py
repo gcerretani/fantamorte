@@ -326,11 +326,13 @@ class TeamDeleteTest(ViewsBaseTestCase):
         self._delete()
         self.assertTrue(Team.objects.filter(pk=self.private_team.pk).exists())
 
-    def test_staff_elimina_squadra_altrui(self):
+    def test_staff_non_elimina_squadra_altrui_dalla_ui(self):
+        """Niente override staff nella UI di gioco: la squadra di un altro
+        si rimuove dal pannello lega (remove_member) o dal Django admin."""
         User.objects.create_user('staff-del', password='x', is_staff=True)
         self.client.login(username='staff-del', password='x')
         self._delete()
-        self.assertFalse(Team.objects.filter(pk=self.private_team.pk).exists())
+        self.assertTrue(Team.objects.filter(pk=self.private_team.pk).exists())
 
 
 class PagineGeneraliTest(ViewsBaseTestCase):
@@ -595,7 +597,9 @@ class AllauthBootstrapFormsTest(TestCase):
 
 
 class TeamIsLockedTest(ViewsBaseTestCase):
-    """Team.is_locked blocca l'editing della rosa per il manager, non per lo staff."""
+    """Team.is_locked blocca l'editing della rosa per chiunque, staff incluso:
+    la UI di gioco è identica per tutti, gli interventi eccezionali passano
+    dal Django admin."""
 
     def setUp(self):
         super().setUp()
@@ -625,14 +629,15 @@ class TeamIsLockedTest(ViewsBaseTestCase):
         self.private_team.refresh_from_db()
         self.assertEqual(self.private_team.name, 'Squadra Privata')
 
-    def test_staff_puo_ancora_modificare(self):
+    def test_anche_lo_staff_e_bloccato(self):
         staff = User.objects.create_user('staff', password='x', is_staff=True)
         self.client.login(username='staff', password='x')
         resp = self.client.post(
             reverse('add_person', args=[self.private_team.pk]),
             {'wikidata_id': self.candidate.wikidata_id},
         )
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(self.private_team.get_active_members().count(), 1)
 
 
 class BulkDiffBatchLimitTest(ViewsBaseTestCase):
@@ -993,8 +998,9 @@ class LeagueRoleManagementStaffTest(ViewsBaseTestCase):
         self.assertNotContains(resp, 'id="tabDanger"')
 
 
-class TeamEditAdminOverrideTest(ViewsBaseTestCase):
-    """A registrazioni chiuse il manager non modifica; lo staff sì, con badge."""
+class TeamEditRegistrazioniChiuseTest(ViewsBaseTestCase):
+    """A registrazioni chiuse la squadra non è modificabile da nessuno
+    (nemmeno dallo staff: UI di gioco identica per tutti)."""
 
     def setUp(self):
         super().setUp()
@@ -1006,7 +1012,6 @@ class TeamEditAdminOverrideTest(ViewsBaseTestCase):
         self.client.login(username='member', password='x')
         resp = self.client.get(reverse('team_edit', args=[self.private_team.pk]))
         self.assertContains(resp, 'le registrazioni per questa lega sono chiuse')
-        self.assertNotContains(resp, 'Modalità amministratore')
 
     def test_manager_non_salva_a_registrazioni_chiuse(self):
         self.client.login(username='member', password='x')
@@ -1015,11 +1020,18 @@ class TeamEditAdminOverrideTest(ViewsBaseTestCase):
         self.private_team.refresh_from_db()
         self.assertEqual(self.private_team.name, 'Squadra Privata')
 
-    def test_staff_modifica_con_badge_override(self):
+    def test_staff_vede_pagina_in_sola_lettura(self):
         self.client.login(username='staff-edit', password='x')
         resp = self.client.get(reverse('team_edit', args=[self.private_team.pk]))
-        self.assertContains(resp, 'Modalità amministratore')
+        self.assertContains(resp, 'le registrazioni per questa lega sono chiuse')
         self.assertNotContains(resp, 'Modificabile fino al')
+
+    def test_staff_non_salva_a_registrazioni_chiuse(self):
+        self.client.login(username='staff-edit', password='x')
+        self.client.post(reverse('team_edit', args=[self.private_team.pk]),
+                         {'name': 'Staff Override'})
+        self.private_team.refresh_from_db()
+        self.assertEqual(self.private_team.name, 'Squadra Privata')
 
     def test_sostituzione_visibile_anche_a_registrazioni_chiuse(self):
         """La sostituzione in stagione non dipende dalla finestra di modifica."""

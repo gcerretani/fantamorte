@@ -789,8 +789,7 @@ _VALID_WIKIS = {code for code, _ in WIKIPEDIA_LANGS}
 
 def _team_edit_window_open(team):
     """Regole di gioco: la rosa è modificabile solo con le registrazioni
-    aperte e senza lock di lega o squadra. Nessuna eccezione qui: gli
-    override amministrativi stanno in _can_edit_team."""
+    aperte e senza lock di lega o squadra."""
     if team.is_locked:
         return False
     if team.league_id:
@@ -799,13 +798,11 @@ def _team_edit_window_open(team):
 
 
 def _can_edit_team(team, user):
-    """Editing della rosa: aperto al manager finché la finestra di modifica
-    è aperta (vedi _team_edit_window_open). Lo staff di sistema può sempre
-    intervenire (override amministrativo, segnalato nella UI). Le
-    sostituzioni in stagione NON passano da qui: sono governate da
-    can_be_substituted()."""
-    if user.is_staff:
-        return True
+    """Editing della rosa: aperto al solo manager finché la finestra di
+    modifica è aperta (vedi _team_edit_window_open). Nessun override per lo
+    staff: la UI di gioco è identica per tutti, gli interventi eccezionali
+    sulle rose si fanno dal Django admin. Le sostituzioni in stagione NON
+    passano da qui: sono governate da can_be_substituted()."""
     if team.manager_id != user.pk:
         return False
     return _team_edit_window_open(team)
@@ -844,7 +841,7 @@ class TeamCreateView(LoginRequiredMixin, View):
         if not league.is_member(request.user):
             messages.error(request, 'Devi prima iscriverti alla lega.')
             return redirect('league_detail', slug=slug)
-        if not league.is_registration_open() and not request.user.is_staff:
+        if not league.is_registration_open():
             messages.error(request, 'Le registrazioni non sono aperte per questa lega.')
             return redirect('league_detail', slug=slug)
         team, _ = Team.objects.get_or_create(
@@ -909,11 +906,6 @@ class TeamEditView(LoginRequiredMixin, View):
             'months': MONTHS_IT,
             'can_edit': can_edit,
             'edit_window_open': edit_window_open,
-            # Sta modificando fuori dalle regole (finestra chiusa o squadra
-            # altrui): possibile solo per lo staff, la UI lo segnala.
-            'admin_override': can_edit and (
-                not edit_window_open or team.manager_id != request.user.pk
-            ),
             'max_non_captains': league.max_non_captains if league else 11,
             'max_captains': league.max_captains if league else 1,
         })
@@ -1062,7 +1054,7 @@ class SubstituteMemberView(LoginRequiredMixin, View):
         if not member.is_active():
             messages.error(request, 'Questo membro è già stato sostituito.')
             return redirect('team_edit', pk=pk)
-        if not member.can_be_substituted() and not request.user.is_staff:
+        if not member.can_be_substituted():
             days = team.league.substitution_deadline_days if team.league_id else 7
             messages.error(
                 request,
@@ -1081,7 +1073,7 @@ class SubstituteMemberView(LoginRequiredMixin, View):
         member = get_object_or_404(TeamMember, pk=member_pk, team=team)
         if team.manager != request.user and not request.user.is_staff:
             return redirect('team_edit', pk=pk)
-        if not member.can_be_substituted() and not request.user.is_staff:
+        if not member.can_be_substituted():
             messages.error(request, 'I tempi per la sostituzione sono scaduti.')
             return redirect('team_edit', pk=pk)
 

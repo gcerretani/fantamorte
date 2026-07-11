@@ -106,13 +106,15 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
   jolly, intero 1-12) e `is_locked` (squadra bloccata: il manager non può
   più modificare la rosa — enforced in `_can_edit_team`; le sostituzioni
   in stagione restano governate da `can_be_substituted()`).
-  La finestra di modifica "pura" (registrazioni aperte, nessun lock) è
-  `_team_edit_window_open`; `_can_edit_team` la estende con l'override
-  per lo staff di sistema (`is_staff`), che può sempre modificare —
-  la UI lo segnala col badge "Modalità amministratore" in team_edit.
-  Lo staff ha anche i poteri dell'owner su ogni lega (ruoli, trasferimento
-  proprietà, eliminazione): il pannello admin passa `can_manage_league`
-  (owner o staff) ai template.
+  La finestra di modifica (registrazioni aperte, nessun lock) è
+  `_team_edit_window_open`; `_can_edit_team` la applica al solo manager,
+  **senza override per lo staff**: la UI di gioco è identica per tutti e
+  gli interventi eccezionali sulle rose si fanno dal Django admin.
+  Lo staff mantiene invece i poteri dell'owner su ogni **lega** (ruoli,
+  trasferimento proprietà, eliminazione): il pannello admin passa
+  `can_manage_league` (owner o staff) ai template. Lì il Django admin non
+  è equivalente (delete con pulizia dei DeathBonus protetti, transfer
+  coerente su owner+membership, validazione P/Q dei bonus custom).
 - **`TeamMember.is_original`** flag che abilita il bonus "giocata originale".
   Calcolato a inizio stagione dal command `mark_originals`. Il campo
   `replaced_by` crea una catena per tracciare le sostituzioni (solo

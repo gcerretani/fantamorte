@@ -33,7 +33,7 @@
       <small class="text-body-secondary">punti</small>
     </div>
   </div>
-  {% if user == team.manager or user.is_staff %}
+  {% if user == team.manager %}
   <div class="d-flex gap-2 mt-2">
     <a href="{% url 'team_edit' team.pk %}" class="btn btn-outline-secondary btn-sm">Modifica squadra</a>
     <a href="{% url 'team_what_if' team.pk %}" class="btn btn-outline-secondary btn-sm">Simulatore "What if"</a>

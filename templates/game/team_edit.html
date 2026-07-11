@@ -16,17 +16,9 @@
         </ol>
       </nav>
       <h2>Modifica squadra</h2>
-      <div class="d-flex align-items-center gap-2 flex-wrap">
-        {% if edit_window_open and league %}
-          <span class="badge text-bg-success">Modificabile fino al {{ league.registration_closes|date:"d/m/Y" }}</span>
-        {% endif %}
-        {% if admin_override %}
-          <span class="badge text-bg-warning"
-                title="Stai modificando come amministratore di sistema: le normali regole di scadenza non si applicano a te.">
-            Modalità amministratore
-          </span>
-        {% endif %}
-      </div>
+      {% if edit_window_open and league %}
+        <span class="badge text-bg-success">Modificabile fino al {{ league.registration_closes|date:"d/m/Y" }}</span>
+      {% endif %}
     </header>
 
     {% if not can_edit %}
