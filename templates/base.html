@@ -12,8 +12,6 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Fantamorte">
   <title>{% block title %}Fantamorte{% endblock %}</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet"
-        integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
   <link href="{% static 'css/fantamorte.css' %}" rel="stylesheet">
   {% block extra_head %}{% endblock %}
   <script>
@@ -29,7 +27,7 @@
         effective = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
           ? 'dark' : 'light';
       }
-      html.setAttribute('data-bs-theme', effective);
+      html.setAttribute('data-fm-theme', effective);
       html.setAttribute('data-theme-pref', pref);
     })();
     window.FM_VAPID_PUBLIC_KEY = "{{ VAPID_PUBLIC_KEY }}";
@@ -50,7 +48,7 @@
 {# l'overscroll/rubber-band; il body compensa l'altezza via CSS (fantamorte.css). #}
 {# Sotto lg la navigazione sta nella bottom nav (_bottom_nav.html): qui #}
 {# restano solo brand, installa e tema. Da lg in su i link sono inline. #}
-<nav class="navbar navbar-expand-lg fm-topbar fixed-top" data-bs-theme="dark" aria-label="Navigazione principale">
+<nav class="navbar navbar-expand-lg fm-topbar" aria-label="Navigazione principale">
   <div class="container">
     <a class="navbar-brand" href="{% url 'home' %}">{% include '_logo.html' %} Fantamorte</a>
     {% if user.is_authenticated %}
@@ -65,10 +63,10 @@
         {% endif %}
       </ul>
     {% endif %}
-    <div class="d-flex align-items-center ms-auto">
-      <button id="fmInstallBtn" class="btn btn-outline-light btn-sm me-2" type="button"
-        title="Installa app" aria-label="Installa app"><span aria-hidden="true">&#x2913;</span><span class="d-none d-lg-inline"> Installa</span></button>
-      <button id="fmThemeBtn" class="btn btn-outline-light btn-sm" type="button"
+    <div class="d-flex align-items-center ms-auto gap-2">
+      <button id="fmInstallBtn" class="btn btn-icon" type="button"
+        title="Installa app" aria-label="Installa app"><span aria-hidden="true">&#x2913;</span></button>
+      <button id="fmThemeBtn" class="btn btn-icon" type="button"
         title="Cambia tema" aria-label="Cambia tema">◐</button>
       {% if user.is_authenticated %}
         <span class="navbar-text d-none d-lg-inline ms-3 me-2">{{ user.username }}</span>
