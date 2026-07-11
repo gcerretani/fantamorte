@@ -2,6 +2,29 @@
 from django.conf import settings
 
 
+def _active_nav(request):
+    """Destinazione attiva della bottom nav, dal nome della URL corrente.
+
+    Le sottopagine di leghe/squadre/persone/decessi appartengono tutte alla
+    sezione "Leghe": il tab resta acceso anche navigando in profondità.
+    """
+    match = getattr(request, 'resolver_match', None)
+    name = match.url_name if match else None
+    if not name:
+        return ''
+    if name == 'home':
+        return 'home'
+    if name == 'stats':
+        return 'stats'
+    if name == 'profile':
+        return 'profile'
+    if name.startswith(('league', 'team', 'person', 'death')) or name in (
+        'add_person', 'remove_person', 'substitute_member',
+    ):
+        return 'leghe'
+    return ''
+
+
 def public_settings(request):
     # Memoizzato sulla request: la reverse OneToOne user.profile costa una
     # query e questo processor gira per ogni render di template.
@@ -18,4 +41,5 @@ def public_settings(request):
         'PWA_THEME_COLOR': getattr(settings, 'PWA_APP_THEME_COLOR', '#212529'),
         'user_profile': profile,
         'theme_preference': theme_preference,
+        'active_nav': _active_nav(request),
     }
