@@ -2,15 +2,14 @@
 {% block title %}{{ league.name }} — Fantamorte{% endblock %}
 {% block content %}
 
-<nav aria-label="breadcrumb">
-  <ol class="breadcrumb mb-2">
-    <li class="breadcrumb-item"><a href="{% url 'league_list' %}">Leghe</a></li>
-    <li class="breadcrumb-item active" aria-current="page">{{ league.name }}</li>
-  </ol>
-</nav>
-
 {# ---- Header: nome, descrizione, azione primaria, fatti essenziali ---- #}
-<div class="mb-4">
+<header class="fm-page-header">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'league_list' %}">Leghe</a></li>
+      <li class="breadcrumb-item active" aria-current="page">{{ league.name }}</li>
+    </ol>
+  </nav>
   <h2 class="mb-1 d-flex align-items-center gap-2 flex-wrap">
     {{ league.name }}
     <span class="badge {% if league.visibility == 'public' %}text-bg-success{% else %}text-bg-secondary{% endif %} fs-6 fw-normal">
@@ -55,7 +54,7 @@
       <a href="{% url 'league_admin' league.slug %}" class="btn btn-outline-secondary">Gestisci</a>
     {% endif %}
   </div>
-</div>
+</header>
 
 <div class="row g-4">
   <div class="col-lg-7">

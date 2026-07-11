@@ -23,6 +23,55 @@ html {
   background-color: var(--bs-tertiary-bg);
 }
 
+/* ---- Navigazione di pagina ----
+   Breadcrumb compatto e discreto: una sola riga (i segmenti lunghi vengono
+   troncati con ellissi), link nel colore secondario così il titolo della
+   pagina resta l'elemento dominante dell'header. */
+.breadcrumb {
+  --bs-breadcrumb-divider: "\203A"; /* › */
+  font-size: 0.85rem;
+  margin-bottom: 0.35rem;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.breadcrumb-item {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  white-space: nowrap;
+}
+.breadcrumb-item > a,
+.breadcrumb-item.active {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.breadcrumb-item a {
+  color: var(--bs-secondary-color);
+  text-decoration: none;
+}
+.breadcrumb-item a:hover,
+.breadcrumb-item a:focus-visible {
+  color: var(--bs-body-color);
+  text-decoration: underline;
+}
+.breadcrumb-item.active { color: var(--bs-body-color); }
+.breadcrumb-item + .breadcrumb-item::before { color: var(--bs-tertiary-color); }
+
+/* Header di pagina: breadcrumb + titolo + badge/fatti, separato dal
+   contenuto da un bordo. Usalo come <header class="fm-page-header"> in
+   testa a ogni sottopagina per un attacco visivo uniforme. */
+.fm-page-header {
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--bs-border-color);
+  margin-bottom: 1.25rem;
+}
+.fm-page-header h1,
+.fm-page-header h2 { margin-bottom: 0.25rem; }
+
+/* Tab "Danger zone" nei pannelli di modifica: rossa ma coerente col tema. */
+.nav-tabs .fm-tab-danger { color: var(--bs-danger); }
+.nav-tabs .fm-tab-danger.active { color: var(--bs-danger); font-weight: 600; }
+
 /* Chips informative (metadati di lega/squadra: periodo, iscritti, owner…) */
 .fm-facts {
   display: flex;

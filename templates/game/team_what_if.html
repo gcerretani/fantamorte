@@ -2,24 +2,23 @@
 {% block title %}Simulatore — {{ team.name }} — Fantamorte{% endblock %}
 {% block content %}
 
-<nav aria-label="breadcrumb">
-  <ol class="breadcrumb mb-2">
-    {% if team.league %}
-      <li class="breadcrumb-item"><a href="{% url 'league_list' %}">Leghe</a></li>
-      <li class="breadcrumb-item"><a href="{% url 'league_detail' team.league.slug %}">{{ team.league.name }}</a></li>
-    {% endif %}
-    <li class="breadcrumb-item"><a href="{% url 'team_detail' team.pk %}">{{ team.name }}</a></li>
-    <li class="breadcrumb-item active" aria-current="page">Simulatore</li>
-  </ol>
-</nav>
-
-<div class="mb-3">
-  <h2 class="mb-1">Simulatore "What if"</h2>
-  <p class="text-body-secondary">
+<header class="fm-page-header">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+      {% if team.league %}
+        <li class="breadcrumb-item"><a href="{% url 'league_list' %}">Leghe</a></li>
+        <li class="breadcrumb-item"><a href="{% url 'league_detail' team.league.slug %}">{{ team.league.name }}</a></li>
+      {% endif %}
+      <li class="breadcrumb-item"><a href="{% url 'team_detail' team.pk %}">{{ team.name }}</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Simulatore</li>
+    </ol>
+  </nav>
+  <h2>Simulatore "What if"</h2>
+  <p class="text-body-secondary mb-0">
     Stima dei punti che la squadra otterrebbe se ciascun membro vivo morisse oggi nel mese selezionato.
     Utile per scegliere capitano e mese jolly informati.
   </p>
-</div>
+</header>
 
 <form method="get" class="row g-2 align-items-end mb-3">
   <div class="col-auto">

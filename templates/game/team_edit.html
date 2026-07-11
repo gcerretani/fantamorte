@@ -4,33 +4,30 @@
 {% block content %}
 <div class="row">
   <div class="col-md-8">
-    <nav aria-label="breadcrumb">
-      <ol class="breadcrumb mb-2">
-        {% if league %}
-          <li class="breadcrumb-item"><a href="{% url 'league_list' %}">Leghe</a></li>
-          <li class="breadcrumb-item"><a href="{% url 'league_detail' league.slug %}">{{ league.name }}</a></li>
+    <header class="fm-page-header">
+      <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+          {% if league %}
+            <li class="breadcrumb-item"><a href="{% url 'league_list' %}">Leghe</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'league_detail' league.slug %}">{{ league.name }}</a></li>
+          {% endif %}
+          <li class="breadcrumb-item"><a href="{% url 'team_detail' team.pk %}">{{ team.name }}</a></li>
+          <li class="breadcrumb-item active" aria-current="page">Modifica</li>
+        </ol>
+      </nav>
+      <h2>Modifica squadra</h2>
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        {% if edit_window_open and league %}
+          <span class="badge text-bg-success">Modificabile fino al {{ league.registration_closes|date:"d/m/Y" }}</span>
         {% endif %}
-        <li class="breadcrumb-item"><a href="{% url 'team_detail' team.pk %}">{{ team.name }}</a></li>
-        <li class="breadcrumb-item active" aria-current="page">Modifica</li>
-      </ol>
-    </nav>
-
-    <h2 class="mb-2">Modifica squadra</h2>
-    <div class="fm-facts mb-3">
-      <span class="fm-fact" title="Squadra">
-        <span class="fm-fact-icon" aria-hidden="true">&#9760;</span>
-        {{ team.name }}
-      </span>
-      {% if league %}
-        <span class="fm-fact" title="Lega">
-          <span class="fm-fact-icon" aria-hidden="true">&#127942;</span>
-          <a href="{% url 'league_detail' league.slug %}">{{ league.name }}</a>
-        </span>
-      {% endif %}
-      {% if can_edit and league %}
-        <span class="badge text-bg-success">Modificabile fino al {{ league.registration_closes|date:"d/m/Y" }}</span>
-      {% endif %}
-    </div>
+        {% if admin_override %}
+          <span class="badge text-bg-warning"
+                title="Stai modificando come amministratore di sistema: le normali regole di scadenza non si applicano a te.">
+            Modalità amministratore
+          </span>
+        {% endif %}
+      </div>
+    </header>
 
     {% if not can_edit %}
     <div class="alert alert-info">
@@ -41,6 +38,16 @@
       {% endif %}
     </div>
     {% endif %}
+
+    {% if can_edit %}
+    <ul class="nav nav-tabs mb-3" id="teamTabs">
+      <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tabTeam">Squadra</a></li>
+      <li class="nav-item"><a class="nav-link fm-tab-danger" data-bs-toggle="tab" href="#tabTeamDanger">Danger zone</a></li>
+    </ul>
+    {% endif %}
+
+    <div class="tab-content">
+    <div class="tab-pane fade show active" id="tabTeam">
 
     {% if can_edit %}
     <form method="post" id="teamForm" class="mb-4">
@@ -135,9 +142,11 @@
                   {% if deadline %}
                     <br><small class="text-body-secondary">scade <span class="fm-countdown" data-fm-countdown="{{ deadline|date:'U' }}">…</span></small>
                   {% endif %}
-                  {% if can_edit and member.can_be_substituted %}
+                  {# La sostituzione in stagione è governata da can_be_substituted, #}
+                  {# NON dalla finestra di modifica (che in stagione è chiusa). #}
+                  {% if member.can_be_substituted %}
                     <a href="{% url 'substitute_member' team.pk member.pk %}" class="btn btn-primary btn-sm ms-1">Sostituisci</a>
-                  {% elif can_edit and deadline %}
+                  {% elif deadline %}
                     <span class="badge text-bg-secondary ms-1" title="Tempi scaduti">scaduto</span>
                   {% endif %}
                 {% endwith %}
@@ -180,22 +189,37 @@
     {% endif %}
     </div>{# /fmRosterRegion #}
 
+    </div>{# /tabTeam #}
+
     {% if can_edit %}
-    <div class="card border-danger mt-5">
-      <div class="card-header text-danger fw-semibold">Danger zone</div>
-      <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
-        <p class="mb-0">
-          L'eliminazione della squadra è <strong>definitiva</strong>: la rosa e i
-          punteggi associati andranno persi.
-        </p>
-        <form method="post" action="{% url 'team_delete' team.pk %}"
-              onsubmit="return confirm('Eliminare la squadra «{{ team.name }}»? La rosa e i punteggi associati andranno persi. L\'azione è irreversibile.');">
-          {% csrf_token %}
-          <button type="submit" class="btn btn-danger btn-sm">Elimina squadra</button>
-        </form>
+    <div class="tab-pane fade" id="tabTeamDanger">
+      {{ team.name|json_script:"fmTeamName" }}
+      <div class="card border-danger">
+        <div class="card-header text-danger fw-semibold">Elimina squadra</div>
+        <div class="card-body">
+          <p class="mb-2">
+            L'eliminazione della squadra è <strong>definitiva</strong>: la rosa e i
+            punteggi associati andranno persi.
+          </p>
+          <form method="post" action="{% url 'team_delete' team.pk %}" class="row g-2 align-items-end">
+            {% csrf_token %}
+            <div class="col-md-7">
+              <label class="form-label small" for="teamDeleteConfirmName">
+                Per confermare, digita il nome della squadra: <strong>{{ team.name }}</strong>
+              </label>
+              <input type="text" id="teamDeleteConfirmName" name="confirm_name"
+                     class="form-control form-control-sm" autocomplete="off"
+                     placeholder="{{ team.name }}">
+            </div>
+            <div class="col-auto">
+              <button type="submit" id="teamDeleteBtn" class="btn btn-danger btn-sm" disabled>Elimina squadra</button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
     {% endif %}
+    </div>{# /tab-content #}
   </div>
 </div>
 {% endblock %}
@@ -206,6 +230,16 @@
 (function () {
   const teamPk = "{{ team.pk }}";
   const csrfToken = "{{ csrf_token }}";
+
+  // Danger zone: il bottone di eliminazione si attiva solo se il nome
+  // digitato corrisponde (la verifica vera è comunque server-side).
+  const deleteInput = document.getElementById('teamDeleteConfirmName');
+  if (deleteInput) {
+    const expected = JSON.parse(document.getElementById('fmTeamName').textContent).trim();
+    deleteInput.addEventListener('input', function () {
+      document.getElementById('teamDeleteBtn').disabled = this.value.trim() !== expected;
+    });
+  }
 
   function showAddError(msg) {
     const el = document.getElementById('addError');

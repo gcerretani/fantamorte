@@ -2,50 +2,44 @@
 {% block title %}{{ team.name }} — Fantamorte{% endblock %}
 {% block content %}
 
-<nav aria-label="breadcrumb">
-  <ol class="breadcrumb mb-2">
-    {% if team.league %}
-      <li class="breadcrumb-item"><a href="{% url 'league_list' %}">Leghe</a></li>
-      <li class="breadcrumb-item"><a href="{% url 'league_detail' team.league.slug %}">{{ team.league.name }}</a></li>
-    {% endif %}
-    <li class="breadcrumb-item active" aria-current="page">{{ team.name }}</li>
-  </ol>
-</nav>
-
-<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
-  <div>
-    <h2 class="mb-2">{{ team.name }}</h2>
-    <div class="fm-facts">
-      <span class="fm-fact" title="Gestore della squadra">
-        <span class="fm-fact-icon" aria-hidden="true">&#128100;</span>
-        {{ team.manager.username }}
-      </span>
+<header class="fm-page-header">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
       {% if team.league %}
-        <span class="fm-fact" title="Lega">
-          <span class="fm-fact-icon" aria-hidden="true">&#127942;</span>
-          <a href="{% url 'league_detail' team.league.slug %}">{{ team.league.name }}</a>
-        </span>
+        <li class="breadcrumb-item"><a href="{% url 'league_list' %}">Leghe</a></li>
+        <li class="breadcrumb-item"><a href="{% url 'league_detail' team.league.slug %}">{{ team.league.name }}</a></li>
       {% endif %}
-      {% if team.jolly_month %}
-        <span class="fm-fact" title="Mese jolly: i punti del mese valgono ×{{ team.league.jolly_multiplier|default:2 }}">
-          <span class="fm-fact-icon" aria-hidden="true">&#127183;</span>
-          Jolly: {{ team.get_jolly_month_display }}
+      <li class="breadcrumb-item active" aria-current="page">{{ team.name }}</li>
+    </ol>
+  </nav>
+  <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+    <div>
+      <h2>{{ team.name }}</h2>
+      <div class="fm-facts">
+        <span class="fm-fact" title="Gestore della squadra">
+          <span class="fm-fact-icon" aria-hidden="true">&#128100;</span>
+          {{ team.manager.username }}
         </span>
-      {% endif %}
+        {% if team.jolly_month %}
+          <span class="fm-fact" title="Mese jolly: i punti del mese valgono ×{{ team.league.jolly_multiplier|default:2 }}">
+            <span class="fm-fact-icon" aria-hidden="true">&#127183;</span>
+            Jolly: {{ team.get_jolly_month_display }}
+          </span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="text-end">
+      <div class="display-5 fw-bold lh-1">{{ score }}</div>
+      <small class="text-body-secondary">punti</small>
     </div>
   </div>
-  <div class="text-end">
-    <div class="display-5 fw-bold lh-1">{{ score }}</div>
-    <small class="text-body-secondary">punti</small>
+  {% if user == team.manager or user.is_staff %}
+  <div class="d-flex gap-2 mt-2">
+    <a href="{% url 'team_edit' team.pk %}" class="btn btn-outline-secondary btn-sm">Modifica squadra</a>
+    <a href="{% url 'team_what_if' team.pk %}" class="btn btn-outline-secondary btn-sm">Simulatore "What if"</a>
   </div>
-</div>
-
-{% if user == team.manager or user.is_staff %}
-<div class="d-flex gap-2 mb-3">
-  <a href="{% url 'team_edit' team.pk %}" class="btn btn-outline-secondary btn-sm">Modifica squadra</a>
-  <a href="{% url 'team_what_if' team.pk %}" class="btn btn-outline-secondary btn-sm">Simulatore "What if"</a>
-</div>
-{% endif %}
+  {% endif %}
+</header>
 
 <div class="row">
   <div class="col-md-6">

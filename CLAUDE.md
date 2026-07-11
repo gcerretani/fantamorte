@@ -91,7 +91,9 @@ User ─┬─ owns ──────────► League ◄── membershi
 LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
 ```
 
-- **`League`** ha `start_date`, `end_date`, `registration_opens/closes`,
+- **`League`** ha `start_date`, `end_date`, `registration_opens/closes`
+  (vincolo validato in `update_rules`: `registration_closes ≤ start_date`,
+  le squadre devono essere definitive quando i decessi iniziano a contare),
   `base_points`, `captain_multiplier`, `jolly_multiplier`,
   `max_captains`, `max_non_captains`, `max_total_age` (somma massima delle
   età dei membri attivi di una squadra, 0 = nessun limite; enforced in
@@ -104,6 +106,13 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
   jolly, intero 1-12) e `is_locked` (squadra bloccata: il manager non può
   più modificare la rosa — enforced in `_can_edit_team`; le sostituzioni
   in stagione restano governate da `can_be_substituted()`).
+  La finestra di modifica "pura" (registrazioni aperte, nessun lock) è
+  `_team_edit_window_open`; `_can_edit_team` la estende con l'override
+  per lo staff di sistema (`is_staff`), che può sempre modificare —
+  la UI lo segnala col badge "Modalità amministratore" in team_edit.
+  Lo staff ha anche i poteri dell'owner su ogni lega (ruoli, trasferimento
+  proprietà, eliminazione): il pannello admin passa `can_manage_league`
+  (owner o staff) ai template.
 - **`TeamMember.is_original`** flag che abilita il bonus "giocata originale".
   Calcolato a inizio stagione dal command `mark_originals`. Il campo
   `replaced_by` crea una catena per tracciare le sostituzioni (solo
@@ -281,7 +290,7 @@ Note di efficienza (importanti se tocchi il client):
 /leghe/nuova/                   crea lega
 /leghe/<slug>/                  detail (top 3 + recent deaths + regole + iscrizione)
 /leghe/<slug>/admin/            pannello admin (regole, bonus, membri, invito, danger zone)
-/leghe/<slug>/elimina/          POST: elimina la lega (solo owner, richiede il nome digitato)
+/leghe/<slug>/elimina/          POST: elimina la lega (owner o staff, richiede il nome digitato)
 /leghe/<slug>/regolamento/      riepilogo regole+bonus della lega (visibile a tutti i membri)
 /leghe/<slug>/classifica/       classifica completa
 /leghe/<slug>/decessi/          timeline decessi (con assegnazione manuale bonus per gli admin)
@@ -374,14 +383,21 @@ Note di efficienza (importanti se tocchi il client):
   un replace del DOM).
 - Animazioni: nessuna oltre a quelle di Bootstrap; eventuali transizioni
   custom vanno dentro `@media (prefers-reduced-motion: no-preference)`.
-- **Navigazione**: ogni sottopagina ha un breadcrumb Bootstrap in testa
-  (`Leghe / <lega> / <pagina>`, per le squadre `Leghe / <lega> / <squadra> /
-  <pagina>`). Se aggiungi una pagina sotto lega o squadra, aggiungi il
-  breadcrumb; niente più bottoni "← Torna a...".
+- **Navigazione**: ogni sottopagina apre con un
+  `<header class="fm-page-header">` che contiene breadcrumb Bootstrap
+  (`Leghe › <lega> › <pagina>`, per le squadre `Leghe › <lega> › <squadra> ›
+  <pagina>`), titolo `h2` ed eventuali badge/chips, separati dal contenuto
+  da un bordo. Il breadcrumb è ristilato globalmente in `fantamorte.css`
+  (compatto, una riga con ellissi, link secondari): non ripetere nel titolo
+  o nelle chips informazioni già nel breadcrumb (es. il nome della lega).
+  Se aggiungi una pagina sotto lega o squadra, usa lo stesso header;
+  niente più bottoni "← Torna a...".
 - **Danger zone**: le azioni distruttive (elimina lega, elimina squadra)
-  stanno in una card `border-danger` in fondo alla pagina, mai tra le azioni
-  normali. L'eliminazione della lega richiede di ridigitare il nome
-  (validato anche server-side in `LeagueDeleteView`).
+  stanno in una **tab dedicata** (`.fm-tab-danger`, rossa) dei pannelli di
+  modifica (league_admin e team_edit), mai tra le azioni normali, dentro
+  una card `border-danger`. L'eliminazione di lega e squadra richiede di
+  ridigitare il nome (validato anche server-side in `LeagueDeleteView` /
+  `TeamDeleteView`; il bottone si abilita via JS al match).
 
 ## Convenzioni di codice
 

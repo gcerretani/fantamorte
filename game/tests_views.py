@@ -142,6 +142,27 @@ class LeagueAdminPermessiTest(ViewsBaseTestCase):
         self.private_league.refresh_from_db()
         self.assertEqual(self.private_league.start_date, date(2020, 1, 1))
 
+    def test_chiusura_iscrizioni_dopo_inizio_gioco_rifiutata(self):
+        self.client.login(username='owner', password='x')
+        self.client.post(reverse('league_admin', args=['lega-privata']), {
+            'action': 'update_rules',
+            'start_date': '2031-06-01', 'end_date': '2031-12-31',
+            'registration_opens': '2031-01-01', 'registration_closes': '2031-06-02',
+        })
+        self.private_league.refresh_from_db()
+        self.assertEqual(self.private_league.start_date, date(2020, 1, 1))
+
+    def test_chiusura_iscrizioni_uguale_a_inizio_gioco_accettata(self):
+        self.client.login(username='owner', password='x')
+        self.client.post(reverse('league_admin', args=['lega-privata']), {
+            'action': 'update_rules',
+            'start_date': '2031-06-01', 'end_date': '2031-12-31',
+            'registration_opens': '2031-01-01', 'registration_closes': '2031-06-01',
+        })
+        self.private_league.refresh_from_db()
+        self.assertEqual(self.private_league.start_date, date(2031, 6, 1))
+        self.assertEqual(self.private_league.registration_closes, date(2031, 6, 1))
+
 
 class BulkSyncServerSideTest(ViewsBaseTestCase):
     """La sync giocatori applica solo dati Wikidata, mai input del client."""
@@ -271,24 +292,45 @@ class TeamCreateFlowTest(ViewsBaseTestCase):
 
 
 class TeamDeleteTest(ViewsBaseTestCase):
+    """Danger zone squadra: eliminazione con conferma del nome digitato."""
+
+    def _delete(self, confirm_name='Squadra Privata'):
+        return self.client.post(reverse('team_delete', args=[self.private_team.pk]),
+                                {'confirm_name': confirm_name})
 
     def test_manager_elimina_la_propria_squadra(self):
         self.client.login(username='member', password='x')
-        resp = self.client.post(reverse('team_delete', args=[self.private_team.pk]))
+        resp = self._delete()
         self.assertRedirects(resp, reverse('league_detail', args=['lega-privata']))
         self.assertFalse(Team.objects.filter(pk=self.private_team.pk).exists())
 
+    def test_nome_sbagliato_non_elimina(self):
+        self.client.login(username='member', password='x')
+        self._delete(confirm_name='squadra privata')  # case diverso: non basta
+        self.assertTrue(Team.objects.filter(pk=self.private_team.pk).exists())
+
+    def test_senza_nome_non_elimina(self):
+        self.client.login(username='member', password='x')
+        self.client.post(reverse('team_delete', args=[self.private_team.pk]))
+        self.assertTrue(Team.objects.filter(pk=self.private_team.pk).exists())
+
     def test_estraneo_non_puo_eliminare(self):
         self.client.login(username='outsider', password='x')
-        self.client.post(reverse('team_delete', args=[self.private_team.pk]))
+        self._delete()
         self.assertTrue(Team.objects.filter(pk=self.private_team.pk).exists())
 
     def test_squadra_bloccata_non_eliminabile(self):
         self.private_team.is_locked = True
         self.private_team.save()
         self.client.login(username='member', password='x')
-        self.client.post(reverse('team_delete', args=[self.private_team.pk]))
+        self._delete()
         self.assertTrue(Team.objects.filter(pk=self.private_team.pk).exists())
+
+    def test_staff_elimina_squadra_altrui(self):
+        User.objects.create_user('staff-del', password='x', is_staff=True)
+        self.client.login(username='staff-del', password='x')
+        self._delete()
+        self.assertFalse(Team.objects.filter(pk=self.private_team.pk).exists())
 
 
 class PagineGeneraliTest(ViewsBaseTestCase):
@@ -887,6 +929,110 @@ class LeagueDeleteTest(ViewsBaseTestCase):
         resp = self._delete()
         self.assertEqual(resp.status_code, 403)
         self.assertTrue(League.objects.filter(slug='lega-privata').exists())
+
+    def test_staff_elimina_lega_altrui(self):
+        """Lo staff di sistema può eliminare qualsiasi lega (col nome digitato)."""
+        User.objects.create_user('staff-league', password='x', is_staff=True)
+        self.client.login(username='staff-league', password='x')
+        resp = self._delete()
+        self.assertRedirects(resp, reverse('home'))
+        self.assertFalse(League.objects.filter(slug='lega-privata').exists())
+
+
+class LeagueRoleManagementStaffTest(ViewsBaseTestCase):
+    """Lo staff di sistema gestisce ruoli e proprietà anche in leghe non sue."""
+
+    def setUp(self):
+        super().setUp()
+        self.staff = User.objects.create_user('staff-roles', password='x', is_staff=True)
+        self.member_ms = LeagueMembership.objects.get(
+            league=self.private_league, user=self.member,
+        )
+
+    def test_staff_promuove_admin(self):
+        self.client.login(username='staff-roles', password='x')
+        self.client.post(reverse('league_admin', args=['lega-privata']),
+                         {'action': 'promote_admin', 'membership_id': str(self.member_ms.pk)})
+        self.member_ms.refresh_from_db()
+        self.assertEqual(self.member_ms.role, LeagueMembership.ROLE_ADMIN)
+
+    def test_staff_trasferisce_la_proprieta(self):
+        # Lo staff non è nemmeno membro della lega: il vecchio owner va
+        # cercato da League.owner, non da request.user.
+        self.client.login(username='staff-roles', password='x')
+        self.client.post(reverse('league_admin', args=['lega-privata']),
+                         {'action': 'transfer_ownership', 'membership_id': str(self.member_ms.pk)})
+        self.private_league.refresh_from_db()
+        self.assertEqual(self.private_league.owner, self.member)
+        old = LeagueMembership.objects.get(league=self.private_league, user=self.owner)
+        self.assertEqual(old.role, LeagueMembership.ROLE_ADMIN)
+
+    def test_admin_di_lega_non_owner_non_promuove(self):
+        self.member_ms.role = LeagueMembership.ROLE_ADMIN
+        self.member_ms.save()
+        other = User.objects.create_user('other', password='x')
+        other_ms = LeagueMembership.objects.create(
+            league=self.private_league, user=other, role=LeagueMembership.ROLE_MEMBER,
+        )
+        self.client.login(username='member', password='x')
+        self.client.post(reverse('league_admin', args=['lega-privata']),
+                         {'action': 'promote_admin', 'membership_id': str(other_ms.pk)})
+        other_ms.refresh_from_db()
+        self.assertEqual(other_ms.role, LeagueMembership.ROLE_MEMBER)
+
+    def test_staff_vede_la_danger_zone_di_lega_altrui(self):
+        self.client.login(username='staff-roles', password='x')
+        resp = self.client.get(reverse('league_admin', args=['lega-privata']))
+        self.assertContains(resp, 'id="tabDanger"')
+
+    def test_admin_di_lega_non_owner_non_vede_la_danger_zone(self):
+        self.member_ms.role = LeagueMembership.ROLE_ADMIN
+        self.member_ms.save()
+        self.client.login(username='member', password='x')
+        resp = self.client.get(reverse('league_admin', args=['lega-privata']))
+        self.assertNotContains(resp, 'id="tabDanger"')
+
+
+class TeamEditAdminOverrideTest(ViewsBaseTestCase):
+    """A registrazioni chiuse il manager non modifica; lo staff sì, con badge."""
+
+    def setUp(self):
+        super().setUp()
+        self.private_league.registration_closes = date(2020, 1, 2)
+        self.private_league.save()
+        User.objects.create_user('staff-edit', password='x', is_staff=True)
+
+    def test_manager_vede_squadra_non_modificabile(self):
+        self.client.login(username='member', password='x')
+        resp = self.client.get(reverse('team_edit', args=[self.private_team.pk]))
+        self.assertContains(resp, 'le registrazioni per questa lega sono chiuse')
+        self.assertNotContains(resp, 'Modalità amministratore')
+
+    def test_manager_non_salva_a_registrazioni_chiuse(self):
+        self.client.login(username='member', password='x')
+        self.client.post(reverse('team_edit', args=[self.private_team.pk]),
+                         {'name': 'Fuori Tempo'})
+        self.private_team.refresh_from_db()
+        self.assertEqual(self.private_team.name, 'Squadra Privata')
+
+    def test_staff_modifica_con_badge_override(self):
+        self.client.login(username='staff-edit', password='x')
+        resp = self.client.get(reverse('team_edit', args=[self.private_team.pk]))
+        self.assertContains(resp, 'Modalità amministratore')
+        self.assertNotContains(resp, 'Modificabile fino al')
+
+    def test_sostituzione_visibile_anche_a_registrazioni_chiuse(self):
+        """La sostituzione in stagione non dipende dalla finestra di modifica."""
+        from django.utils import timezone
+        from .models import Death
+        self.person.is_dead = True
+        self.person.death_date = timezone.now().date()
+        self.person.save()
+        Death.objects.create(person=self.person, death_date=timezone.now().date(),
+                             death_age=80, is_confirmed=True, confirmed_at=timezone.now())
+        self.client.login(username='member', password='x')
+        resp = self.client.get(reverse('team_edit', args=[self.private_team.pk]))
+        self.assertContains(resp, 'Sostituisci')
 
 
 class RemoveMemberTest(ViewsBaseTestCase):

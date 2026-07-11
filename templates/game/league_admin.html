@@ -2,21 +2,22 @@
 {% block title %}Gestione {{ league.name }}{% endblock %}
 {% block content %}
 
-<nav aria-label="breadcrumb">
-  <ol class="breadcrumb mb-2">
-    <li class="breadcrumb-item"><a href="{% url 'league_list' %}">Leghe</a></li>
-    <li class="breadcrumb-item"><a href="{% url 'league_detail' league.slug %}">{{ league.name }}</a></li>
-    <li class="breadcrumb-item active" aria-current="page">Gestione</li>
-  </ol>
-</nav>
-
-<div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-1">
-  <h2 class="mb-0">Gestione: {{ league.name }}</h2>
-  <a class="btn btn-outline-secondary btn-sm" href="{% url 'league_players_refresh' slug=league.slug %}">
-    &#8635; Aggiorna giocatori
-  </a>
-</div>
-<p class="text-body-secondary">Solo admin/owner possono modificare queste impostazioni.</p>
+<header class="fm-page-header">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'league_list' %}">Leghe</a></li>
+      <li class="breadcrumb-item"><a href="{% url 'league_detail' league.slug %}">{{ league.name }}</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Gestione</li>
+    </ol>
+  </nav>
+  <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <h2 class="mb-0">Gestione lega</h2>
+    <a class="btn btn-outline-secondary btn-sm" href="{% url 'league_players_refresh' slug=league.slug %}">
+      &#8635; Aggiorna giocatori
+    </a>
+  </div>
+  <p class="text-body-secondary small mb-0">Solo admin/owner possono modificare queste impostazioni.</p>
+</header>
 
 <ul class="nav nav-tabs mb-3" id="adminTabs">
   <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tabRules">Regole</a></li>
@@ -24,6 +25,9 @@
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabMembers">Iscritti</a></li>
   {% if league.visibility == 'private' %}
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabInvite">Codice invito</a></li>
+  {% endif %}
+  {% if can_manage_league %}
+  <li class="nav-item"><a class="nav-link fm-tab-danger" data-bs-toggle="tab" href="#tabDanger">Danger zone</a></li>
   {% endif %}
 </ul>
 
@@ -261,7 +265,7 @@
             </td>
             <td><small>{{ m.joined_at|date:"d/m/Y" }}</small></td>
             <td>
-              {% if m.role != 'owner' and is_owner %}
+              {% if m.role != 'owner' and can_manage_league %}
                 {% if m.role == 'admin' %}
                   <form method="post" class="d-inline">
                     {% csrf_token %}
@@ -335,35 +339,37 @@
   </div>
   {% endif %}
 
-</div>
-
-{% if is_owner %}
-{{ league.name|json_script:"fmLeagueName" }}
-<div class="card border-danger mt-5">
-  <div class="card-header text-danger fw-semibold">Danger zone</div>
-  <div class="card-body">
-    <p class="mb-2">
-      L'eliminazione della lega è <strong>definitiva</strong>: cancella squadre, rose,
-      punteggi, iscrizioni e bonus personalizzati. I dati dei decessi restano
-      condivisi con le altre leghe.
-    </p>
-    <form method="post" action="{% url 'league_delete' league.slug %}" class="row g-2 align-items-end"
-          onsubmit="return confirm('Eliminare definitivamente la lega «{{ league.name }}»? L\'azione è irreversibile.');">
-      {% csrf_token %}
-      <div class="col-md-5">
-        <label class="form-label small" for="deleteConfirmName">
-          Per confermare, digita il nome della lega: <strong>{{ league.name }}</strong>
-        </label>
-        <input type="text" id="deleteConfirmName" name="confirm_name" class="form-control form-control-sm"
-               autocomplete="off" placeholder="{{ league.name }}">
+  {% if can_manage_league %}
+  <!-- DANGER ZONE -->
+  <div class="tab-pane fade" id="tabDanger">
+    {{ league.name|json_script:"fmLeagueName" }}
+    <div class="card border-danger">
+      <div class="card-header text-danger fw-semibold">Elimina lega</div>
+      <div class="card-body">
+        <p class="mb-2">
+          L'eliminazione della lega è <strong>definitiva</strong>: cancella squadre, rose,
+          punteggi, iscrizioni e bonus personalizzati. I dati dei decessi restano
+          condivisi con le altre leghe.
+        </p>
+        <form method="post" action="{% url 'league_delete' league.slug %}" class="row g-2 align-items-end">
+          {% csrf_token %}
+          <div class="col-md-5">
+            <label class="form-label small" for="deleteConfirmName">
+              Per confermare, digita il nome della lega: <strong>{{ league.name }}</strong>
+            </label>
+            <input type="text" id="deleteConfirmName" name="confirm_name" class="form-control form-control-sm"
+                   autocomplete="off" placeholder="{{ league.name }}">
+          </div>
+          <div class="col-auto">
+            <button type="submit" id="deleteLeagueBtn" class="btn btn-danger btn-sm" disabled>Elimina lega</button>
+          </div>
+        </form>
       </div>
-      <div class="col-auto">
-        <button type="submit" id="deleteLeagueBtn" class="btn btn-danger btn-sm" disabled>Elimina lega</button>
-      </div>
-    </form>
+    </div>
   </div>
+  {% endif %}
+
 </div>
-{% endif %}
 
 {% endblock %}
 
@@ -373,7 +379,7 @@
 // corrisponde (la verifica vera è comunque server-side).
 const fmDeleteInput = document.getElementById('deleteConfirmName');
 if (fmDeleteInput) {
-  const expected = JSON.parse(document.getElementById('fmLeagueName').textContent);
+  const expected = JSON.parse(document.getElementById('fmLeagueName').textContent).trim();
   fmDeleteInput.addEventListener('input', function () {
     document.getElementById('deleteLeagueBtn').disabled = this.value.trim() !== expected;
   });
