@@ -40,7 +40,7 @@
 {# l'overscroll/rubber-band; il body compensa l'altezza via CSS (fantamorte.css). #}
 <nav class="navbar navbar-expand-lg bg-dark fixed-top" data-bs-theme="dark" aria-label="Navigazione principale">
   <div class="container">
-    <a class="navbar-brand" href="{% url 'home' %}"><span aria-hidden="true">&#9760;</span> Fantamorte</a>
+    <a class="navbar-brand" href="{% url 'home' %}">{% include '_logo.html' %} Fantamorte</a>
     <div class="d-flex align-items-center order-lg-last">
       <button id="fmInstallBtn" class="btn btn-outline-light btn-sm me-2" type="button"
         title="Installa app" aria-label="Installa app"><span aria-hidden="true">&#x2913;</span> Installa</button>

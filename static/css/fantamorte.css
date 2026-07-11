@@ -23,6 +23,14 @@ html {
   background-color: var(--bs-tertiary-bg);
 }
 
+/* Marchio: teschio SVG inline (templates/_logo.html), dimensionato sul
+   testo che lo affianca e colorato via currentColor. */
+.fm-logo {
+  height: 1.2em;
+  width: auto;
+  vertical-align: -0.22em;
+}
+
 /* ---- Navigazione di pagina ----
    Breadcrumb compatto e discreto: una sola riga (i segmenti lunghi vengono
    troncati con ellissi), link nel colore secondario così il titolo della

@@ -32,7 +32,12 @@
       btn.setAttribute('aria-label', label);
     }
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', effective === 'dark' ? '#212529' : '#f8f9fa');
+    if (meta) {
+      // Il colore per tema vive nei token CSS (--fm-theme-color in
+      // fantamorte.css); gli hex sono solo fallback se il CSS non è caricato.
+      const tone = getComputedStyle(html).getPropertyValue('--fm-theme-color').trim();
+      meta.setAttribute('content', tone || (effective === 'dark' ? '#212529' : '#f8f9fa'));
+    }
   }
   window.fmToggleTheme = function () {
     const current = readPref();
