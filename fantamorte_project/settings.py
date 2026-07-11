@@ -220,8 +220,10 @@ VAPID_CLAIM_EMAIL = env('VAPID_CLAIM_EMAIL', default='admin@fantamorte.local')
 # --- PWA ---
 PWA_APP_NAME = 'Fantamorte'
 PWA_APP_SHORT_NAME = 'Fantamorte'
-PWA_APP_THEME_COLOR = '#212529'
-PWA_APP_BACKGROUND_COLOR = '#f8f9fa'
+# Palette «Notturno»: tenere in sync con i token --fm-* in
+# static/css/fantamorte.css (theme = top bar, background = fondo pagina dark).
+PWA_APP_THEME_COLOR = '#171a20'
+PWA_APP_BACKGROUND_COLOR = '#111318'
 
 WIKIDATA_USER_AGENT = env('WIKIDATA_USER_AGENT', default='Fantamorte/1.0 (fantamorte@example.com)')
 WIKIDATA_REQUEST_DELAY = env.float('WIKIDATA_REQUEST_DELAY', default=0.5)

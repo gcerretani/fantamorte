@@ -34,9 +34,9 @@
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) {
       // Il colore per tema vive nei token CSS (--fm-theme-color in
-      // fantamorte.css); gli hex sono solo fallback se il CSS non è caricato.
+      // fantamorte.css); l'hex è solo fallback se il CSS non è caricato.
       const tone = getComputedStyle(html).getPropertyValue('--fm-theme-color').trim();
-      meta.setAttribute('content', tone || (effective === 'dark' ? '#212529' : '#f8f9fa'));
+      meta.setAttribute('content', tone || '#171a20');
     }
   }
   window.fmToggleTheme = function () {

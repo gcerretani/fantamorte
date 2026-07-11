@@ -38,7 +38,7 @@ def public_settings(request):
     return {
         'VAPID_PUBLIC_KEY': getattr(settings, 'VAPID_PUBLIC_KEY', ''),
         'PWA_APP_NAME': getattr(settings, 'PWA_APP_NAME', 'Fantamorte'),
-        'PWA_THEME_COLOR': getattr(settings, 'PWA_APP_THEME_COLOR', '#212529'),
+        'PWA_THEME_COLOR': getattr(settings, 'PWA_APP_THEME_COLOR', '#171a20'),
         'user_profile': profile,
         'theme_preference': theme_preference,
         'active_nav': _active_nav(request),
