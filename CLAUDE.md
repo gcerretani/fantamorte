@@ -61,8 +61,12 @@ fantamorte/
 │   ├── client.py            # WikidataClient: search, entity, summary, SPARQL, bonus detection
 │   ├── sparql.py            # Template query SPARQL (DEATH_CHECK_QUERY, ecc.)
 │   └── tests.py             # Test del client (mockando le chiamate HTTP)
+├── scripts/
+│   └── generate_pwa_icons.py # Rigenera le PNG PWA dagli SVG (cairosvg)
 ├── templates/
-│   ├── base.html            # Layout, navbar offcanvas, modal persona, dark mode
+│   ├── base.html            # Layout, top bar, sprite icone, modal persona, dark mode
+│   ├── _logo.html           # Marchio: teschio SVG inline (mai entità/emoji)
+│   ├── _bottom_nav.html     # Bottom nav mobile (4 tab, active_nav)
 │   ├── account/             # Override allauth (login/signup) con stile Bootstrap
 │   ├── email/               # Template email transazionali (txt + html)
 │   └── game/                # Tutti i template della app (+ sw.js renderizzato)
@@ -189,9 +193,20 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
 
 ## PWA + Push
 
-- **Manifest** servito da `/manifest.webmanifest` (rendering JSON, view in `views.py`).
+- **Manifest** servito da `/manifest.webmanifest` (rendering JSON, view in
+  `views.py`). Gli URL delle icone passano da `static()` (hashati in
+  produzione, come il precache del SW). Include le icone `maskable`
+  (adattive Android, glifo in safe-zone) e `monochrome`.
+- **Icone**: sorgenti SVG in `static/pwa/` (`icon.svg` = brand,
+  `badge.svg` = silhouette trasparente); le PNG derivate (192/512,
+  maskable, badge-96, apple-touch) si rigenerano con
+  `python scripts/generate_pwa_icons.py` (cairosvg). Il **badge** delle
+  notifiche Android usa solo il canale alpha: deve restare il PNG
+  monocromatico trasparente — mai puntarlo all'icona quadrata opaca
+  (tornerebbe il bug del quadrato bianco).
 - **Service worker** servito da `/sw.js` (template Django, niente static).
-  Cache offline: network-first per HTML, cache-first per asset; gestisce push.
+  Cache offline: network-first per HTML, cache-first per asset; gestisce
+  push (`icon`/`badge` con override opzionale dal payload).
   Il `cache_version` nel nome della cache è parametrico nel template Django
   per evitare stale assets. Gli asset propri nel precache passano da
   `{% static %}`: in produzione risolvono ai nomi con hash del
@@ -333,12 +348,32 @@ Note di efficienza (importanti se tocchi il client):
   `openssl dgst -sha384 -binary | openssl base64 -A`). Niente bundler.
   Gli URL versionati vanno tenuti allineati anche nel precache di
   `templates/game/sw.js`.
+- **Pelle «Notturno» (dark-first) via token**: la palette vive TUTTA nella
+  sezione token in testa a `fantamorte.css` — grafite+ottone come tema
+  primario, variante chiara "osso" — come override delle variabili `--bs-*`
+  per tema più i token `--fm-*` (accento, top/tab bar, `--fm-theme-color`).
+  Le regole componente leggono i token: per ritoccare la palette si toccano
+  **solo** i token. Caveat Bootstrap: ridefinire `--bs-primary` da solo non
+  ricolora i componenti compilati — per quelli esiste la sezione
+  "Componenti accentati" (component vars di `.btn-primary`,
+  `.btn-outline-secondary`, `.btn-danger`, focus dei form, `.nav-pills`,
+  check/switch): tienila corta. I colori vanno tenuti in sync con
+  `PWA_APP_THEME_COLOR`/`PWA_APP_BACKGROUND_COLOR` in `settings.py`, il
+  fallback hex in `fantamorte.js` e gli SVG in `static/pwa/` (rigenera le
+  PNG con `python scripts/generate_pwa_icons.py`, richiede cairosvg).
 - **Dark mode nativo Bootstrap**: lo script anti-FOUC in `base.html` (e il
   toggle in `fantamorte.js`) scrivono `data-bs-theme="light|dark"` su
   `<html>`; la preferenza tri-state (`auto|light|dark`) sta in
-  `data-theme-pref` + localStorage. In `fantamorte.css` restano solo poche
-  regole custom basate sulle variabili `--bs-*`: **non** aggiungere override
-  a mano per componenti Bootstrap in dark mode.
+  `data-theme-pref` + localStorage. Il meta `theme-color` viene riscritto
+  dal toggle leggendo il token CSS `--fm-theme-color`. **Non** aggiungere
+  override a mano per componenti Bootstrap in dark mode fuori dalla sezione
+  token/componenti.
+- **Logo**: sempre il partial `templates/_logo.html` (teschio SVG inline,
+  `currentColor`, classe `.fm-logo`) — mai l'entità `&#9760;` o emoji per
+  il brand: la resa cambierebbe da un device all'altro. Per icone inline
+  nel contenuto c'è la sprite `<symbol>` in `base.html`
+  (`fmIcoHome/Leagues/Stats/User/Skull`), da referenziare con
+  `<svg class="fm-ico"><use href="#fmIcoSkull"/></svg>`.
 - **Convenzione bottoni**: `btn-primary` per l'azione affermativa/primaria
   (Salva, Aggiungi, Iscriviti, Conferma, Crea…), `btn-outline-secondary`
   per azioni secondarie e navigazione, `btn-danger`/`btn-outline-danger`
@@ -348,7 +383,9 @@ Note di efficienza (importanti se tocchi il client):
   `danger`=morte, `success`=vivo/attivo/confermato, `primary`=capitano,
   `info`=meccaniche di gioco (jolly, originale, personalizzato),
   `warning`=stati di attenzione (non confermato), `secondary`=meta
-  (ruoli, punteggi, stati neutri).
+  (ruoli, punteggi, stati neutri). Sui `.badge` le classi `text-bg-*` sono
+  ristilate come tinte traslucide del tema (sezione componenti di
+  `fantamorte.css`); i toast le usano nella versione opaca originale.
 - JS custom in `static/js/fantamorte.js`: tema, install prompt, push,
   modal persona, countdown sostituzioni, toast (via `bootstrap.Toast`),
   ricerca persona. Tutto attaccato a `window.fm*` (`fmShowPerson`,
@@ -371,10 +408,20 @@ Note di efficienza (importanti se tocchi il client):
   eredita dal più vicino antenato con `data-fm-league` (il `<main>` di
   base.html lo imposta quando `league` o `team` sono in contesto): con la
   lega nota, il modal mostra i bonus automatici "se morisse oggi".
-- La **navbar è `fixed-top`** (mai sticky: si muoverebbe con l'overscroll);
-  il body compensa l'altezza con un `padding-top` in `fantamorte.css` che
-  assorbe anche la safe area dei notch. Se cambi l'altezza della barra,
-  aggiorna quel padding.
+- **Due barre fisse**: la top bar è `fixed-top` (mai sticky: si muoverebbe
+  con l'overscroll), slim, sempre scura (`.fm-topbar`, token
+  `--fm-topbar-bg`), con i link inline solo da `lg` in su; sotto `lg` la
+  navigazione è la **bottom nav** `templates/_bottom_nav.html`
+  (`.fm-tabbar fixed-bottom d-lg-none`, 4 tab Home/Leghe/Statistiche/
+  Profilo, solo utenti autenticati). Lo stato attivo arriva dal context
+  processor `active_nav` (`game/context_processors.py`, mappa
+  `resolver_match.url_name`; le sottopagine di leghe/squadre/persone
+  accendono il tab Leghe). Il body compensa entrambe le barre in
+  `fantamorte.css` (padding-top con safe area notch, padding-bottom sotto
+  `lg` con `env(safe-area-inset-bottom)`): se cambi l'altezza di una
+  barra, aggiorna il padding corrispondente. Niente hamburger/offcanvas:
+  su mobile "Come funziona", Django admin e logout stanno nella card
+  Account del profilo.
 - **Chips e tile riusabili**: metadati di pagina (periodo, iscritti, owner,
   jolly…) come chips `.fm-facts`/`.fm-fact`; numeri-chiave delle regole come
   tile `.fm-stat` via partial `_league_rules_summary.html` (usato da
@@ -393,7 +440,18 @@ Note di efficienza (importanti se tocchi il client):
   (compatto, una riga con ellissi, link secondari): non ripetere nel titolo
   o nelle chips informazioni già nel breadcrumb (es. il nome della lega).
   Se aggiungi una pagina sotto lega o squadra, usa lo stesso header;
-  niente più bottoni "← Torna a...".
+  niente più bottoni "← Torna a...". Le pagine di lega includono inoltre,
+  subito sotto l'header, il partial `_league_nav.html` (pill orizzontali
+  scrollabili Panoramica·Classifica·Decessi·Regole·Gestione-se-admin,
+  attiva da `resolver_match`): richiede `league` in contesto e `is_admin`
+  per la voce Gestione; niente bottoni-scorciatoia duplicati nell'header.
+- **Tabelle → liste**: i dati per-entità (classifiche, rosa, punti,
+  storico, iscritti, giocatori) si mostrano come `list-group` con gli
+  helper `.fm-pos`/`.fm-row-main`/`.fm-metric` (+ `.fm-rank-first`,
+  `.fm-rank-me`, `.fm-row-dead`), **markup unico per tutti i breakpoint**
+  (mai doppio markup `d-none d-md-block`). Le `<table>` restano solo per
+  dati genuinamente tabellari; su mobile niente colonne nascoste che
+  perdono informazione (usa un collapse, vedi la classifica).
 - **Danger zone**: le azioni distruttive (elimina lega, elimina squadra)
   stanno in una **tab dedicata** (`.fm-tab-danger`, rossa) dei pannelli di
   modifica (league_admin e team_edit), mai tra le azioni normali, dentro
