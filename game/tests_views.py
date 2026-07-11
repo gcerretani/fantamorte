@@ -579,14 +579,14 @@ class PersonRefreshTest(ViewsBaseTestCase):
         self.assertIn('Errore Wikidata', err)
 
 
-class AllauthBootstrapFormsTest(TestCase):
+class AllauthFormClassesTest(TestCase):
     """I form allauth devono arrivare già stilati dal server (ACCOUNT_FORMS)."""
 
-    def test_login_ha_classi_bootstrap(self):
+    def test_login_ha_classi_form(self):
         resp = self.client.get(reverse('account_login'))
         self.assertContains(resp, 'form-control')
 
-    def test_signup_ha_classi_bootstrap(self):
+    def test_signup_ha_classi_form(self):
         resp = self.client.get(reverse('account_signup'))
         self.assertContains(resp, 'form-control')
 
