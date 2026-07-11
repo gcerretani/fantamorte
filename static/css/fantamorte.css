@@ -331,6 +331,15 @@ html {
 .fm-page-header h1,
 .fm-page-header h2 { margin-bottom: 0.25rem; }
 
+/* Tab strip scrollabile su schermi stretti (pannello admin lega). */
+.fm-scroll-tabs {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.fm-scroll-tabs::-webkit-scrollbar { display: none; }
+.fm-scroll-tabs .nav-link { white-space: nowrap; }
+
 /* Tab "Danger zone" nei pannelli di modifica: rossa ma coerente col tema. */
 .nav-tabs .fm-tab-danger { color: var(--bs-danger); }
 .nav-tabs .fm-tab-danger.active { color: var(--bs-danger); font-weight: 600; }

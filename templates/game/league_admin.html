@@ -19,7 +19,9 @@
   <p class="text-body-secondary small mb-0">Solo admin/owner possono modificare queste impostazioni.</p>
 </header>
 
-<ul class="nav nav-tabs mb-3" id="adminTabs">
+{% include 'game/_league_nav.html' with is_admin=True %}
+
+<ul class="nav nav-tabs fm-scroll-tabs mb-3" id="adminTabs">
   <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tabRules">Regole</a></li>
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabBonus">Bonus</a></li>
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabMembers">Iscritti</a></li>
@@ -149,34 +151,41 @@
     <form method="post">
       {% csrf_token %}
       <input type="hidden" name="action" value="set_bonus">
-      <div class="table-responsive">
-      <table class="table table-sm align-middle">
-        <thead><tr><th>Attivo</th><th>Bonus</th><th>Assegnazione</th><th>Default</th><th>Override punti</th></tr></thead>
-        <tbody>
-          {% for lb in league_bonuses %}
-            <tr>
-              <td><input type="checkbox" name="bonus_active_{{ lb.pk }}" {% if lb.is_active %}checked{% endif %}></td>
-              <td>
-                <strong>{{ lb.bonus_type.name }}</strong>
-                {% if lb.bonus_type.league_id %}<span class="badge text-bg-info ms-1">personalizzato</span>{% endif %}
-                {% if lb.bonus_type.description %}<br><small class="text-body-secondary">{{ lb.bonus_type.description }}</small>{% endif %}
-              </td>
-              <td>{% include 'game/_bonus_detection.html' with bt=lb.bonus_type %}</td>
-              <td>
-                {% if lb.bonus_type.points_formula %}
-                  <code>{{ lb.bonus_type.points_formula }}</code>
-                {% else %}
-                  +{{ lb.bonus_type.points }}
+      <div class="list-group mb-3">
+        {% for lb in league_bonuses %}
+          <div class="list-group-item py-3">
+            <div class="d-flex align-items-start gap-2">
+              <div class="form-check form-switch mb-0 pt-1">
+                <input class="form-check-input" type="checkbox" role="switch"
+                       id="bonusActive{{ lb.pk }}" name="bonus_active_{{ lb.pk }}"
+                       {% if lb.is_active %}checked{% endif %}
+                       aria-label="Attiva il bonus {{ lb.bonus_type.name }}">
+              </div>
+              <div class="fm-row-main">
+                <label class="fw-semibold" for="bonusActive{{ lb.pk }}">{{ lb.bonus_type.name }}</label>
+                {% if lb.bonus_type.league_id %}<span class="badge text-bg-info">personalizzato</span>{% endif %}
+                {% if lb.bonus_type.description %}
+                  <div class="small text-body-secondary">{{ lb.bonus_type.description }}</div>
                 {% endif %}
-              </td>
-              <td>
-                <input type="number" name="bonus_points_{{ lb.pk }}" class="form-control form-control-sm fm-input-narrow"
+                <div class="small">{% include 'game/_bonus_detection.html' with bt=lb.bonus_type %}</div>
+                <div class="small text-body-secondary">
+                  Default:
+                  {% if lb.bonus_type.points_formula %}
+                    <code>{{ lb.bonus_type.points_formula }}</code>
+                  {% else %}
+                    +{{ lb.bonus_type.points }}
+                  {% endif %}
+                </div>
+              </div>
+              <div class="text-end">
+                <label class="form-label small mb-1" for="bonusPoints{{ lb.pk }}">Override punti</label>
+                <input type="number" id="bonusPoints{{ lb.pk }}" name="bonus_points_{{ lb.pk }}"
+                       class="form-control form-control-sm fm-input-narrow"
                        placeholder="default" value="{{ lb.override_points|default_if_none:'' }}">
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
       </div>
       <button class="btn btn-primary btn-sm">Salva bonus</button>
     </form>
@@ -251,62 +260,72 @@
 
   <!-- MEMBRI -->
   <div class="tab-pane fade" id="tabMembers">
-    <div class="table-responsive">
-    <table class="table table-sm align-middle">
-      <thead><tr><th>Utente</th><th>Ruolo</th><th>Iscritto</th><th>Azioni</th></tr></thead>
-      <tbody>
-        {% for m in memberships %}
-          <tr>
-            <td>{{ m.user.username }} <small class="text-body-secondary d-none d-md-inline">{{ m.user.email }}</small></td>
-            <td>
-              {% if m.role == 'owner' %}<span class="badge text-bg-secondary">Owner</span>
-              {% elif m.role == 'admin' %}<span class="badge text-bg-secondary">Admin</span>
-              {% else %}<span class="badge text-bg-secondary">Membro</span>{% endif %}
-            </td>
-            <td><small>{{ m.joined_at|date:"d/m/Y" }}</small></td>
-            <td>
-              {% if m.role != 'owner' and can_manage_league %}
+    <ul class="list-group">
+      {% for m in memberships %}
+        <li class="list-group-item py-3 d-flex align-items-center gap-2">
+          <div class="fm-row-main">
+            <strong>{{ m.user.username }}</strong>
+            {% if m.role == 'owner' %}<span class="badge text-bg-secondary">Owner</span>
+            {% elif m.role == 'admin' %}<span class="badge text-bg-secondary">Admin</span>
+            {% else %}<span class="badge text-bg-secondary">Membro</span>{% endif %}
+            <div class="small text-body-secondary">
+              {% if m.user.email %}{{ m.user.email }} &middot; {% endif %}iscritto il {{ m.joined_at|date:"d/m/Y" }}
+            </div>
+          </div>
+          {% if m.role != 'owner' and can_manage_league %}
+            <div class="dropdown">
+              <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown"
+                      aria-expanded="false" aria-label="Azioni per {{ m.user.username }}">&#8943;</button>
+              <ul class="dropdown-menu dropdown-menu-end">
                 {% if m.role == 'admin' %}
-                  <form method="post" class="d-inline">
-                    {% csrf_token %}
-                    <input type="hidden" name="action" value="demote_admin">
-                    <input type="hidden" name="membership_id" value="{{ m.pk }}">
-                    <button class="btn btn-outline-secondary btn-sm">Rimuovi admin</button>
-                  </form>
+                  <li>
+                    <form method="post">
+                      {% csrf_token %}
+                      <input type="hidden" name="action" value="demote_admin">
+                      <input type="hidden" name="membership_id" value="{{ m.pk }}">
+                      <button class="dropdown-item">Rimuovi admin</button>
+                    </form>
+                  </li>
                 {% else %}
-                  <form method="post" class="d-inline">
-                    {% csrf_token %}
-                    <input type="hidden" name="action" value="promote_admin">
-                    <input type="hidden" name="membership_id" value="{{ m.pk }}">
-                    <button class="btn btn-outline-secondary btn-sm">Promuovi admin</button>
-                  </form>
+                  <li>
+                    <form method="post">
+                      {% csrf_token %}
+                      <input type="hidden" name="action" value="promote_admin">
+                      <input type="hidden" name="membership_id" value="{{ m.pk }}">
+                      <button class="dropdown-item">Promuovi admin</button>
+                    </form>
+                  </li>
                 {% endif %}
-                <form method="post" class="d-inline" onsubmit="return confirm('Trasferire la proprietà a {{ m.user.username }}?');">
-                  {% csrf_token %}
-                  <input type="hidden" name="action" value="transfer_ownership">
-                  <input type="hidden" name="membership_id" value="{{ m.pk }}">
-                  <button class="btn btn-outline-danger btn-sm">Trasferisci proprietà</button>
-                </form>
-                <form method="post" class="d-inline" onsubmit="return confirm('Rimuovere {{ m.user.username }} dalla lega?');">
-                  {% csrf_token %}
-                  <input type="hidden" name="action" value="remove_member">
-                  <input type="hidden" name="membership_id" value="{{ m.pk }}">
-                  <button class="btn btn-outline-danger btn-sm">Rimuovi</button>
-                </form>
-              {% elif m.role != 'owner' %}
-                <form method="post" class="d-inline" onsubmit="return confirm('Rimuovere {{ m.user.username }}?');">
-                  {% csrf_token %}
-                  <input type="hidden" name="action" value="remove_member">
-                  <input type="hidden" name="membership_id" value="{{ m.pk }}">
-                  <button class="btn btn-outline-danger btn-sm">Rimuovi</button>
-                </form>
-              {% endif %}
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    </div>
+                <li><hr class="dropdown-divider"></li>
+                <li>
+                  <form method="post" onsubmit="return confirm('Trasferire la proprietà a {{ m.user.username }}?');">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="transfer_ownership">
+                    <input type="hidden" name="membership_id" value="{{ m.pk }}">
+                    <button class="dropdown-item text-danger">Trasferisci proprietà</button>
+                  </form>
+                </li>
+                <li>
+                  <form method="post" onsubmit="return confirm('Rimuovere {{ m.user.username }} dalla lega?');">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="remove_member">
+                    <input type="hidden" name="membership_id" value="{{ m.pk }}">
+                    <button class="dropdown-item text-danger">Rimuovi dalla lega</button>
+                  </form>
+                </li>
+              </ul>
+            </div>
+          {% elif m.role != 'owner' %}
+            <form method="post" onsubmit="return confirm('Rimuovere {{ m.user.username }}?');">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="remove_member">
+              <input type="hidden" name="membership_id" value="{{ m.pk }}">
+              <button class="btn btn-outline-danger btn-sm">Rimuovi</button>
+            </form>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
   </div>
 
   {% if league.visibility == 'private' %}
