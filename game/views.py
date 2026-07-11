@@ -277,17 +277,19 @@ class LeagueLeaveView(LoginRequiredMixin, View):
 
 
 class LeagueDeleteView(LoginRequiredMixin, View):
-    """Eliminazione definitiva di una lega (danger zone, solo owner).
+    """Eliminazione definitiva di una lega (danger zone).
 
-    Richiede la conferma del nome della lega digitato per esteso.
+    Consentita all'owner e allo staff di sistema (che può amministrare
+    qualsiasi lega, anche fuori dal Django admin). Richiede la conferma
+    del nome della lega digitato per esteso.
     """
 
     def post(self, request, slug):
         league = get_object_or_404(League, slug=slug)
-        if not league.is_owner(request.user):
+        if not league.is_owner(request.user) and not request.user.is_staff:
             return HttpResponseForbidden('Solo il proprietario può eliminare la lega.')
         confirm = request.POST.get('confirm_name', '').strip()
-        if confirm != league.name:
+        if confirm != league.name.strip():
             messages.error(
                 request,
                 'Il nome digitato non corrisponde: la lega non è stata eliminata.',
@@ -321,6 +323,10 @@ class LeagueAdminView(LoginRequiredMixin, View):
                 Q(league__isnull=True) | Q(league=league)
             ).order_by('ordering'),
             'is_owner': league.is_owner(request.user),
+            # Lo staff di sistema ha gli stessi poteri dell'owner su ogni
+            # lega (ruoli, proprietà, eliminazione), anche fuori dal
+            # Django admin.
+            'can_manage_league': league.is_owner(request.user) or request.user.is_staff,
             'wiki_langs': WIKIPEDIA_LANGS,
             'league_search_langs': set(league.search_wikipedia_langs.split(',')) if league.search_wikipedia_langs else set(),
         })
@@ -350,6 +356,14 @@ class LeagueAdminView(LoginRequiredMixin, View):
                 return redirect('league_admin', slug=slug)
             if league.registration_opens > league.registration_closes:
                 messages.error(request, 'L\'apertura iscrizioni deve precedere la chiusura.')
+                return redirect('league_admin', slug=slug)
+            if league.registration_closes > league.start_date:
+                messages.error(
+                    request,
+                    'La chiusura delle iscrizioni non può essere successiva '
+                    'all\'inizio del gioco: le squadre devono essere definitive '
+                    'quando i decessi iniziano a contare.',
+                )
                 return redirect('league_admin', slug=slug)
             try:
                 league.base_points = int(request.POST.get('base_points') or league.base_points)
@@ -458,7 +472,7 @@ class LeagueAdminView(LoginRequiredMixin, View):
             messages.success(request, f'Bonus "{bt.name}" eliminato.')
 
         elif action == 'promote_admin':
-            if not league.is_owner(request.user):
+            if not league.is_owner(request.user) and not request.user.is_staff:
                 messages.error(request, 'Solo il proprietario può nominare admin.')
                 return redirect('league_admin', slug=slug)
             try:
@@ -474,7 +488,7 @@ class LeagueAdminView(LoginRequiredMixin, View):
                 messages.success(request, f'{m.user.username} ora è admin.')
 
         elif action == 'demote_admin':
-            if not league.is_owner(request.user):
+            if not league.is_owner(request.user) and not request.user.is_staff:
                 messages.error(request, 'Solo il proprietario può rimuovere admin.')
                 return redirect('league_admin', slug=slug)
             try:
@@ -503,7 +517,7 @@ class LeagueAdminView(LoginRequiredMixin, View):
                 messages.success(request, 'Membro rimosso.')
 
         elif action == 'transfer_ownership':
-            if not league.is_owner(request.user):
+            if not league.is_owner(request.user) and not request.user.is_staff:
                 messages.error(request, 'Solo il proprietario può trasferire la proprietà.')
                 return redirect('league_admin', slug=slug)
             try:
@@ -511,9 +525,15 @@ class LeagueAdminView(LoginRequiredMixin, View):
             except (LeagueMembership.DoesNotExist, ValueError, TypeError):
                 messages.error(request, 'Iscrizione non trovata.')
                 return redirect('league_admin', slug=slug)
-            old_owner_membership = league.memberships.get(user=request.user)
-            old_owner_membership.role = LeagueMembership.ROLE_ADMIN
-            old_owner_membership.save()
+            if m.user_id == league.owner_id:
+                messages.info(request, f'{m.user.username} è già il proprietario.')
+                return redirect('league_admin', slug=slug)
+            # Il vecchio owner si cerca dal campo League.owner, non da
+            # request.user: lo staff può trasferire leghe non sue.
+            old_owner_membership = league.memberships.filter(user=league.owner).first()
+            if old_owner_membership:
+                old_owner_membership.role = LeagueMembership.ROLE_ADMIN
+                old_owner_membership.save()
             m.role = LeagueMembership.ROLE_OWNER
             m.save()
             league.owner = m.user
@@ -767,19 +787,25 @@ WIKIPEDIA_LANGS = [
 ]
 _VALID_WIKIS = {code for code, _ in WIKIPEDIA_LANGS}
 
-def _can_edit_team(team, user):
-    """Editing della rosa: aperto al manager finché le registrazioni sono
-    aperte e né la lega né la squadra sono bloccate. Le sostituzioni in
-    stagione NON passano da qui: sono governate da can_be_substituted()."""
-    if user.is_staff:
-        return True
-    if team.manager_id != user.pk:
-        return False
+def _team_edit_window_open(team):
+    """Regole di gioco: la rosa è modificabile solo con le registrazioni
+    aperte e senza lock di lega o squadra."""
     if team.is_locked:
         return False
     if team.league_id:
         return team.league.is_registration_open() and not team.league.is_locked
     return False
+
+
+def _can_edit_team(team, user):
+    """Editing della rosa: aperto al solo manager finché la finestra di
+    modifica è aperta (vedi _team_edit_window_open). Nessun override per lo
+    staff: la UI di gioco è identica per tutti, gli interventi eccezionali
+    sulle rose si fanno dal Django admin. Le sostituzioni in stagione NON
+    passano da qui: sono governate da can_be_substituted()."""
+    if team.manager_id != user.pk:
+        return False
+    return _team_edit_window_open(team)
 
 
 def _get_or_refresh_person(wikidata_id):
@@ -815,7 +841,7 @@ class TeamCreateView(LoginRequiredMixin, View):
         if not league.is_member(request.user):
             messages.error(request, 'Devi prima iscriverti alla lega.')
             return redirect('league_detail', slug=slug)
-        if not league.is_registration_open() and not request.user.is_staff:
+        if not league.is_registration_open():
             messages.error(request, 'Le registrazioni non sono aperte per questa lega.')
             return redirect('league_detail', slug=slug)
         team, _ = Team.objects.get_or_create(
@@ -826,6 +852,12 @@ class TeamCreateView(LoginRequiredMixin, View):
 
 
 class TeamDeleteView(LoginRequiredMixin, View):
+    """Eliminazione definitiva di una squadra (danger zone).
+
+    Richiede la conferma del nome della squadra digitato per esteso,
+    come per l'eliminazione della lega.
+    """
+
     def post(self, request, pk):
         team = get_object_or_404(Team, pk=pk)
         if team.manager != request.user and not request.user.is_staff:
@@ -833,6 +865,13 @@ class TeamDeleteView(LoginRequiredMixin, View):
             return redirect('team_detail', pk=pk)
         if not _can_edit_team(team, request.user):
             messages.error(request, 'Non è più possibile eliminare la squadra.')
+            return redirect('team_edit', pk=pk)
+        confirm = request.POST.get('confirm_name', '').strip()
+        if confirm != team.name.strip():
+            messages.error(
+                request,
+                'Il nome digitato non corrisponde: la squadra non è stata eliminata.',
+            )
             return redirect('team_edit', pk=pk)
         league = team.league
         name = team.name
@@ -855,6 +894,8 @@ class TeamEditView(LoginRequiredMixin, View):
         members = team.members.select_related('person').order_by('-is_captain', 'person__name_it')
         dead_members = [m for m in members if m.person.is_dead and m.is_active()]
         active_count = sum(1 for m in members if m.is_active())
+        can_edit = _can_edit_team(team, request.user)
+        edit_window_open = _team_edit_window_open(team)
         return render(request, self.template_name, {
             'team': team,
             'league': league,
@@ -863,7 +904,8 @@ class TeamEditView(LoginRequiredMixin, View):
             'total_age': team.get_active_total_age(),
             'dead_members': dead_members,
             'months': MONTHS_IT,
-            'can_edit': _can_edit_team(team, request.user),
+            'can_edit': can_edit,
+            'edit_window_open': edit_window_open,
             'max_non_captains': league.max_non_captains if league else 11,
             'max_captains': league.max_captains if league else 1,
         })
@@ -1012,7 +1054,7 @@ class SubstituteMemberView(LoginRequiredMixin, View):
         if not member.is_active():
             messages.error(request, 'Questo membro è già stato sostituito.')
             return redirect('team_edit', pk=pk)
-        if not member.can_be_substituted() and not request.user.is_staff:
+        if not member.can_be_substituted():
             days = team.league.substitution_deadline_days if team.league_id else 7
             messages.error(
                 request,
@@ -1031,7 +1073,7 @@ class SubstituteMemberView(LoginRequiredMixin, View):
         member = get_object_or_404(TeamMember, pk=member_pk, team=team)
         if team.manager != request.user and not request.user.is_staff:
             return redirect('team_edit', pk=pk)
-        if not member.can_be_substituted() and not request.user.is_staff:
+        if not member.can_be_substituted():
             messages.error(request, 'I tempi per la sostituzione sono scaduti.')
             return redirect('team_edit', pk=pk)
 

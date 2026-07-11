@@ -2,33 +2,32 @@
 {% block title %}Regolamento {{ league.name }} — Fantamorte{% endblock %}
 {% block content %}
 
-<nav aria-label="breadcrumb">
-  <ol class="breadcrumb mb-2">
-    <li class="breadcrumb-item"><a href="{% url 'league_list' %}">Leghe</a></li>
-    <li class="breadcrumb-item"><a href="{% url 'league_detail' league.slug %}">{{ league.name }}</a></li>
-    <li class="breadcrumb-item active" aria-current="page">Regolamento</li>
-  </ol>
-</nav>
-
-<div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
-  <h2 class="mb-0">Regolamento</h2>
-  {% if is_admin %}
-  <a href="{% url 'league_admin' league.slug %}" class="btn btn-outline-secondary btn-sm">Gestisci</a>
-  {% endif %}
-</div>
-<p class="text-body-secondary mb-3">{{ league.name }}</p>
-
-{# ---- Calendario ---- #}
-<div class="fm-facts mb-3">
-  <span class="fm-fact" title="Periodo di gioco: i decessi contano solo in questo intervallo">
-    <span class="fm-fact-icon" aria-hidden="true">&#128197;</span>
-    Gioco: <strong>{{ league.start_date|date:"d/m/Y" }} &rarr; {{ league.end_date|date:"d/m/Y" }}</strong>
-  </span>
-  <span class="fm-fact" title="Finestra di iscrizione e composizione squadre">
-    <span class="fm-fact-icon" aria-hidden="true">&#9997;&#65039;</span>
-    Iscrizioni: {{ league.registration_opens|date:"d/m/Y" }} &rarr; {{ league.registration_closes|date:"d/m/Y" }}
-  </span>
-</div>
+<header class="fm-page-header">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'league_list' %}">Leghe</a></li>
+      <li class="breadcrumb-item"><a href="{% url 'league_detail' league.slug %}">{{ league.name }}</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Regolamento</li>
+    </ol>
+  </nav>
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h2 class="mb-0">Regolamento</h2>
+    {% if is_admin %}
+    <a href="{% url 'league_admin' league.slug %}" class="btn btn-outline-secondary btn-sm">Gestisci</a>
+    {% endif %}
+  </div>
+  {# ---- Calendario ---- #}
+  <div class="fm-facts mt-2">
+    <span class="fm-fact" title="Periodo di gioco: i decessi contano solo in questo intervallo">
+      <span class="fm-fact-icon" aria-hidden="true">&#128197;</span>
+      Gioco: <strong>{{ league.start_date|date:"d/m/Y" }} &rarr; {{ league.end_date|date:"d/m/Y" }}</strong>
+    </span>
+    <span class="fm-fact" title="Finestra di iscrizione e composizione squadre">
+      <span class="fm-fact-icon" aria-hidden="true">&#9997;&#65039;</span>
+      Iscrizioni: {{ league.registration_opens|date:"d/m/Y" }} &rarr; {{ league.registration_closes|date:"d/m/Y" }}
+    </span>
+  </div>
+</header>
 
 {# ---- Numeri chiave ---- #}
 <div class="row g-4">

@@ -2,22 +2,23 @@
 {% block title %}Aggiorna giocatori — {{ league.name }}{% endblock %}
 {% block content %}
 
-<nav aria-label="breadcrumb" class="mb-3">
-  <ol class="breadcrumb">
-    <li class="breadcrumb-item"><a href="{% url 'league_list' %}">Leghe</a></li>
-    <li class="breadcrumb-item"><a href="{% url 'league_detail' league.slug %}">{{ league.name }}</a></li>
-    <li class="breadcrumb-item"><a href="{% url 'league_admin' slug=league.slug %}">Gestione</a></li>
-    <li class="breadcrumb-item active" aria-current="page">Aggiorna giocatori</li>
-  </ol>
-</nav>
-
-<div class="d-flex align-items-center gap-3 mb-3">
-  <h2 class="mb-0">Giocatori della lega</h2>
-  <button id="btn-check-all" class="btn btn-primary">
-    <span id="spinner-all" class="spinner-border spinner-border-sm d-none me-1" role="status"></span>
-    Aggiorna tutti
-  </button>
-</div>
+<header class="fm-page-header">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'league_list' %}">Leghe</a></li>
+      <li class="breadcrumb-item"><a href="{% url 'league_detail' league.slug %}">{{ league.name }}</a></li>
+      <li class="breadcrumb-item"><a href="{% url 'league_admin' slug=league.slug %}">Gestione</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Aggiorna giocatori</li>
+    </ol>
+  </nav>
+  <div class="d-flex align-items-center gap-3">
+    <h2 class="mb-0">Giocatori della lega</h2>
+    <button id="btn-check-all" class="btn btn-primary">
+      <span id="spinner-all" class="spinner-border spinner-border-sm d-none me-1" role="status"></span>
+      Aggiorna tutti
+    </button>
+  </div>
+</header>
 <p class="text-body-secondary small">
   Sincronizza i giocatori con Wikidata: è lo stesso identico aggiornamento del
   controllo automatico periodico — anagrafica, dati per il rilevamento dei

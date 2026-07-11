@@ -2,22 +2,23 @@
 {% block title %}Sostituisci {{ member.person.name_it }} — Fantamorte{% endblock %}
 {% block content %}
 
-<nav aria-label="breadcrumb">
-  <ol class="breadcrumb mb-2">
-    {% if team.league %}
-      <li class="breadcrumb-item"><a href="{% url 'league_list' %}">Leghe</a></li>
-      <li class="breadcrumb-item"><a href="{% url 'league_detail' team.league.slug %}">{{ team.league.name }}</a></li>
-    {% endif %}
-    <li class="breadcrumb-item"><a href="{% url 'team_edit' team.pk %}">{{ team.name }}</a></li>
-    <li class="breadcrumb-item active" aria-current="page">Sostituzione</li>
-  </ol>
-</nav>
-
-<h2>Nomina sostituto per {{ member.person.name_it }}</h2>
-<p class="text-body-secondary mb-1">
-  &#9760; Morto/a il {{ member.person.death_date|date:"d/m/Y" }}
-  {% if member.is_captain %} &mdash; <span class="badge text-bg-primary">Capitano</span>{% endif %}
-</p>
+<header class="fm-page-header">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+      {% if team.league %}
+        <li class="breadcrumb-item"><a href="{% url 'league_list' %}">Leghe</a></li>
+        <li class="breadcrumb-item"><a href="{% url 'league_detail' team.league.slug %}">{{ team.league.name }}</a></li>
+      {% endif %}
+      <li class="breadcrumb-item"><a href="{% url 'team_edit' team.pk %}">{{ team.name }}</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Sostituzione</li>
+    </ol>
+  </nav>
+  <h2>Nomina sostituto per {{ member.person.name_it }}</h2>
+  <p class="text-body-secondary mb-0">
+    &#9760; Morto/a il {{ member.person.death_date|date:"d/m/Y" }}
+    {% if member.is_captain %} &mdash; <span class="badge text-bg-primary">Capitano</span>{% endif %}
+  </p>
+</header>
 
 {% if deadline %}
   <div class="alert alert-warning d-flex justify-content-between align-items-center">
