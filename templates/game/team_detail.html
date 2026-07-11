@@ -43,7 +43,7 @@
 
 <div class="row">
   <div class="col-md-6">
-    <h5>Rosa attiva</h5>
+    <span class="fm-label">Rosa attiva</span>
     <ul class="list-group mb-4">
       {% for member in active_members %}
         <li class="list-group-item d-flex justify-content-between align-items-center">
@@ -75,7 +75,7 @@
   </div>
 
   <div class="col-md-6">
-    <h5>Punti guadagnati</h5>
+    <span class="fm-label">Punti guadagnati</span>
     {% if death_details %}
       <ul class="list-group mb-4">
         {% for d in death_details %}

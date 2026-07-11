@@ -7,8 +7,8 @@
 <div class="row mb-4">
   <div class="col-md-7">
     <div class="d-flex justify-content-between align-items-center mb-2">
-      <h4 class="mb-0">Le mie leghe</h4>
-      <div>
+      <span class="fm-label mb-0">Le mie leghe</span>
+      <div class="d-flex gap-2">
         <a href="{% url 'league_create' %}" class="btn btn-primary btn-sm">+ Nuova lega</a>
         <a href="{% url 'league_list' %}" class="btn btn-outline-secondary btn-sm">Esplora</a>
       </div>
@@ -54,7 +54,7 @@
   </div>
 
   <div class="col-md-5">
-    <h4>Suggerite</h4>
+    <span class="fm-label">Suggerite</span>
     {% if suggested_leagues %}
       <div class="list-group">
         {% for league in suggested_leagues %}

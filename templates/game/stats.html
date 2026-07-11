@@ -6,7 +6,7 @@
 
 <div class="row">
   <div class="col-lg-6 mb-4">
-    <h4>Il mio storico</h4>
+    <span class="fm-label mb-2">Il mio storico</span>
     {% if my_history %}
       <ul class="list-group">
         {% for h in my_history %}
@@ -33,7 +33,7 @@
   </div>
 
   <div class="col-lg-6 mb-4">
-    <h4>Leaderboard all-time</h4>
+    <span class="fm-label mb-1">Leaderboard all-time</span>
     <p class="text-body-secondary small mb-2">Punti cumulati in tutte le leghe pubbliche e nelle tue leghe private.</p>
     {% if all_time %}
       <ul class="list-group">
