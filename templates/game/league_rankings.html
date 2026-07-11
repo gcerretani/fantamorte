@@ -34,8 +34,8 @@
           <div class="small text-body-secondary">{{ entry.team.manager.username }}</div>
         </div>
         {% if entry.deaths %}
-          <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse"
-                  data-bs-target="#rankDeaths{{ entry.team.pk }}" aria-expanded="false"
+          <button class="btn btn-outline-secondary btn-sm" type="button" data-fm-toggle="collapse"
+                  data-fm-target="#rankDeaths{{ entry.team.pk }}" aria-expanded="false"
                   aria-controls="rankDeaths{{ entry.team.pk }}"
                   aria-label="Mostra i {{ entry.deaths|length }} decessi di {{ entry.team.name }}">
             <svg class="fm-ico" aria-hidden="true"><use href="#fmIcoSkull"/></svg> {{ entry.deaths|length }}

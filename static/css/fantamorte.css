@@ -729,6 +729,9 @@ textarea.form-control { min-height: 5rem; }
 .list-group {
   display: flex;
   flex-direction: column;
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
   border: 1px solid var(--fm-line);
   border-radius: var(--fm-radius-lg);
   background-color: var(--fm-surface);

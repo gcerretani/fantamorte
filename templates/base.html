@@ -89,7 +89,7 @@
   {% for msg in messages %}
     <div class="alert alert-{{ msg.tags|default:'info' }} alert-dismissible fade show" role="alert">
       {{ msg }}
-      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Chiudi messaggio"></button>
+      <button type="button" class="btn-close" data-fm-dismiss="alert" aria-label="Chiudi messaggio"></button>
     </div>
   {% endfor %}
   </div>
@@ -110,7 +110,7 @@
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="fmPersonModalLabel">…</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+        <button type="button" class="btn-close" data-fm-dismiss="modal" aria-label="Chiudi"></button>
       </div>
       <div class="modal-body" id="fmPersonModalBody">
         <div class="text-center text-body-secondary py-5"><div class="spinner-border" role="status"></div></div>
@@ -135,8 +135,6 @@
   </div>
 </template>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"
-        integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
 <script src="{% static 'js/fantamorte.js' %}"></script>
 {% block extra_js %}{% endblock %}
 </body>

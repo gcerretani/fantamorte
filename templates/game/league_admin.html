@@ -22,14 +22,14 @@
 {% include 'game/_league_nav.html' with is_admin=True %}
 
 <ul class="nav nav-tabs fm-scroll-tabs mb-3" id="adminTabs">
-  <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tabRules">Regole</a></li>
-  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabBonus">Bonus</a></li>
-  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabMembers">Iscritti</a></li>
+  <li class="nav-item"><a class="nav-link active" data-fm-toggle="tab" href="#tabRules">Regole</a></li>
+  <li class="nav-item"><a class="nav-link" data-fm-toggle="tab" href="#tabBonus">Bonus</a></li>
+  <li class="nav-item"><a class="nav-link" data-fm-toggle="tab" href="#tabMembers">Iscritti</a></li>
   {% if league.visibility == 'private' %}
-  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabInvite">Codice invito</a></li>
+  <li class="nav-item"><a class="nav-link" data-fm-toggle="tab" href="#tabInvite">Codice invito</a></li>
   {% endif %}
   {% if can_manage_league %}
-  <li class="nav-item"><a class="nav-link fm-tab-danger" data-bs-toggle="tab" href="#tabDanger">Danger zone</a></li>
+  <li class="nav-item"><a class="nav-link fm-tab-danger" data-fm-toggle="tab" href="#tabDanger">Danger zone</a></li>
   {% endif %}
 </ul>
 
@@ -274,7 +274,7 @@
           </div>
           {% if m.role != 'owner' and can_manage_league %}
             <div class="dropdown">
-              <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown"
+              <button class="btn btn-outline-secondary btn-sm" type="button" data-fm-toggle="dropdown"
                       aria-expanded="false" aria-label="Azioni per {{ m.user.username }}">&#8943;</button>
               <ul class="dropdown-menu dropdown-menu-end">
                 {% if m.role == 'admin' %}
