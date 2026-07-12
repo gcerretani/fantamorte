@@ -291,6 +291,52 @@ class TeamCreateFlowTest(ViewsBaseTestCase):
         self.assertEqual(team.jolly_month, 5)
 
 
+class TeamCreateAutoFollowTest(ViewsBaseTestCase):
+    """La creazione squadra iscrive al volo nelle leghe pubbliche, resta
+    gated dalle registrazioni, e non bypassa il codice invito delle private."""
+
+    def _closed_public_league(self):
+        return League.objects.create(
+            name='Lega Chiusa', slug='lega-chiusa', owner=self.owner,
+            visibility=League.VISIBILITY_PUBLIC,
+            start_date=date(2020, 1, 1), end_date=date(2021, 12, 31),
+            registration_opens=date(2019, 12, 1), registration_closes=date(2019, 12, 31),
+        )
+
+    def test_pubblica_non_membro_crea_squadra_e_iscrive_al_volo(self):
+        self.client.login(username='outsider', password='x')
+        resp = self.client.get(reverse('team_create', args=['lega-pubblica']))
+        self.assertTrue(self.public_league.is_member(self.outsider))
+        team = Team.objects.get(manager=self.outsider, league=self.public_league)
+        self.assertRedirects(resp, reverse('team_edit', args=[team.pk]))
+
+    def test_privata_non_membro_non_bypassa_il_codice(self):
+        self.client.login(username='outsider', password='x')
+        resp = self.client.get(reverse('team_create', args=['lega-privata']))
+        self.assertRedirects(resp, reverse('league_detail', args=['lega-privata']))
+        self.assertFalse(self.private_league.is_member(self.outsider))
+        self.assertFalse(
+            Team.objects.filter(manager=self.outsider, league=self.private_league).exists()
+        )
+
+    def test_registrazioni_chiuse_non_creano_squadra(self):
+        league = self._closed_public_league()
+        self.client.login(username='outsider', password='x')
+        resp = self.client.get(reverse('team_create', args=['lega-chiusa']))
+        self.assertRedirects(resp, reverse('league_detail', args=['lega-chiusa']))
+        self.assertFalse(league.is_member(self.outsider))
+        self.assertFalse(
+            Team.objects.filter(manager=self.outsider, league=league).exists()
+        )
+
+    def test_segui_consentito_a_registrazioni_chiuse(self):
+        league = self._closed_public_league()
+        self.client.login(username='outsider', password='x')
+        resp = self.client.post(reverse('league_join', args=['lega-chiusa']))
+        self.assertTrue(league.is_member(self.outsider))
+        self.assertRedirects(resp, reverse('league_detail', args=['lega-chiusa']))
+
+
 class TeamDeleteTest(ViewsBaseTestCase):
     """Danger zone squadra: eliminazione con conferma del nome digitato."""
 

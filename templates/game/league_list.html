@@ -15,7 +15,7 @@
           <div class="card-body">
             <h5 class="card-title">
               <a href="{% url 'league_detail' league.slug %}" class="text-decoration-none">{{ league.name }}</a>
-              {% if league.pk in my_league_ids %}<span class="badge text-bg-success">iscritto</span>{% endif %}
+              {% if league.pk in my_league_ids %}<span class="badge text-bg-success">seguita</span>{% endif %}
             </h5>
             {% if league.description %}<p class="card-text small text-body-secondary">{{ league.description|truncatewords:25 }}</p>{% endif %}
             <ul class="list-unstyled small mb-0">
