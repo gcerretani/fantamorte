@@ -1025,8 +1025,11 @@ class RemovePersonView(LoginRequiredMixin, View):
     """Rimuove un membro dalla rosa finché la squadra è modificabile.
 
     Consentito solo in fase di composizione (stesse regole di AddPersonView):
-    membro attivo, persona ancora viva e non subentrata a una sostituzione
-    (rimuoverla riattiverebbe il membro sostituito).
+    membro attivo e non subentrato a una sostituzione (rimuoverlo riattiverebbe
+    il membro sostituito). Una persona viva è sempre rimovibile; una deceduta
+    solo se il decesso è avvenuto *prima* dell'inizio della lega (in quel caso
+    la sostituzione non ha senso e si rimuove). Le morti in stagione richiedono
+    invece il flusso di sostituzione.
     """
 
     def post(self, request, pk, member_pk):
@@ -1038,7 +1041,7 @@ class RemovePersonView(LoginRequiredMixin, View):
         member = get_object_or_404(TeamMember, pk=member_pk, team=team)
         if not member.is_active():
             return JsonResponse({'error': 'Membro già sostituito.'}, status=400)
-        if member.person.is_dead:
+        if member.person.is_dead and not member.died_before_season():
             return JsonResponse(
                 {'error': f'{member.person.name_it} è deceduto/a: usa la sostituzione.'},
                 status=400)
@@ -1066,6 +1069,13 @@ class SubstituteMemberView(LoginRequiredMixin, View):
         if not member.is_active():
             messages.error(request, 'Questo membro è già stato sostituito.')
             return redirect('team_edit', pk=pk)
+        if member.died_before_season():
+            messages.error(
+                request,
+                f'{member.person.name_it} è deceduto/a prima dell\'inizio della lega: '
+                'rimuovilo/a dalla rosa e scegli un altro personaggio.'
+            )
+            return redirect('team_edit', pk=pk)
         if not member.can_be_substituted():
             days = team.league.substitution_deadline_days if team.league_id else 7
             messages.error(
@@ -1084,6 +1094,13 @@ class SubstituteMemberView(LoginRequiredMixin, View):
         team = get_object_or_404(Team, pk=pk)
         member = get_object_or_404(TeamMember, pk=member_pk, team=team)
         if team.manager != request.user and not request.user.is_staff:
+            return redirect('team_edit', pk=pk)
+        if member.died_before_season():
+            messages.error(
+                request,
+                f'{member.person.name_it} è deceduto/a prima dell\'inizio della lega: '
+                'rimuovilo/a dalla rosa e scegli un altro personaggio.'
+            )
             return redirect('team_edit', pk=pk)
         if not member.can_be_substituted():
             messages.error(request, 'I tempi per la sostituzione sono scaduti.')

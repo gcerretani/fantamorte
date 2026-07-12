@@ -386,6 +386,14 @@ strong, b { font-weight: 600; }
 }
 .row > * {
   box-sizing: border-box;
+  /* Default full-width come in Bootstrap: senza questo una colonna
+     responsive (.col-md-*/.col-lg-*) SOTTO il suo breakpoint non matcha
+     alcuna regola di larghezza, collassa al contenuto e lascia spazio
+     vuoto a destra della riga. La larghezza specifica del breakpoint
+     sovrascrive questi default quando attiva. */
+  flex-shrink: 0;
+  width: 100%;
+  max-width: 100%;
   padding-right: calc(var(--fm-gutter) * 0.5);
   padding-left: calc(var(--fm-gutter) * 0.5);
 }

@@ -203,6 +203,23 @@ class TeamMember(models.Model):
     def is_active(self):
         return self.replaced_by is None
 
+    def died_before_season(self):
+        """True se la persona è deceduta PRIMA dell'inizio del periodo di gioco
+        della lega (fase di composizione delle squadre).
+
+        In questa fase la sostituzione non ha senso: il decesso non conta a
+        punteggio (vedi scoring) e il membro va semplicemente rimosso dalla rosa
+        — il manager può aggiungere liberamente un altro personaggio finché le
+        iscrizioni sono aperte. Le morti *in stagione* restano governate da
+        ``can_be_substituted()``.
+        """
+        if not self.person.is_dead or not self.team.league_id:
+            return False
+        death = getattr(self.person, 'death', None)
+        if not death or not death.death_date:
+            return False
+        return death.death_date < self.team.league.start_date
+
     def get_substitution_deadline(self):
         """Restituisce la deadline (datetime) entro cui questo membro può essere sostituito.
 
@@ -222,8 +239,15 @@ class TeamMember(models.Model):
         return death.confirmed_at + timedelta(days=days)
 
     def can_be_substituted(self):
-        """True se il membro è morto, non già sostituito e la deadline non è scaduta."""
+        """True se il membro è morto in stagione, non già sostituito e la
+        deadline non è scaduta.
+
+        I decessi *prima* dell'inizio della lega (fase di composizione) non si
+        sostituiscono: il membro va rimosso (vedi ``died_before_season``).
+        """
         if not self.is_active() or not self.person.is_dead:
+            return False
+        if self.died_before_season():
             return False
         deadline = self.get_substitution_deadline()
         if deadline is None:
@@ -578,6 +602,7 @@ class Notification(models.Model):
     KIND_DEATH = 'death'
     KIND_DEATH_TEAM = 'death_team'
     KIND_SUBSTITUTION = 'substitution_reminder'
+    KIND_PRESEASON_REMOVED = 'preseason_removed'
     KIND_LEAGUE_JOINED = 'league_joined'
     KIND_LEAGUE_STARTED = 'league_started'
     KIND_LEAGUE_ENDED = 'league_ended'
@@ -586,6 +611,7 @@ class Notification(models.Model):
         (KIND_DEATH, 'Decesso'),
         (KIND_DEATH_TEAM, 'Decesso nella tua squadra'),
         (KIND_SUBSTITUTION, 'Reminder sostituzione'),
+        (KIND_PRESEASON_REMOVED, 'Membro rimosso (decesso pre-stagione)'),
         (KIND_LEAGUE_JOINED, 'Nuovo iscritto alla lega'),
         (KIND_LEAGUE_STARTED, 'Lega iniziata'),
         (KIND_LEAGUE_ENDED, 'Lega conclusa'),

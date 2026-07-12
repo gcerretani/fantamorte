@@ -48,6 +48,15 @@ def notify_on_death_confirmed(sender, instance, created, **kwargs):
     except Exception:
         logger.exception('Errore creazione feed per Death %s', instance.pk)
 
+    # Decesso pre-stagione: rimuovi il membro dalle rose (in composizione la
+    # sostituzione non ha senso) e notifica il manager. Non interferisce con le
+    # morti in stagione, che restano gestite dal flusso di sostituzione.
+    try:
+        from .notifications import remove_preseason_dead_members
+        remove_preseason_dead_members(instance)
+    except Exception:
+        logger.exception('Errore rimozione membri pre-stagione per Death %s', instance.pk)
+
     # Push best-effort: gli errori non devono bloccare il salvataggio.
     try:
         from .push import broadcast_death_notification
