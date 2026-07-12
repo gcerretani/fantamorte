@@ -4,6 +4,13 @@ Tutte le modifiche rilevanti di questo progetto sono documentate qui.
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 il versionamento segue [SemVer](https://semver.org/lang/it/).
 
+## [0.2.1] - 2026-07-12
+
+- Gestisci i decessi pre-stagione come rimozione, non sostituzione
+- `emit_league_lifecycle` agganciato al ciclo giornaliero dello scheduler:
+  le notifiche feed di inizio/fine lega ora vengono generate davvero in
+  produzione (prima il comando esisteva ma non veniva mai eseguito)
+
 ## [0.2.0] - 2026-07-12
 
 - Migrazione completa da Bootstrap a un design system CSS custom, dark-first
