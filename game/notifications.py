@@ -18,7 +18,8 @@ import logging
 from django.urls import reverse
 
 from .models import (
-    League, LeagueMembership, Notification, Team, default_notification_prefs,
+    League, LeagueMembership, Notification, Team, TeamMember,
+    default_notification_prefs,
 )
 
 logger = logging.getLogger(__name__)
@@ -37,9 +38,11 @@ NOTIFICATION_CATEGORIES = [
     },
     {
         'key': 'substitution',
-        'label': 'Reminder sostituzione',
-        'help': 'Promemoria quando scade il tempo per sostituire un membro deceduto.',
-        'kinds': [Notification.KIND_SUBSTITUTION],
+        'label': 'Membro deceduto',
+        'help': 'Un membro della tua squadra muore: reminder di sostituzione '
+                'in stagione o rimozione automatica se il decesso avviene prima '
+                'dell\'inizio della lega.',
+        'kinds': [Notification.KIND_SUBSTITUTION, Notification.KIND_PRESEASON_REMOVED],
     },
     {
         'key': 'league_joined',
@@ -191,6 +194,60 @@ def create_substitution_notification(team_member, days_left):
         url=reverse('team_edit', args=[team_member.team_id]),
         is_urgent=True, league=league,
     )
+
+
+def notify_preseason_member_removed(team, person):
+    """Notifica il manager quando un membro deceduto PRIMA dell'inizio della
+    lega viene rimosso automaticamente dalla rosa.
+
+    In fase di composizione la sostituzione non ha senso: il decesso non conta a
+    punteggio e il manager può aggiungere liberamente un altro personaggio finché
+    le iscrizioni sono aperte.
+    """
+    league = team.league
+    body_parts = [
+        f'{person.name_it} è deceduto/a prima dell\'inizio della lega '
+        f'ed è stato/a rimosso/a dalla tua rosa.',
+    ]
+    if league and league.is_registration_open():
+        body_parts.append('Puoi aggiungere un altro personaggio finché le iscrizioni sono aperte.')
+    return _create(
+        user=team.manager, kind=Notification.KIND_PRESEASON_REMOVED,
+        title=f'☠ {person.name_it} rimosso/a dalla rosa',
+        body=' '.join(body_parts),
+        url=reverse('team_edit', args=[team.pk]),
+        is_urgent=True, league=league,
+    )
+
+
+def remove_preseason_dead_members(death):
+    """Rimuove dalle rose attive i membri deceduti PRIMA dell'inizio della lega
+    e notifica i manager. Ritorna il numero di membri rimossi.
+
+    Un decesso *pre-stagione* (``death_date < league.start_date``) non conta a
+    punteggio e non si sostituisce: il membro va semplicemente tolto dalla rosa
+    (vedi ``TeamMember.died_before_season``). Le morti in stagione seguono invece
+    il flusso di sostituzione e non vengono toccate qui.
+    """
+    if not death.death_date:
+        return 0
+    members = TeamMember.objects.filter(
+        person=death.person, replaced_by=None,
+        team__league__start_date__gt=death.death_date,
+    ).select_related('team', 'team__manager', 'team__league')
+    removed = 0
+    for member in list(members):
+        # Un subentrato non va rimosso (riattiverebbe il membro sostituito): in
+        # composizione non esistono catene, ma restiamo prudenti.
+        if TeamMember.objects.filter(replaced_by=member).exists():
+            continue
+        notify_preseason_member_removed(member.team, death.person)
+        member.delete()
+        removed += 1
+    if removed:
+        logger.info('Rimossi %d membri pre-stagione per il decesso di %s',
+                    removed, death.person.name_it)
+    return removed
 
 
 def notify_league_joined(membership):

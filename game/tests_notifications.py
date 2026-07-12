@@ -287,3 +287,64 @@ class ProfilePreferencesEndpointTest(NotificationFeedBase):
     def test_tema_non_valido_rifiutato(self):
         resp = self._post({'theme_preference': 'fucsia'})
         self.assertEqual(resp.status_code, 400)
+
+
+class PreseasonDeathRemovalTest(NotificationFeedBase):
+    """Decesso PRIMA dell'inizio della lega (fase di composizione): il membro
+    va rimosso dalla rosa — non sostituito — e il manager notificato. Le morti
+    in stagione restano gestite dal flusso di sostituzione."""
+
+    def _preseason_league_team(self):
+        # Lega che INIZIA dopo la data del decesso (2025-06-01): composizione.
+        league = League.objects.create(
+            name='Lega Futura', slug='lega-futura', owner=self.owner,
+            start_date=date(2026, 1, 1), end_date=date(2026, 12, 31),
+            registration_opens=date(2025, 1, 1), registration_closes=date(2025, 12, 31),
+        )
+        LeagueMembership.objects.create(league=league, user=self.owner, role='owner')
+        team = Team.objects.create(name='Rosa Futura', manager=self.owner, league=league)
+        person = WikipediaPerson.objects.create(
+            wikidata_id='Q999', name_it='Moritur Anzitempo',
+            birth_date=date(1930, 1, 1), is_dead=False,
+        )
+        member = TeamMember.objects.create(team=team, person=person)
+        return league, team, person, member
+
+    def test_membro_rimosso_e_manager_notificato(self):
+        league, team, person, member = self._preseason_league_team()
+        person.is_dead = True
+        person.save()
+        # Conferma del decesso pre-stagione → il signal rimuove il membro.
+        Death.objects.create(
+            person=person, death_date=date(2025, 6, 1), death_age=95, is_confirmed=True,
+        )
+        self.assertFalse(TeamMember.objects.filter(pk=member.pk).exists())
+        n = Notification.objects.filter(
+            user=self.owner, kind=Notification.KIND_PRESEASON_REMOVED,
+        )
+        self.assertEqual(n.count(), 1)
+        self.assertTrue(n.first().is_urgent)
+        self.assertIn('Moritur Anzitempo', n.first().title)
+
+    def test_died_before_season_e_no_sostituzione(self):
+        league, team, person, member = self._preseason_league_team()
+        person.is_dead = True
+        person.save()
+        # Decesso NON confermato: niente auto-rimozione, così testiamo i metodi
+        # del model sul membro ancora presente in rosa.
+        Death.objects.create(person=person, death_date=date(2025, 6, 1), is_confirmed=False)
+        member.refresh_from_db()
+        self.assertTrue(member.died_before_season())
+        self.assertFalse(member.can_be_substituted())
+
+    def test_morte_in_stagione_non_rimossa(self):
+        # Lega base: 2020→2030, decesso 2025 → in stagione: nessuna rimozione,
+        # nessuna notifica pre-stagione, e il membro resta sostituibile.
+        self._confirm_death()
+        member = TeamMember.objects.filter(team=self.team_owner, person=self.person).first()
+        self.assertIsNotNone(member)
+        self.assertFalse(member.died_before_season())
+        self.assertTrue(member.can_be_substituted())
+        self.assertFalse(
+            Notification.objects.filter(kind=Notification.KIND_PRESEASON_REMOVED).exists()
+        )

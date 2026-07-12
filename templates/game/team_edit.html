@@ -124,7 +124,11 @@
                   &middot; <span class="text-success">Vivo/a</span>
                 {% endif %}
               </div>
-              {% if member.person.is_dead %}
+              {% if member.person.is_dead and member.died_before_season %}
+                {# Deceduto prima dell'inizio della lega: niente sostituzione, #}
+                {# va rimosso dalla rosa (bottone × qui a fianco). #}
+                <div class="small text-warning mt-1">Deceduto/a prima dell'inizio: rimuovilo/a e scegli un altro personaggio.</div>
+              {% elif member.person.is_dead %}
                 {% with deadline=member.get_substitution_deadline %}
                   {% if deadline %}
                     <div class="small text-body-secondary">
@@ -147,12 +151,17 @@
                        value="{{ member.pk }}" form="teamForm" {% if member.is_captain %}checked{% endif %}>
                 <label class="form-check-label small" for="captainRadio{{ member.pk }}">Capitano</label>
               </div>
-              {% if not member.person.is_dead and not member.replaces %}
+              {# Rimuovibile solo se non è un subentrato (rimuoverlo riattiverebbe #}
+              {# il membro sostituito) e la persona è viva oppure deceduta prima  #}
+              {# dell'inizio della lega (in stagione si usa la sostituzione).      #}
+              {% if not member.replaces %}
+                {% if not member.person.is_dead or member.died_before_season %}
                 <button type="button" class="btn btn-outline-danger btn-sm"
                         data-fm-remove-member="{{ member.pk }}"
                         data-fm-remove-name="{{ member.person.name_it }}"
                         title="Rimuovi {{ member.person.name_it }} dalla rosa"
                         aria-label="Rimuovi {{ member.person.name_it }} dalla rosa">&times;</button>
+                {% endif %}
               {% endif %}
             {% endif %}
           </div>

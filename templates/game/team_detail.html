@@ -62,7 +62,7 @@
           <div>
             {% if member.person.is_dead %}
               <span class="badge text-bg-danger">&#9760; {{ member.person.death_date|date:"d/m/Y" }}</span>
-              {% if user == team.manager and member.replaced_by is None %}
+              {% if user == team.manager and member.can_be_substituted %}
                 <a href="{% url 'substitute_member' team.pk member.pk %}" class="btn btn-primary btn-sm ms-1">Sostituisci</a>
               {% endif %}
             {% else %}
