@@ -261,7 +261,10 @@ class LeagueJoinView(LoginRequiredMixin, View):
         LeagueMembership.objects.create(
             league=league, user=request.user, role=LeagueMembership.ROLE_MEMBER,
         )
-        messages.success(request, f'Iscritto a "{league.name}". Ora crea la tua squadra!')
+        if league.is_registration_open():
+            messages.success(request, f'Ora segui "{league.name}". Crea la tua squadra per giocare!')
+        else:
+            messages.success(request, f'Ora segui "{league.name}".')
         return redirect('league_detail', slug=slug)
 
 
@@ -840,12 +843,19 @@ class TeamCreateView(LoginRequiredMixin, View):
 
     def get(self, request, slug):
         league = get_object_or_404(League, slug=slug)
-        if not league.is_member(request.user):
-            messages.error(request, 'Devi prima iscriverti alla lega.')
-            return redirect('league_detail', slug=slug)
         if not league.is_registration_open():
             messages.error(request, 'Le registrazioni non sono aperte per questa lega.')
             return redirect('league_detail', slug=slug)
+        if not league.is_member(request.user):
+            # Nelle leghe pubbliche creare la squadra iscrive al volo: non c'è
+            # una barriera d'accesso. Nelle private serve il codice invito,
+            # quindi si passa comunque dalla pagina della lega.
+            if league.visibility == League.VISIBILITY_PRIVATE:
+                messages.error(request, 'Devi prima seguire la lega con il codice invito.')
+                return redirect('league_detail', slug=slug)
+            LeagueMembership.objects.create(
+                league=league, user=request.user, role=LeagueMembership.ROLE_MEMBER,
+            )
         team, _ = Team.objects.get_or_create(
             manager=request.user, league=league,
             defaults={'name': f'Squadra di {request.user.username}'},

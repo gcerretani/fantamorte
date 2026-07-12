@@ -25,12 +25,12 @@
           <p class="mb-3">{{ league.description }}</p>
         {% endif %}
 
-        <p class="mb-2">Per entrare in questa lega serve il codice invito.</p>
+        <p class="mb-2">Per seguire questa lega serve il codice invito.</p>
         <form method="post" action="{% url 'league_join' league.slug %}" class="d-flex gap-2 justify-content-center">
           {% csrf_token %}
           <input type="text" name="invite_code" value="{{ prefill_code }}"
                  placeholder="Codice invito" class="form-control fm-input-narrow" required>
-          <button class="btn btn-primary">Iscriviti</button>
+          <button class="btn btn-primary">Segui</button>
         </form>
       </div>
     </div>

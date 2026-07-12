@@ -34,20 +34,25 @@
     {% endif %}
   </div>
 
-  <div class="d-flex gap-2 flex-wrap">
+  <div class="d-flex gap-2 flex-wrap align-items-center">
     {% if is_member %}
       {% if my_team %}
         <a href="{% url 'team_edit' my_team.pk %}" class="btn btn-primary">La mia squadra</a>
       {% elif league.is_registration_open %}
         <a href="{% url 'team_create' league.slug %}" class="btn btn-primary">Crea squadra</a>
+      {% else %}
+        <span class="text-body-secondary small">Registrazioni chiuse: non è più possibile creare una squadra.</span>
       {% endif %}
     {% else %}
+      {% if league.is_registration_open %}
+        <a href="{% url 'team_create' league.slug %}" class="btn btn-primary">Crea squadra</a>
+      {% endif %}
       <form method="post" action="{% url 'league_join' league.slug %}" class="d-inline">
         {% csrf_token %}
         {% if league.visibility == 'private' %}
           <input type="text" name="invite_code" placeholder="Codice invito" class="form-control form-control-sm d-inline-block fm-input-narrow">
         {% endif %}
-        <button class="btn btn-primary">Iscriviti</button>
+        <button class="btn {% if league.is_registration_open %}btn-outline-secondary{% else %}btn-primary{% endif %}">Segui</button>
       </form>
     {% endif %}
   </div>
