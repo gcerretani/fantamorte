@@ -6,44 +6,71 @@
 <p class="text-body-secondary">{{ user.email|default:'(email non impostata)' }}</p>
 
 <div class="row g-4">
-  <div class="col-md-6">
+  <div class="col-12">
     <div class="card">
       <div class="card-body">
-        <h5 class="card-title">Preferenze</h5>
-        <form method="post">
-          {% csrf_token %}
-          <div class="form-check form-switch mb-2">
-            <input class="form-check-input" type="checkbox" id="pushPref" name="push_notifications_enabled"
-              {% if profile.push_notifications_enabled %}checked{% endif %}>
-            <label class="form-check-label" for="pushPref">Notifiche push sui decessi</label>
+        <h5 class="card-title">Notifiche</h5>
+
+        {# a) Master push per dispositivo: un solo interruttore, senza refresh #}
+        <div class="form-check form-switch mb-1">
+          <input class="form-check-input" type="checkbox" id="pushDeviceSwitch" data-fm-push-switch>
+          <label class="form-check-label" for="pushDeviceSwitch">
+            Notifiche push su questo dispositivo
+          </label>
+        </div>
+        <p class="text-body-secondary small mb-1">
+          Attiva le push su questo browser/dispositivo. Funziona anche con l'app installata.
+          <a href="#" class="text-decoration-none" data-fm-push-test>Invia una notifica di test</a>
+        </p>
+        <p class="text-body-secondary small mb-3" data-fm-devices-line>
+          {% if push_subscriptions %}{{ push_subscriptions|length }} dispositivo/i ricevono le notifiche push.{% endif %}
+        </p>
+        {% if not VAPID_PUBLIC_KEY %}
+          <div class="alert alert-warning small">
+            Il server non ha ancora una chiave VAPID configurata. L'amministratore deve generarla.
           </div>
-          <div class="form-check form-switch mb-2">
-            <input class="form-check-input" type="checkbox" id="emailPref" name="email_notifications_enabled"
-              {% if profile.email_notifications_enabled %}checked{% endif %}>
-            <label class="form-check-label" for="emailPref">Notifiche email sui decessi</label>
+        {% endif %}
+
+        <hr>
+
+        {# b) Matrice categoria × canale (autosave) #}
+        <span class="fm-label mb-2">Per ogni evento, scegli i canali</span>
+        <p class="text-body-secondary small mb-3">
+          Le notifiche compaiono <strong>sempre</strong> qui nell'app (campanella in alto).
+          Push ed email sono opzionali e si salvano da soli.
+        </p>
+        <div class="fm-pref-matrix" data-fm-pref-matrix>
+          <div class="fm-pref-row fm-pref-head">
+            <span class="fm-pref-label"></span>
+            <span class="fm-pref-cell">In-app</span>
+            <span class="fm-pref-cell">Push</span>
+            <span class="fm-pref-cell">Email</span>
           </div>
-          <fieldset class="mb-3">
-            <legend class="form-label fs-6 mb-2">Tema dell'interfaccia</legend>
-            <div class="form-check">
-              <input class="form-check-input" type="radio" name="theme_preference" id="themeAuto"
-                value="auto" {% if profile.theme_preference == 'auto' %}checked{% endif %}>
-              <label class="form-check-label" for="themeAuto">
-                Automatico <span class="text-body-secondary small">(segue il dispositivo)</span>
-              </label>
-            </div>
-            <div class="form-check">
-              <input class="form-check-input" type="radio" name="theme_preference" id="themeLight"
-                value="light" {% if profile.theme_preference == 'light' %}checked{% endif %}>
-              <label class="form-check-label" for="themeLight">Chiaro</label>
-            </div>
-            <div class="form-check">
-              <input class="form-check-input" type="radio" name="theme_preference" id="themeDark"
-                value="dark" {% if profile.theme_preference == 'dark' %}checked{% endif %}>
-              <label class="form-check-label" for="themeDark">Scuro</label>
-            </div>
-          </fieldset>
-          <button class="btn btn-primary" type="submit">Salva</button>
-        </form>
+          {% for row in pref_rows %}
+          <div class="fm-pref-row">
+            <span class="fm-pref-label">
+              {{ row.label }}
+              <span class="d-block text-body-secondary small">{{ row.help }}</span>
+            </span>
+            <span class="fm-pref-cell">
+              <input class="form-check-input" type="checkbox" checked disabled
+                     aria-label="In-app (sempre attivo)">
+            </span>
+            <span class="fm-pref-cell">
+              <input class="form-check-input" type="checkbox"
+                     data-fm-pref="{{ row.key }}" data-fm-channel="push"
+                     {% if row.push %}checked{% endif %}
+                     aria-label="Push per {{ row.label }}">
+            </span>
+            <span class="fm-pref-cell">
+              <input class="form-check-input" type="checkbox"
+                     data-fm-pref="{{ row.key }}" data-fm-channel="email"
+                     {% if row.email %}checked{% endif %}
+                     aria-label="Email per {{ row.label }}">
+            </span>
+          </div>
+          {% endfor %}
+        </div>
       </div>
     </div>
   </div>
@@ -51,32 +78,27 @@
   <div class="col-md-6">
     <div class="card">
       <div class="card-body">
-        <h5 class="card-title">Notifiche push su questo dispositivo</h5>
-        <p class="text-body-secondary small">
-          Ricevi una notifica quando un personaggio decede. Funziona anche con app installata.
-        </p>
-        <div class="d-flex gap-2 flex-wrap">
-          <button id="enablePushBtn" class="btn btn-primary btn-sm" type="button"
-            onclick="fmEnablePush()" aria-label="Attiva notifiche push su questo dispositivo">Attiva</button>
-          <button class="btn btn-outline-secondary btn-sm" type="button"
-            onclick="fmDisablePush()" aria-label="Disattiva notifiche push">Disattiva</button>
-          <button class="btn btn-outline-secondary btn-sm" type="button"
-            onclick="fmTestPush()" aria-label="Invia notifica push di test">Invia test</button>
-        </div>
-        {% if not VAPID_PUBLIC_KEY %}
-          <div class="alert alert-warning mt-3 mb-0 small">
-            Il server non ha ancora una chiave VAPID configurata. L'amministratore deve generarla.
+        <h5 class="card-title">Aspetto</h5>
+        <fieldset>
+          <legend class="form-label fs-6 mb-2">Tema dell'interfaccia</legend>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="theme_preference" id="themeAuto"
+              value="auto" {% if profile.theme_preference == 'auto' %}checked{% endif %}>
+            <label class="form-check-label" for="themeAuto">
+              Automatico <span class="text-body-secondary small">(segue il dispositivo)</span>
+            </label>
           </div>
-        {% endif %}
-        {% if push_subscriptions %}
-          <hr>
-          <p class="small mb-1"><strong>{{ push_subscriptions|length }}</strong> dispositivo/i registrato/i:</p>
-          <ul class="small text-body-secondary mb-0">
-            {% for s in push_subscriptions %}
-              <li>{{ s.user_agent|truncatechars:60|default:'(sconosciuto)' }} &mdash; {{ s.created_at|date:"d/m/Y" }}</li>
-            {% endfor %}
-          </ul>
-        {% endif %}
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="theme_preference" id="themeLight"
+              value="light" {% if profile.theme_preference == 'light' %}checked{% endif %}>
+            <label class="form-check-label" for="themeLight">Chiaro</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="theme_preference" id="themeDark"
+              value="dark" {% if profile.theme_preference == 'dark' %}checked{% endif %}>
+            <label class="form-check-label" for="themeDark">Scuro</label>
+          </div>
+        </fieldset>
       </div>
     </div>
   </div>
@@ -122,15 +144,73 @@
 
 {% block extra_js %}
 <script>
-  // Tiene sincronizzato localStorage['fm-theme'] con la preferenza scelta
-  // qui, altrimenti readPref() in fantamorte.js darebbe sempre precedenza
-  // a un vecchio valore salvato in localStorage.
-  document.querySelectorAll('input[name="theme_preference"]').forEach(function (radio) {
-    radio.addEventListener('change', function () {
-      if (this.checked && window.fmSetThemePreference) {
-        window.fmSetThemePreference(this.value);
-      }
+  (function () {
+    // Aggiorna la riga "N dispositivi ricevono le notifiche push".
+    async function refreshDevicesLine() {
+      const line = document.querySelector('[data-fm-devices-line]');
+      if (!line) return;
+      try {
+        const resp = await fetch('/api/push/devices/');
+        const data = await resp.json();
+        line.textContent = data.count > 0
+          ? data.count + ' dispositivo/i ricevono le notifiche push.'
+          : '';
+      } catch (e) { /* best-effort */ }
+    }
+
+    // Master push per dispositivo: un solo interruttore, aggiornamento immediato.
+    const pushSwitch = document.querySelector('[data-fm-push-switch]');
+    if (pushSwitch) {
+      if (window.fmSyncPushSwitch) window.fmSyncPushSwitch();
+      refreshDevicesLine();
+      pushSwitch.addEventListener('change', async function () {
+        pushSwitch.disabled = true;
+        if (pushSwitch.checked) {
+          await window.fmEnablePush();
+        } else {
+          await window.fmDisablePush();
+        }
+        if (window.fmSyncPushSwitch) await window.fmSyncPushSwitch();
+        await refreshDevicesLine();
+        pushSwitch.disabled = false;
+      });
+    }
+
+    // Link "Invia notifica di test".
+    const testLink = document.querySelector('[data-fm-push-test]');
+    if (testLink) {
+      testLink.addEventListener('click', function (e) {
+        e.preventDefault();
+        if (window.fmTestPush) window.fmTestPush();
+      });
+    }
+
+    // Matrice categoria × canale: autosave a ogni cambio.
+    document.querySelectorAll('[data-fm-pref]').forEach(function (cb) {
+      cb.addEventListener('change', async function () {
+        const category = cb.getAttribute('data-fm-pref');
+        const channel = cb.getAttribute('data-fm-channel');
+        const payload = { prefs: {} };
+        payload.prefs[category] = {};
+        payload.prefs[category][channel] = cb.checked;
+        const ok = await window.fmSavePreference(payload);
+        if (ok) {
+          window.fmToast('Preferenza salvata.', 'success');
+        } else {
+          cb.checked = !cb.checked; // rollback
+          window.fmToast('Errore nel salvataggio.', 'danger');
+        }
+      });
     });
-  });
+
+    // Tema: applica live (localStorage) e salva sul server.
+    document.querySelectorAll('input[name="theme_preference"]').forEach(function (radio) {
+      radio.addEventListener('change', function () {
+        if (!this.checked) return;
+        if (window.fmSetThemePreference) window.fmSetThemePreference(this.value);
+        if (window.fmSavePreference) window.fmSavePreference({ theme_preference: this.value });
+      });
+    });
+  })();
 </script>
 {% endblock %}

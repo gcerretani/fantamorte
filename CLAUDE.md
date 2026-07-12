@@ -162,9 +162,20 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
   `WikipediaPerson`.
 - **`SiteSettings`** è un singleton (via Django admin) per configurazione
   globale, ad es. `wikidata_check_interval_hours`.
-- **`UserProfile`** tiene le preferenze per-utente: `push_notifications_enabled`,
-  `email_notifications_enabled`, `theme_preference` (`auto|light|dark`).
-  Creato automaticamente al signup via signal.
+- **`UserProfile`** tiene le preferenze per-utente: `theme_preference`
+  (`auto|light|dark`) e `notification_prefs` (JSON), la **matrice canali per
+  categoria** `{categoria: {push: bool, email: bool}}`. Le categorie e i default
+  vivono in un unico punto (`default_notification_prefs()` in `models.py` +
+  `NOTIFICATION_CATEGORIES` in `game/notifications.py`); `profile.wants(cat,
+  channel)` è il gate letto da push/email. Il **feed in-app è sempre attivo** e
+  non compare nella matrice. Creato automaticamente al signup via signal.
+  (I vecchi booleani `push_/email_notifications_enabled` sono stati **rimossi** e
+  migrati nella matrice: migration `0019`, data migration inclusa.)
+- **`Notification`** è la riga del **feed in-app** (inbox stile social) di un
+  utente: `kind` (choices), `title`/`body`/`url` **denormalizzati**, `is_urgent`,
+  `is_read`, `created_at`, più FK opzionali `death`/`league` per dedup e
+  navigazione. È la **sorgente di verità**: ogni evento crea prima una riga qui,
+  poi push/email sono canali sopra (vedi `game/notifications.py`).
 - **`PushSubscription`** registra endpoint VAPID per-utente con
   `last_used_at` e `auth`/`p256dh` keys.
 - **`SubstitutionReminder`** traccia i reminder di scadenza sostituzione già
@@ -228,6 +239,43 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
   manda a tutti i `LeagueMembership` delle leghe il cui range contiene
   `death.death_date`. Notifica "urgent" se la persona è nella squadra
   dell'utente. Le sottoscrizioni 404/410 vengono cancellate automaticamente.
+
+## Notifiche: architettura persist-first
+
+**Regola:** ogni evento crea prima una riga `Notification` (il **feed in-app**,
+sempre attivo), poi push ed email sono **canali di consegna** sopra la stessa
+risoluzione di destinatari. Tutto è centralizzato in **`game/notifications.py`**
+(niente terzo percorso parallelo): risoluzione destinatari decesso
+(`leagues_for_death`, `affected_manager_ids`, `death_member_user_ids`, riusati
+da push/email), creazione righe feed (`create_death_notifications`,
+`create_substitution_notification`, `notify_league_joined`, `notify_team_locked`,
+`emit_league_lifecycle_notifications`), gating canali (`wants(user, cat,
+channel)`) e helper badge (`unread_count`, `mark_all_read`).
+
+- **Sorgenti degli eventi**: decessi → `signals.notify_on_death_confirmed`
+  (crea feed + push + email); reminder sostituzione → command
+  `send_substitution_reminders`; iscrizione lega → signal `post_save`
+  `LeagueMembership` (notifica l'owner); blocco squadra → signal `post_save`
+  `Team` sulla transizione `is_locked` (pattern `_was_locked`, come
+  `_was_confirmed`); inizio/fine lega → command `emit_league_lifecycle`.
+- **Canali per categoria**: `UserProfile.notification_prefs` è la matrice
+  (categoria × canale). Il feed **non** è nella matrice (sempre attivo); push ed
+  email si inviano solo se `wants()` è vero. Default: decessi+sostituzione su
+  push+email, eventi lega solo in-app.
+- **Feed UI**: campanella `fixed-top` (base.html, badge `unread_notifications_count`
+  dal context processor) → pagina `/notifiche/` (segna lette al load). Il badge
+  si aggiorna senza reload su `visibilitychange` (`fmUpdateNotifBadge`).
+- **Preferenze UI (profilo)**: interruttore push **per-dispositivo** (subscribe/
+  unsubscribe, stato sincronizzato da `fmSyncPushSwitch`, riga dispositivi via
+  `/api/push/devices/`, niente refresh) + **matrice** categoria×canale con
+  **autosave** (`fmSavePreference` → `/api/profilo/preferenze/`). Nessun pulsante
+  "Salva".
+- **Pronto per app native**: il feed persistente + gli endpoint
+  `/api/notifications/*` sono la superficie API-first che un futuro client
+  nativo (o PWA in store) consuma. Aggiungere FCM (Android) / APNs (iOS) sarà un
+  **nuovo canale** accanto a Web Push, riusando `Notification` e la risoluzione
+  destinatari; `PushSubscription` è generalizzabile a "device token". Nota: Web
+  Push su iOS richiede PWA installata (16.4+); su Android funziona anche via TWA.
 
 ## Scoring (regole di calcolo)
 
@@ -333,12 +381,17 @@ Note di efficienza (importanti se tocchi il client):
 /api/search-person/             autocomplete Wikidata (accetta ?q=&league=<slug> per filtrare per lingua)
 /api/leghe/<slug>/wikidata-diff/    JSON POST: sync Wikidata + report differenze (admin, max 10 persone)
 
-/profilo/                       preferenze utente (push/email/dark mode)
+/profilo/                       preferenze utente (push per-dispositivo, matrice canali, tema)
+/api/profilo/preferenze/        POST JSON: autosave preferenze (tema + matrice notifiche)
+/notifiche/                     feed notifiche in-app (segna lette al load)
+/api/notifications/             JSON: lista notifiche (paginata; per live/native)
+/api/notifications/unread-count/  JSON: conteggio non-lette (badge campanella)
+/api/notifications/mark-read/   POST: segna lette (tutte o lista ids)
 /statistiche/                   statistiche cross-lega (storico + leaderboard all-time)
 /regolamento/                   manuale generico del portale (nessun punteggio: quelli sono per-lega)
 /healthz/                       healthcheck (pubblico, verifica anche il DB)
 
-/api/push/{subscribe,unsubscribe,test}/
+/api/push/{subscribe,unsubscribe,test,devices}/    (devices = lista live per la UI)
 
 /manifest.webmanifest, /sw.js, /offline/    PWA
 /accounts/...                   allauth (login, signup, password reset, social)
@@ -524,6 +577,9 @@ e preferenze tema:
 Altri file di test:
 - `game/tests_commands.py`: management command `check_deaths` (auto-conferma,
   `--no-autoconfirm`, `--force`, `--dry-run`)
+- `game/tests_notifications.py`: feed notifiche in-app + matrice preferenze
+  per canale (creazione righe alla conferma decesso, gating push/email via
+  `wants`, reminder/iscrizione/blocco/lifecycle, endpoint feed e autosave)
 - `game/tests_middleware.py`: `LoginRequiredEverywhereMiddleware` (path
   pubblici vs protetti)
 - `game/tests_views.py`: permessi/integrazione delle view (in arrivo,
@@ -560,8 +616,9 @@ python manage.py check_deaths --dry-run    # senza scrivere
 python manage.py check_deaths --force      # ignora data_frozen e last_checked sulle persone
 python manage.py check_deaths --no-autoconfirm   # crea i decessi non confermati
 python manage.py mark_originals            # a inizio stagione di una lega
-python manage.py send_substitution_reminders             # reminder push/email per sostituzioni (T-3, T-1)
+python manage.py send_substitution_reminders             # reminder feed+push+email per sostituzioni (T-3, T-1)
 python manage.py send_substitution_reminders --dry-run   # solo log, niente invio
+python manage.py emit_league_lifecycle     # notifiche feed di inizio/fine lega (idempotente, da cron)
 
 # Docker
 docker compose up -d

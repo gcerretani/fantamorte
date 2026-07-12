@@ -95,7 +95,13 @@ self.addEventListener('push', function (event) {
     data: { url: data.url || '/' },
     requireInteraction: !!data.urgent,
   };
-  event.waitUntil(self.registration.showNotification(title, options));
+  // Avvisa le tab aperte così il badge campanella si aggiorna senza reload.
+  event.waitUntil(Promise.all([
+    self.registration.showNotification(title, options),
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (cs) {
+      cs.forEach(function (c) { c.postMessage({ type: 'fm-notification' }); });
+    }),
+  ]));
 });
 
 self.addEventListener('notificationclick', function (event) {

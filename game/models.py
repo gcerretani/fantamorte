@@ -291,8 +291,24 @@ class DeathBonus(models.Model):
         return f'{self.bonus_type.name} per {self.death.person.name_it}'
 
 
+def default_notification_prefs():
+    """Preferenze di canale di default per la matrice notifiche (categoria × canale).
+
+    Le chiavi sono le *categorie* utente-visibili (vedi game/notifications.py).
+    Il feed in-app non è nella matrice: è sempre attivo. I default preservano il
+    comportamento storico (decessi + reminder su push+email) e tengono i nuovi
+    eventi "sociali" di lega/squadra solo in-app finché l'utente non li attiva.
+    """
+    return {
+        'death': {'push': True, 'email': True},
+        'substitution': {'push': True, 'email': True},
+        'league_joined': {'push': False, 'email': False},
+        'league_events': {'push': False, 'email': False},
+    }
+
+
 class UserProfile(models.Model):
-    """Preferenze utente: opt-in/out notifiche, tema, ecc."""
+    """Preferenze utente: canali notifiche per categoria, tema, ecc."""
 
     THEME_AUTO = 'auto'
     THEME_LIGHT = 'light'
@@ -304,13 +320,10 @@ class UserProfile(models.Model):
     ]
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
-    push_notifications_enabled = models.BooleanField(
-        default=True,
-        help_text='Ricevi notifiche push quando un decesso viene confermato.'
-    )
-    email_notifications_enabled = models.BooleanField(
-        default=True,
-        help_text='Ricevi email quando un decesso viene confermato o un tuo membro è morto.'
+    notification_prefs = models.JSONField(
+        default=default_notification_prefs,
+        help_text='Matrice preferenze notifiche: {categoria: {push: bool, email: bool}}. '
+                  'Il feed in-app è sempre attivo e non compare qui.',
     )
     theme_preference = models.CharField(
         max_length=8,
@@ -325,6 +338,15 @@ class UserProfile(models.Model):
 
     def __str__(self):
         return f'Profilo di {self.user.username}'
+
+    def wants(self, category, channel):
+        """True se l'utente vuole ricevere `category` sul canale `channel`
+        ('push'|'email'). Robusto a chiavi mancanti: fallback ai default."""
+        defaults = default_notification_prefs().get(
+            category, {'push': False, 'email': False}
+        )
+        prefs = (self.notification_prefs or {}).get(category) or {}
+        return bool(prefs.get(channel, defaults.get(channel, False)))
 
 
 class League(models.Model):
@@ -543,3 +565,53 @@ class SubstitutionReminder(models.Model):
 
     def __str__(self):
         return f'Reminder T-{self.threshold_days} per {self.team_member}'
+
+
+class Notification(models.Model):
+    """Notifica persistente nel feed in-app di un utente (stile inbox).
+
+    È la sorgente di verità: ogni evento crea prima una riga qui, poi push ed
+    email sono canali di consegna costruiti sopra (vedi game/notifications.py).
+    I campi title/body/url sono denormalizzati: il feed non ricalcola nulla e
+    resta stabile anche se i dati sorgente cambiano in seguito.
+    """
+    KIND_DEATH = 'death'
+    KIND_DEATH_TEAM = 'death_team'
+    KIND_SUBSTITUTION = 'substitution_reminder'
+    KIND_LEAGUE_JOINED = 'league_joined'
+    KIND_LEAGUE_STARTED = 'league_started'
+    KIND_LEAGUE_ENDED = 'league_ended'
+    KIND_TEAM_LOCKED = 'team_locked'
+    KIND_CHOICES = [
+        (KIND_DEATH, 'Decesso'),
+        (KIND_DEATH_TEAM, 'Decesso nella tua squadra'),
+        (KIND_SUBSTITUTION, 'Reminder sostituzione'),
+        (KIND_LEAGUE_JOINED, 'Nuovo iscritto alla lega'),
+        (KIND_LEAGUE_STARTED, 'Lega iniziata'),
+        (KIND_LEAGUE_ENDED, 'Lega conclusa'),
+        (KIND_TEAM_LOCKED, 'Squadra bloccata'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')
+    kind = models.CharField(max_length=32, choices=KIND_CHOICES)
+    title = models.CharField(max_length=255)
+    body = models.TextField(blank=True)
+    url = models.CharField(max_length=500, blank=True, help_text='Link relativo al target.')
+    is_urgent = models.BooleanField(default=False)
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    # Riferimenti opzionali per dedup e navigazione (non vincolano il testo salvato).
+    death = models.ForeignKey(Death, null=True, blank=True, on_delete=models.SET_NULL, related_name='notifications')
+    league = models.ForeignKey(League, null=True, blank=True, on_delete=models.SET_NULL, related_name='notifications')
+
+    class Meta:
+        verbose_name = 'Notifica'
+        verbose_name_plural = 'Notifiche'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'is_read']),
+            models.Index(fields=['user', '-created_at']),
+        ]
+
+    def __str__(self):
+        return f'[{self.kind}] {self.title} → {self.user.username}'

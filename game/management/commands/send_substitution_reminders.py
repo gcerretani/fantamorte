@@ -86,6 +86,13 @@ class Command(BaseCommand):
                 sent_count += 1
                 continue
 
+            # Feed in-app (persist-first): sempre creato, a prescindere dai canali.
+            try:
+                from game.notifications import create_substitution_notification
+                create_substitution_notification(member, days_left)
+            except Exception as e:
+                self.stderr.write(f'Errore feed per member {member.pk}: {e}')
+
             push_sent = False
             email_sent = False
             try:

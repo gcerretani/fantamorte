@@ -96,9 +96,13 @@ Riferimenti architetturali: [`CLAUDE.md`](../CLAUDE.md).
 - [ ] Notifica **push** ricevuta dagli utenti con il morituro in squadra
       (urgente) e dagli altri membri della lega (normale), se hanno
       un abbonamento push attivo.
-- [ ] Notifica **email** ricevuta da chi ha `email_notifications_enabled`
-      attivo, non ricevuta da chi l'ha disattivato; oggetto "urgent" se il
-      morituro era nella squadra del destinatario.
+- [ ] Notifica **email** ricevuta da chi ha attivo il canale email per i
+      decessi (matrice `notification_prefs`), non ricevuta da chi l'ha
+      disattivato; oggetto "urgent" se il morituro era nella squadra del
+      destinatario.
+- [ ] Notifica nel **feed in-app** (`/notifiche/`) creata **sempre** per ogni
+      membro della lega, a prescindere dai canali push/email; badge campanella
+      incrementato; aprendo il feed il badge si azzera.
 - [ ] Azione admin "Revoca conferma morti selezionati": il decesso torna
       non confermato, nessuna nuova notifica viene inviata, il punteggio si
       aggiorna di conseguenza.
@@ -129,11 +133,16 @@ Riferimenti architetturali: [`CLAUDE.md`](../CLAUDE.md).
 - [ ] Accesso al pannello admin negato a un utente `member` non admin.
 
 ### Profilo utente
-- [ ] Cambio tema (`auto|light|dark`) da `/profilo/`: applicato subito,
-      persistito al refresh.
-- [ ] Toggle notifiche push (`push_notifications_enabled`) ed email
-      (`email_notifications_enabled`): rispettati dai flussi di notifica
-      testati sopra.
+- [ ] Cambio tema (`auto|light|dark`) da `/profilo/`: applicato subito e
+      **salvato da solo** (autosave, niente pulsante "Salva"), persistito al
+      refresh.
+- [ ] Interruttore **push su questo dispositivo**: attivandolo il permesso viene
+      richiesto e il dispositivo iscritto **senza refresh**; la riga "N
+      dispositivi" si aggiorna subito; disattivandolo il dispositivo viene
+      rimosso. "Invia test" recapita una push.
+- [ ] **Matrice canali** (categoria × push/email): ogni toggle fa autosave; i
+      valori sono rispettati dai flussi di notifica testati sopra; la colonna
+      "In-app" è sempre attiva (non modificabile).
 
 ### PWA
 - [ ] Install prompt PWA su Chrome/Edge desktop, icona e nome app corretti.

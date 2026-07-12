@@ -1142,6 +1142,25 @@ a.list-group-item,
 }
 .fm-topbar .btn-icon:hover { background-color: rgba(255, 255, 255, 0.16); color: #fff; }
 
+/* Campanella notifiche + badge non-lette */
+.fm-topbar .fm-bell .fm-ico { width: 18px; height: 18px; }
+.fm-topbar .fm-bell-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 0.62rem;
+  line-height: 1;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--fm-danger);
+  color: #fff;
+}
+
 /* ---- Bottom nav mobile (sotto lg) ---- */
 .fm-tabbar {
   display: flex;
@@ -1309,6 +1328,43 @@ a.list-group-item,
 
 /* Icona inline dimensionata sul testo */
 .fm-ico { width: 1em; height: 1em; vertical-align: -0.125em; }
+.fm-ico-lg { width: 2.4rem; height: 2.4rem; }
+
+/* ---- Matrice preferenze notifiche (categoria × canale) ---- */
+.fm-pref-matrix { display: flex; flex-direction: column; }
+.fm-pref-row {
+  display: grid;
+  grid-template-columns: 1fr 3rem 3rem 3rem;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--fm-line);
+}
+.fm-pref-row.fm-pref-head {
+  border-top: 0;
+  padding-top: 0;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fm-muted);
+}
+.fm-pref-cell { display: flex; justify-content: center; align-items: center; }
+.fm-pref-cell .form-check-input { margin: 0; }
+.fm-pref-label { font-weight: 600; }
+@media (max-width: 575.98px) {
+  .fm-pref-row { grid-template-columns: 1fr 2.3rem 2.3rem 2.3rem; gap: 0.3rem; }
+  .fm-pref-label { font-weight: 600; font-size: 0.92rem; }
+}
+
+/* ---- Feed notifiche ---- */
+.fm-notif-unread { background-color: rgba(var(--fm-accent-rgb), 0.07); }
+.fm-notif-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--fm-danger);
+}
 
 /* ---- Timeline decessi ---- */
 .fm-timeline { position: relative; padding-left: 1.5rem; border-left: 3px solid var(--fm-line); }
