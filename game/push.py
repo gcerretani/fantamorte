@@ -10,7 +10,7 @@ from django.conf import settings
 from django.urls import reverse
 from django.utils import timezone
 
-from .models import Death, PushSubscription, Team, League, LeagueMembership
+from .models import Death, League, PushSubscription
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +60,10 @@ def broadcast_death_notification(death: Death) -> int:
     nella propria squadra di una di quelle leghe, la notifica è "urgent".
     Ritorna il numero totale di notifiche consegnate.
     """
+    from .notifications import (
+        affected_manager_ids, death_member_user_ids, leagues_for_death, wants,
+    )
+
     person = death.person
     payload_base = {
         'type': 'death',
@@ -70,30 +74,23 @@ def broadcast_death_notification(death: Death) -> int:
         'death_id': death.pk,
     }
 
-    # Leghe il cui range contiene la data del decesso
-    leagues = list(League.objects.filter(
-        start_date__lte=death.death_date, end_date__gte=death.death_date,
-    ))
-    user_ids = set(
-        LeagueMembership.objects.filter(league__in=leagues).values_list('user_id', flat=True)
-    )
-
+    # Leghe il cui range contiene la data del decesso + destinatari (condivisi
+    # con feed ed email, vedi game/notifications.py).
+    leagues = leagues_for_death(death)
+    user_ids = death_member_user_ids(leagues)
     if not user_ids:
         return 0
 
-    subs = PushSubscription.objects.filter(
-        user_id__in=user_ids,
-        user__profile__push_notifications_enabled=True,
-    ).select_related('user')
+    affected_ids = affected_manager_ids(person, leagues)
+    subs = PushSubscription.objects.filter(user_id__in=user_ids).select_related('user')
 
     sent = 0
     for sub in subs:
-        affected = Team.objects.filter(
-            manager=sub.user, members__person=person, members__replaced_by=None,
-            league__in=leagues,
-        ).exists()
+        # Gating per-categoria: push solo se l'utente lo vuole per i decessi.
+        if not wants(sub.user, 'death', 'push'):
+            continue
         payload = dict(payload_base)
-        if affected:
+        if sub.user_id in affected_ids:
             payload['title'] = f'☠ {person.name_it} era nella tua squadra!'
             payload['urgent'] = True
         if send_push(sub, payload):
@@ -107,9 +104,10 @@ def send_substitution_reminder_push(team_member, days_left: int) -> bool:
 
     Ritorna True se almeno una subscription ha ricevuto la notifica.
     """
+    from .notifications import wants
+
     user = team_member.team.manager
-    profile = getattr(user, 'profile', None)
-    if not profile or not profile.push_notifications_enabled:
+    if not wants(user, 'substitution', 'push'):
         return False
 
     person = team_member.person

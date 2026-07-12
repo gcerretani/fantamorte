@@ -18,6 +18,8 @@ def _active_nav(request):
         return 'stats'
     if name == 'profile':
         return 'profile'
+    if name == 'notifications':
+        return 'notifications'
     if name.startswith(('league', 'team', 'person', 'death')) or name in (
         'add_person', 'remove_person', 'substitute_member',
     ):
@@ -35,6 +37,13 @@ def public_settings(request):
         )
     profile = request._fm_profile
     theme_preference = profile.theme_preference if profile else 'auto'
+
+    # Badge notifiche non-lette (COUNT leggera, solo per autenticati).
+    unread = 0
+    if request.user.is_authenticated:
+        from .models import Notification
+        unread = Notification.objects.filter(user=request.user, is_read=False).count()
+
     return {
         'VAPID_PUBLIC_KEY': getattr(settings, 'VAPID_PUBLIC_KEY', ''),
         'PWA_APP_NAME': getattr(settings, 'PWA_APP_NAME', 'Fantamorte'),
@@ -42,4 +51,5 @@ def public_settings(request):
         'user_profile': profile,
         'theme_preference': theme_preference,
         'active_nav': _active_nav(request),
+        'unread_notifications_count': unread,
     }

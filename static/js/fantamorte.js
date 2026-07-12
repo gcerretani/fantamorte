@@ -359,11 +359,71 @@
         });
         await sub.unsubscribe();
       }
-      window.fmToast('Notifiche disattivate.', 'info');
+      window.fmToast('Notifiche push disattivate su questo dispositivo.', 'info');
+      return true;
     } catch (err) {
       console.error(err);
+      window.fmToast('Errore disattivazione notifiche.', 'danger');
+      return false;
     }
   };
+
+  // Riflette lo stato reale della subscription push nell'interruttore master.
+  window.fmSyncPushSwitch = async function () {
+    const sw = document.querySelector('[data-fm-push-switch]');
+    if (!sw) return;
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      sw.checked = false;
+      sw.disabled = true;
+      return;
+    }
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      sw.checked = !!sub;
+    } catch (err) {
+      sw.checked = false;
+    }
+  };
+
+  // Autosave preferenze (tema + matrice categoria×canale). Ritorna true su ok.
+  window.fmSavePreference = async function (payload) {
+    try {
+      const resp = await fetch('/api/profilo/preferenze/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json().catch(function () { return {}; });
+      return resp.ok && data.status === 'ok';
+    } catch (err) {
+      return false;
+    }
+  };
+
+  // Aggiorna il badge campanella (notifiche non lette) senza ricaricare.
+  window.fmUpdateNotifBadge = async function () {
+    const badge = document.querySelector('[data-fm-bell-badge]');
+    if (!badge) return;
+    try {
+      const resp = await fetch('/api/notifications/unread-count/');
+      const data = await resp.json();
+      const c = data.count || 0;
+      badge.textContent = c;
+      badge.classList.toggle('d-none', c === 0);
+    } catch (err) { /* best-effort */ }
+  };
+
+  // Ricontrolla il badge quando la scheda torna visibile (es. dopo una push).
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') window.fmUpdateNotifBadge();
+  });
+  // ...e quando il service worker segnala una push arrivata a tab aperta.
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', function (e) {
+      if (e.data && e.data.type === 'fm-notification') window.fmUpdateNotifBadge();
+    });
+  }
 
   window.fmTestPush = async function () {
     try {

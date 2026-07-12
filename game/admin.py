@@ -5,6 +5,7 @@ from .models import (
     WikipediaPerson, BonusType, Team, TeamMember,
     Death, DeathBonus, UserProfile, PushSubscription,
     League, LeagueMembership, LeagueBonus, SiteSettings,
+    Notification,
 )
 from . import scoring
 
@@ -197,9 +198,18 @@ class DeathBonusAdmin(admin.ModelAdmin):
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'push_notifications_enabled', 'email_notifications_enabled', 'theme_preference')
-    list_filter = ('push_notifications_enabled', 'email_notifications_enabled')
+    list_display = ('user', 'theme_preference')
+    list_filter = ('theme_preference',)
     search_fields = ('user__username', 'user__email')
+
+
+@admin.register(Notification)
+class NotificationAdmin(admin.ModelAdmin):
+    list_display = ('user', 'kind', 'title', 'is_urgent', 'is_read', 'created_at')
+    list_filter = ('kind', 'is_read', 'is_urgent')
+    search_fields = ('user__username', 'title', 'body')
+    date_hierarchy = 'created_at'
+    raw_id_fields = ('user', 'death', 'league')
 
 
 @admin.register(PushSubscription)

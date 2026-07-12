@@ -28,8 +28,8 @@ from wikidata_api.client import WikidataClient
 from . import person_sync, scoring
 from .models import (
     MONTHS_IT, BonusType, Death, DeathBonus, League, LeagueBonus,
-    LeagueMembership, PushSubscription, SiteSettings, Team, TeamMember,
-    UserProfile, WikipediaPerson,
+    LeagueMembership, Notification, PushSubscription, SiteSettings, Team,
+    TeamMember, UserProfile, WikipediaPerson,
 )
 
 
@@ -1338,26 +1338,76 @@ class ProfileView(LoginRequiredMixin, View):
     template_name = 'game/profile.html'
 
     def get(self, request):
+        from .notifications import NOTIFICATION_CATEGORIES
         profile, _ = UserProfile.objects.get_or_create(user=request.user)
         subs = request.user.push_subscriptions.all()
         teams = request.user.teams.select_related('league').order_by('-league__start_date')
+        # Righe della matrice preferenze (categoria × canale) con stato corrente.
+        pref_rows = [
+            {
+                'key': cat['key'],
+                'label': cat['label'],
+                'help': cat['help'],
+                'push': profile.wants(cat['key'], 'push'),
+                'email': profile.wants(cat['key'], 'email'),
+            }
+            for cat in NOTIFICATION_CATEGORIES
+        ]
         return render(request, self.template_name, {
             'profile': profile,
             'push_subscriptions': subs,
             'teams': teams,
+            'pref_rows': pref_rows,
         })
 
+
+class ProfilePreferencesView(LoginRequiredMixin, View):
+    """Autosave (JSON) delle preferenze: tema e matrice notifiche per canale."""
+
     def post(self, request):
+        from .notifications import CATEGORY_KEYS, CHANNELS
+        try:
+            data = json.loads(request.body.decode('utf-8'))
+        except (ValueError, UnicodeDecodeError):
+            return JsonResponse({'status': 'error', 'error': 'JSON non valido'}, status=400)
+
         profile, _ = UserProfile.objects.get_or_create(user=request.user)
-        profile.push_notifications_enabled = request.POST.get('push_notifications_enabled') == 'on'
-        profile.email_notifications_enabled = request.POST.get('email_notifications_enabled') == 'on'
-        theme = request.POST.get('theme_preference')
-        valid_themes = {choice[0] for choice in UserProfile.THEME_CHOICES}
-        if theme in valid_themes:
+        changed = False
+
+        theme = data.get('theme_preference')
+        if theme is not None:
+            valid_themes = {choice[0] for choice in UserProfile.THEME_CHOICES}
+            if theme not in valid_themes:
+                return JsonResponse({'status': 'error', 'error': 'Tema non valido'}, status=400)
             profile.theme_preference = theme
-        profile.save()
-        messages.success(request, 'Preferenze aggiornate.')
-        return redirect('profile')
+            changed = True
+
+        prefs = data.get('prefs')
+        if prefs is not None:
+            if not isinstance(prefs, dict):
+                return JsonResponse({'status': 'error', 'error': 'prefs non valido'}, status=400)
+            current = dict(profile.notification_prefs or {})
+            for category, channels in prefs.items():
+                if category not in CATEGORY_KEYS or not isinstance(channels, dict):
+                    return JsonResponse(
+                        {'status': 'error', 'error': f'Categoria sconosciuta: {category}'},
+                        status=400,
+                    )
+                cat_state = dict(current.get(category) or {})
+                for channel, value in channels.items():
+                    if channel not in CHANNELS:
+                        return JsonResponse(
+                            {'status': 'error', 'error': f'Canale sconosciuto: {channel}'},
+                            status=400,
+                        )
+                    cat_state[channel] = bool(value)
+                current[category] = cat_state
+            profile.notification_prefs = current
+            changed = True
+
+        if changed:
+            profile.save()
+        return JsonResponse({'status': 'ok'})
 
 
 # --- PWA: manifest, service worker, offline ---
@@ -1494,6 +1544,99 @@ class PushTestView(LoginRequiredMixin, View):
             if ok:
                 sent += 1
         return JsonResponse({'success': True, 'sent': sent, 'total': subs.count()})
+
+
+class PushDevicesView(LoginRequiredMixin, View):
+    """Elenco dispositivi push dell'utente, per aggiornare la UI senza refresh."""
+
+    def get(self, request):
+        subs = request.user.push_subscriptions.order_by('-created_at')
+        devices = [
+            {
+                'id': s.pk,
+                'user_agent': s.user_agent or '',
+                'created_at': s.created_at.strftime('%d/%m/%Y'),
+            }
+            for s in subs
+        ]
+        return JsonResponse({'count': len(devices), 'devices': devices})
+
+
+# --- Feed notifiche in-app ---
+
+class NotificationListView(LoginRequiredMixin, View):
+    """Pagina feed notifiche. Segna tutte come lette dopo il render corrente."""
+    template_name = 'game/notifications.html'
+
+    def get(self, request):
+        from .notifications import mark_all_read
+        notifications = list(
+            Notification.objects.filter(user=request.user)[:100]
+        )
+        unread_before = sum(1 for n in notifications if not n.is_read)
+        # Segna lette dopo aver calcolato quali erano non-lette (per l'evidenza).
+        mark_all_read(request.user)
+        return render(request, self.template_name, {
+            'notifications': notifications,
+            'unread_before': unread_before,
+        })
+
+
+class NotificationListAPIView(LoginRequiredMixin, View):
+    """Lista JSON paginata delle notifiche (per aggiornamenti live / client nativi)."""
+
+    def get(self, request):
+        try:
+            limit = min(int(request.GET.get('limit', 30)), 100)
+        except ValueError:
+            limit = 30
+        try:
+            offset = max(int(request.GET.get('offset', 0)), 0)
+        except ValueError:
+            offset = 0
+        qs = Notification.objects.filter(user=request.user)
+        total = qs.count()
+        items = [
+            {
+                'id': n.pk,
+                'kind': n.kind,
+                'title': n.title,
+                'body': n.body,
+                'url': n.url,
+                'is_urgent': n.is_urgent,
+                'is_read': n.is_read,
+                'created_at': n.created_at.isoformat(),
+            }
+            for n in qs[offset:offset + limit]
+        ]
+        return JsonResponse({'count': total, 'results': items})
+
+
+class NotificationUnreadCountView(LoginRequiredMixin, View):
+    def get(self, request):
+        from .notifications import unread_count
+        return JsonResponse({'count': unread_count(request.user)})
+
+
+class NotificationMarkReadView(LoginRequiredMixin, View):
+    """Segna lette: tutte, oppure una lista di `ids`."""
+
+    def post(self, request):
+        from .notifications import mark_all_read
+        try:
+            data = json.loads(request.body.decode('utf-8')) if request.body else {}
+        except (ValueError, UnicodeDecodeError):
+            return JsonResponse({'status': 'error', 'error': 'JSON non valido'}, status=400)
+        ids = data.get('ids')
+        if ids:
+            if not isinstance(ids, list):
+                return JsonResponse({'status': 'error', 'error': 'ids non valido'}, status=400)
+            updated = Notification.objects.filter(
+                user=request.user, id__in=ids, is_read=False,
+            ).update(is_read=True)
+        else:
+            updated = mark_all_read(request.user)
+        return JsonResponse({'status': 'ok', 'updated': updated})
 
 
 # ---------------------------------------------------------------------------

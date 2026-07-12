@@ -7,7 +7,8 @@ from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
 from .models import (
-    Death, DeathBonus, League, LeagueBonus, Team, TeamMember, UserProfile,
+    Death, DeathBonus, League, LeagueBonus, LeagueMembership, Team, TeamMember,
+    UserProfile,
 )
 from .scoring import invalidate_league_rankings
 
@@ -40,6 +41,13 @@ def notify_on_death_confirmed(sender, instance, created, **kwargs):
     if not (instance.is_confirmed and not was_confirmed):
         return
 
+    # Feed in-app (persist-first): sempre creato, a prescindere dai canali.
+    try:
+        from .notifications import create_death_notifications
+        create_death_notifications(instance)
+    except Exception:
+        logger.exception('Errore creazione feed per Death %s', instance.pk)
+
     # Push best-effort: gli errori non devono bloccare il salvataggio.
     try:
         from .push import broadcast_death_notification
@@ -53,6 +61,44 @@ def notify_on_death_confirmed(sender, instance, created, **kwargs):
         broadcast_death_email(instance)
     except Exception:
         logger.exception('Errore invio email per Death %s', instance.pk)
+
+
+@receiver(post_save, sender=LeagueMembership)
+def notify_on_league_joined(sender, instance, created, **kwargs):
+    """Nuovo iscritto a una lega → notifica l'owner (feed in-app)."""
+    if not created:
+        return
+    try:
+        from .notifications import notify_league_joined
+        notify_league_joined(instance)
+    except Exception:
+        logger.exception('Errore notifica iscrizione lega %s', instance.pk)
+
+
+@receiver(pre_save, sender=Team)
+def _track_team_lock_state(sender, instance, **kwargs):
+    """Memorizza lo stato precedente di is_locked per riconoscere la transizione."""
+    if not instance.pk:
+        instance._was_locked = False
+        return
+    try:
+        prev = sender.objects.only('is_locked').get(pk=instance.pk)
+        instance._was_locked = prev.is_locked
+    except sender.DoesNotExist:
+        instance._was_locked = False
+
+
+@receiver(post_save, sender=Team)
+def notify_on_team_locked(sender, instance, created, **kwargs):
+    """Quando una squadra passa a is_locked=True → notifica il manager (feed)."""
+    was_locked = getattr(instance, '_was_locked', False)
+    if not (instance.is_locked and not was_locked):
+        return
+    try:
+        from .notifications import notify_team_locked
+        notify_team_locked(instance)
+    except Exception:
+        logger.exception('Errore notifica blocco squadra %s', instance.pk)
 
 
 def _invalidate_for_leagues_with_death(death):

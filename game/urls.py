@@ -24,7 +24,14 @@ urlpatterns = [
     # Pagine generiche
     path('regolamento/', views.RulesView.as_view(), name='rules'),
     path('profilo/', views.ProfileView.as_view(), name='profile'),
+    path('api/profilo/preferenze/', views.ProfilePreferencesView.as_view(), name='profile_preferences'),
     path('statistiche/', views.StatsView.as_view(), name='stats'),
+
+    # Feed notifiche in-app
+    path('notifiche/', views.NotificationListView.as_view(), name='notifications'),
+    path('api/notifications/', views.NotificationListAPIView.as_view(), name='notifications_api'),
+    path('api/notifications/unread-count/', views.NotificationUnreadCountView.as_view(), name='notifications_unread_count'),
+    path('api/notifications/mark-read/', views.NotificationMarkReadView.as_view(), name='notifications_mark_read'),
 
     # Squadre
     path('squadra/<int:pk>/', views.TeamDetailView.as_view(), name='team_detail'),
@@ -50,4 +57,5 @@ urlpatterns = [
     path('api/push/subscribe/', views.PushSubscribeView.as_view(), name='push_subscribe'),
     path('api/push/unsubscribe/', views.PushUnsubscribeView.as_view(), name='push_unsubscribe'),
     path('api/push/test/', views.PushTestView.as_view(), name='push_test'),
+    path('api/push/devices/', views.PushDevicesView.as_view(), name='push_devices'),
 ]

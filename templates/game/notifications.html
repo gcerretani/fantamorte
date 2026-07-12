@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% block title %}Notifiche — Fantamorte{% endblock %}
+{% block content %}
+
+<header class="fm-page-header">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'home' %}">Home</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Notifiche</li>
+    </ol>
+  </nav>
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    <h2 class="mb-0">Notifiche</h2>
+    {% if unread_before %}
+      <span class="badge text-bg-danger">{{ unread_before }} nuove</span>
+    {% endif %}
+  </div>
+</header>
+
+{% if notifications %}
+  <ul class="list-group">
+    {% for n in notifications %}
+      <li class="list-group-item py-3 fm-notif{% if not n.is_read %} fm-notif-unread{% endif %}">
+        <div class="d-flex align-items-start gap-2">
+          <div class="fm-row-main">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              {% if n.kind == 'death_team' %}
+                <span class="badge text-bg-danger">In squadra</span>
+              {% elif n.kind == 'death' %}
+                <span class="badge text-bg-danger">Decesso</span>
+              {% elif n.kind == 'substitution_reminder' %}
+                <span class="badge text-bg-warning">Sostituzione</span>
+              {% elif n.kind == 'league_joined' %}
+                <span class="badge text-bg-info">Iscrizione</span>
+              {% else %}
+                <span class="badge text-bg-info">Lega</span>
+              {% endif %}
+              {% if not n.is_read %}<span class="fm-notif-dot" aria-label="Non letta"></span>{% endif %}
+            </div>
+            {% if n.url %}
+              <a href="{{ n.url }}" class="fw-semibold text-decoration-none d-block mt-1">{{ n.title }}</a>
+            {% else %}
+              <span class="fw-semibold d-block mt-1">{{ n.title }}</span>
+            {% endif %}
+            {% if n.body %}<div class="small text-body-secondary">{{ n.body }}</div>{% endif %}
+            <div class="small text-body-secondary mt-1">{{ n.created_at|date:"d/m/Y H:i" }}</div>
+          </div>
+        </div>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <div class="text-center text-body-secondary py-5">
+    <svg class="fm-ico fm-ico-lg mb-2" aria-hidden="true"><use href="#fmIcoBell"/></svg>
+    <p class="mb-0">Nessuna notifica per ora.</p>
+    <p class="small">Qui vedrai i decessi nelle tue leghe, i reminder di sostituzione e gli eventi delle tue leghe.</p>
+  </div>
+{% endif %}
+
+{% endblock %}

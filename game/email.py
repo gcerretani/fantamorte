@@ -12,7 +12,7 @@ from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.urls import reverse
 
-from .models import Death, League, LeagueMembership, Team, TeamMember
+from .models import Death, LeagueMembership, Team, TeamMember
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ def _send(to_email: str, subject: str, context: dict, template_base: str) -> boo
 
 def broadcast_death_email(death: Death) -> int:
     """Manda email a tutti gli utenti delle leghe in cui il decesso cade nel
-    periodo di gioco e che hanno opt-in `email_notifications_enabled`.
+    periodo di gioco e che vogliono i decessi via email (matrice preferenze).
 
     Subject differente se la persona è nella squadra dell'utente ("urgent").
     Ritorna il numero di email inviate con successo.
@@ -71,17 +71,20 @@ def broadcast_death_email(death: Death) -> int:
     if not _email_configured():
         return 0
 
+    from .notifications import leagues_for_death, wants
+
     person = death.person
-    leagues = list(League.objects.filter(
-        start_date__lte=death.death_date, end_date__gte=death.death_date,
-    ))
+    leagues = leagues_for_death(death)
 
     memberships = LeagueMembership.objects.filter(
         league__in=leagues,
-        user__profile__email_notifications_enabled=True,
-    ).select_related('user', 'league')
-    # (user_id, league) couples → un'email per coppia per dare il contesto della lega
-    recipients = [(m.user, m.league) for m in memberships if m.user.email]
+    ).select_related('user', 'league', 'user__profile')
+    # (user, league) couples → un'email per coppia per dare il contesto della
+    # lega. Gating per-categoria: solo chi vuole i decessi via email.
+    recipients = [
+        (m.user, m.league) for m in memberships
+        if m.user.email and wants(m.user, 'death', 'email')
+    ]
 
     if not recipients:
         return 0
@@ -122,9 +125,10 @@ def send_substitution_reminder_email(team_member: TeamMember, days_left: int) ->
     """Email all'utente con un reminder per la sostituzione di un membro morto."""
     if not _email_configured():
         return False
+    from .notifications import wants
+
     user = team_member.team.manager
-    profile = getattr(user, 'profile', None)
-    if not user.email or not profile or not profile.email_notifications_enabled:
+    if not user.email or not wants(user, 'substitution', 'email'):
         return False
 
     person = team_member.person

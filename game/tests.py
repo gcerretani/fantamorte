@@ -490,8 +490,8 @@ class DeathEmailTest(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user('alice', email='alice@example.com', password='x')
         self.bob = User.objects.create_user('bob', email='bob@example.com', password='x')
-        # bob ha disattivato le email
-        self.bob.profile.email_notifications_enabled = False
+        # bob ha disattivato le email sui decessi (matrice preferenze)
+        self.bob.profile.notification_prefs = {'death': {'push': True, 'email': False}}
         self.bob.profile.save()
 
         self.league = League.objects.create(
