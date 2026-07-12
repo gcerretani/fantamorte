@@ -39,44 +39,34 @@
   {% endif %}
 </form>
 
-<div class="table-responsive">
-  <table class="table align-middle">
-    <caption class="visually-hidden">Punti simulati per ogni membro vivo della squadra</caption>
-    <thead>
-      <tr>
-        <th scope="col">#</th>
-        <th scope="col">Persona</th>
-        <th scope="col">Età stimata</th>
-        <th scope="col">Capitano</th>
-        <th scope="col">Originale</th>
-        <th scope="col">Bonus previsti</th>
-        <th scope="col" class="text-end">Punti se morisse oggi</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in rows %}
-        <tr {% if r.points_now == 0 %}class="text-body-secondary"{% endif %}>
-          <th scope="row">{{ forloop.counter }}</th>
-          <td>
-            <a href="#" data-fm-person-pk="{{ r.person.pk }}">{{ r.person.name_it }}</a>
-            {% if r.is_jolly_month %}<span class="badge text-bg-info ms-1">jolly</span>{% endif %}
-          </td>
-          <td>{{ r.simulated_age }}</td>
-          <td>{% if r.member.is_captain %}<span class="badge text-bg-primary">C</span>{% endif %}</td>
-          <td>{% if r.member.is_original %}<span class="badge text-bg-info">★</span>{% endif %}</td>
-          <td>
-            {% for b in r.bonuses %}
-              <span class="badge text-bg-secondary">{{ b.name }} +{{ b.points }}</span>
-            {% endfor %}
-          </td>
-          <td class="text-end fw-bold">{{ r.points_now }}</td>
-        </tr>
-      {% empty %}
-        <tr><td colspan="7" class="text-center text-body-secondary">Nessun membro attivo da simulare.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+<ul class="list-group mb-3" aria-label="Punti simulati per ogni membro vivo della squadra">
+  {% for r in rows %}
+    <li class="list-group-item py-3{% if r.points_now == 0 %} text-body-secondary{% endif %}">
+      <div class="d-flex align-items-center gap-2">
+        <div class="fm-row-main">
+          <a href="#" data-fm-person-pk="{{ r.person.pk }}">{{ r.person.name_it }}</a>
+          {% if r.member.is_captain %}<span class="badge text-bg-primary">C</span>{% endif %}
+          {% if r.member.is_original %}<span class="badge text-bg-info" title="Giocata originale">★</span>{% endif %}
+          {% if r.is_jolly_month %}<span class="badge text-bg-info">jolly</span>{% endif %}
+          <div class="small text-body-secondary">Età stimata: {{ r.simulated_age }}</div>
+          {% if r.bonuses %}
+            <div class="d-flex flex-wrap gap-1 mt-1">
+              {% for b in r.bonuses %}
+                <span class="badge text-bg-secondary">{{ b.name }} +{{ b.points }}</span>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+        <div class="fm-metric">
+          <span class="fm-metric-value fm-whatif-points">{{ r.points_now }}</span>
+          <span class="fm-metric-unit">se morisse oggi</span>
+        </div>
+      </div>
+    </li>
+  {% empty %}
+    <li class="list-group-item text-center text-body-secondary">Nessun membro attivo da simulare.</li>
+  {% endfor %}
+</ul>
 
 <p class="small text-body-secondary">
   La stima include i bonus automatici della lega (Wikidata ed età, anche personalizzati)

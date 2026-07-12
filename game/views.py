@@ -14,6 +14,7 @@ from django.core.cache import cache
 from django.db.models import Q
 from django.http import Http404, HttpResponse, JsonResponse, HttpResponseForbidden
 from django.shortcuts import render, redirect, get_object_or_404
+from django.templatetags.static import static
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -553,6 +554,7 @@ class LeagueRankingsView(LoginRequiredMixin, View):
         return render(request, 'game/league_rankings.html', {
             'league': league,
             'rankings': scoring.compute_league_rankings(league),
+            'is_admin': league.is_admin(request.user),
         })
 
 
@@ -1364,10 +1366,19 @@ class ManifestView(View):
             'background_color': settings.PWA_APP_BACKGROUND_COLOR,
             'theme_color': settings.PWA_APP_THEME_COLOR,
             'lang': 'it-IT',
+            # URL risolti da static(): in produzione (ManifestStaticFilesStorage)
+            # sono i nomi con hash, così gli aggiornamenti delle icone non
+            # restano bloccati dalla cache lunga di nginx sui path non hashati.
             'icons': [
-                {'src': '/static/pwa/icon-192.png', 'sizes': '192x192', 'type': 'image/png', 'purpose': 'any'},
-                {'src': '/static/pwa/icon-512.png', 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any'},
-                {'src': '/static/pwa/icon.svg', 'sizes': 'any', 'type': 'image/svg+xml', 'purpose': 'any'},
+                {'src': static('pwa/icon-192.png'), 'sizes': '192x192', 'type': 'image/png', 'purpose': 'any'},
+                {'src': static('pwa/icon-512.png'), 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any'},
+                {'src': static('pwa/icon.svg'), 'sizes': 'any', 'type': 'image/svg+xml', 'purpose': 'any'},
+                # maskable: plate a tutto sangue + glifo in safe-zone, per le
+                # icone adattive Android (senza, l'icona viene letterboxed).
+                {'src': static('pwa/icon-maskable-192.png'), 'sizes': '192x192', 'type': 'image/png', 'purpose': 'maskable'},
+                {'src': static('pwa/icon-maskable-512.png'), 'sizes': '512x512', 'type': 'image/png', 'purpose': 'maskable'},
+                # monochrome: silhouette trasparente, abilita le themed icons.
+                {'src': static('pwa/badge-96.png'), 'sizes': '96x96', 'type': 'image/png', 'purpose': 'monochrome'},
             ],
             # Solo URL esistenti: le pagine classifica/decessi sono per-lega.
             'shortcuts': [

@@ -1,0 +1,36 @@
+{# Navigazione di sezione della lega: pill orizzontali scrollabili, da #}
+{# includere subito dopo l'header nelle pagine di lega. Richiede `league` #}
+{# in contesto; la voce Gestione compare solo con `is_admin`. #}
+{% with url_name=request.resolver_match.url_name %}
+<nav class="fm-league-nav mb-4" aria-label="Sezioni della lega">
+  <ul class="nav nav-pills flex-nowrap">
+    <li class="nav-item">
+      <a class="nav-link{% if url_name == 'league_detail' %} active{% endif %}"
+         {% if url_name == 'league_detail' %}aria-current="page"{% endif %}
+         href="{% url 'league_detail' league.slug %}">Panoramica</a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link{% if url_name == 'league_rankings' %} active{% endif %}"
+         {% if url_name == 'league_rankings' %}aria-current="page"{% endif %}
+         href="{% url 'league_rankings' league.slug %}">Classifica</a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link{% if url_name == 'league_deaths' %} active{% endif %}"
+         {% if url_name == 'league_deaths' %}aria-current="page"{% endif %}
+         href="{% url 'league_deaths' league.slug %}">Decessi</a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link{% if url_name == 'league_scoring' %} active{% endif %}"
+         {% if url_name == 'league_scoring' %}aria-current="page"{% endif %}
+         href="{% url 'league_scoring' league.slug %}">Regole</a>
+    </li>
+    {% if is_admin %}
+      <li class="nav-item">
+        <a class="nav-link{% if url_name == 'league_admin' or url_name == 'league_players_refresh' %} active{% endif %}"
+           {% if url_name == 'league_admin' or url_name == 'league_players_refresh' %}aria-current="page"{% endif %}
+           href="{% url 'league_admin' league.slug %}">Gestione</a>
+      </li>
+    {% endif %}
+  </ul>
+</nav>
+{% endwith %}

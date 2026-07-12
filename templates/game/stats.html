@@ -6,66 +6,56 @@
 
 <div class="row">
   <div class="col-lg-6 mb-4">
-    <h4>Il mio storico</h4>
+    <span class="fm-label mb-2">Il mio storico</span>
     {% if my_history %}
-      <div class="table-responsive">
-        <table class="table table-hover align-middle">
-          <thead>
-            <tr>
-              <th>Lega</th>
-              <th>Squadra</th>
-              <th class="text-end">Punti</th>
-              <th class="text-end">Posizione</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for h in my_history %}
-              <tr>
-                <td><a href="{% url 'league_detail' h.league.slug %}">{{ h.league.name }}</a></td>
-                <td><a href="{% url 'team_detail' h.team.pk %}">{{ h.team.name }}</a></td>
-                <td class="text-end"><strong>{{ h.score }}</strong></td>
-                <td class="text-end">
-                  {% if h.position == 1 %}<span class="me-1">&#127942;</span>{% endif %}
-                  {{ h.position }}&ordm; su {{ h.teams_count }}
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
+      <ul class="list-group">
+        {% for h in my_history %}
+          <li class="list-group-item py-3{% if h.position == 1 %} fm-rank-first{% endif %}">
+            <div class="d-flex align-items-center gap-2">
+              <div class="fm-row-main">
+                <a href="{% url 'team_detail' h.team.pk %}" class="fw-semibold text-decoration-none">{{ h.team.name }}</a>
+                <div class="small text-body-secondary">
+                  <a href="{% url 'league_detail' h.league.slug %}" class="text-decoration-none text-reset">{{ h.league.name }}</a>
+                  &middot; {{ h.position }}&ordm; su {{ h.teams_count }}
+                </div>
+              </div>
+              <div class="fm-metric">
+                <span class="fm-metric-value">{{ h.score }}</span>
+                <span class="fm-metric-unit">punti</span>
+              </div>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
     {% else %}
       <p class="text-body-secondary">Non hai ancora squadre: iscriviti a una lega per iniziare.</p>
     {% endif %}
   </div>
 
   <div class="col-lg-6 mb-4">
-    <h4>Leaderboard all-time</h4>
+    <span class="fm-label mb-1">Leaderboard all-time</span>
     <p class="text-body-secondary small mb-2">Punti cumulati in tutte le leghe pubbliche e nelle tue leghe private.</p>
     {% if all_time %}
-      <div class="table-responsive">
-        <table class="table table-hover align-middle">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Manager</th>
-              <th class="text-end">Punti totali</th>
-              <th class="text-end">Leghe</th>
-              <th class="text-end">Vittorie</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for a in all_time %}
-              <tr {% if a.manager == user %}class="table-active"{% endif %}>
-                <td>{{ forloop.counter }}</td>
-                <td>{{ a.manager.username }}</td>
-                <td class="text-end"><strong>{{ a.points }}</strong></td>
-                <td class="text-end">{{ a.leagues }}</td>
-                <td class="text-end">{{ a.wins }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
+      <ul class="list-group">
+        {% for a in all_time %}
+          <li class="list-group-item py-3{% if forloop.counter == 1 %} fm-rank-first{% endif %}{% if a.manager == user %} fm-rank-me{% endif %}">
+            <div class="d-flex align-items-center gap-2">
+              <span class="fm-pos{% if forloop.counter == 1 %} fm-pos-first{% endif %}">{{ forloop.counter }}</span>
+              <div class="fm-row-main">
+                <span class="fw-semibold">{{ a.manager.username }}</span>
+                {% if a.manager == user %}<span class="badge text-bg-primary">tu</span>{% endif %}
+                <div class="small text-body-secondary">
+                  {{ a.leagues }} legh{{ a.leagues|pluralize:"a,e" }} &middot; {{ a.wins }} vittori{{ a.wins|pluralize:"a,e" }}
+                </div>
+              </div>
+              <div class="fm-metric">
+                <span class="fm-metric-value">{{ a.points }}</span>
+                <span class="fm-metric-unit">punti</span>
+              </div>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
     {% else %}
       <p class="text-body-secondary">Nessuna lega con squadre al momento.</p>
     {% endif %}

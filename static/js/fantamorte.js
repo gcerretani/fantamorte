@@ -21,7 +21,7 @@
   }
   function applyPref(pref, persist) {
     const effective = effectiveTheme(pref);
-    html.setAttribute('data-bs-theme', effective);
+    html.setAttribute('data-fm-theme', effective);
     html.setAttribute('data-theme-pref', pref);
     if (persist) localStorage.setItem('fm-theme', pref);
     const btn = document.getElementById('fmThemeBtn');
@@ -32,7 +32,12 @@
       btn.setAttribute('aria-label', label);
     }
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', effective === 'dark' ? '#212529' : '#f8f9fa');
+    if (meta) {
+      // Il colore per tema vive nei token CSS (--fm-theme-color in
+      // fantamorte.css); l'hex è solo fallback se il CSS non è caricato.
+      const tone = getComputedStyle(html).getPropertyValue('--fm-theme-color').trim();
+      meta.setAttribute('content', tone || '#171a20');
+    }
   }
   window.fmToggleTheme = function () {
     const current = readPref();
@@ -69,30 +74,177 @@
     }
   });
 
-  // -------- Toast (bootstrap.Toast nativo) --------
+  // -------- UI behaviors (vanilla, ex-Bootstrap) --------
+  // Sostituiscono il bundle Bootstrap: modal, collapse, dropdown, tab e i
+  // pulsanti di chiusura (data-fm-dismiss). Attributi dichiarativi:
+  //   data-fm-toggle="collapse|dropdown|tab" [data-fm-target="#id" | href="#id"]
+  //   data-fm-dismiss="alert|modal|toast"
+  const MODAL_ANIM_MS = 200;
+  let lastFocusedBeforeModal = null;
+
+  function openModal(modalEl) {
+    if (!modalEl || modalEl.classList.contains('show')) return;
+    lastFocusedBeforeModal = document.activeElement;
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop fade';
+    backdrop.dataset.fmBackdropFor = modalEl.id || '';
+    document.body.appendChild(backdrop);
+    document.body.style.overflow = 'hidden';
+    modalEl.style.display = 'block';
+    modalEl.removeAttribute('aria-hidden');
+    modalEl.setAttribute('aria-modal', 'true');
+    // rAF: lascia applicare display:block prima di attivare le transizioni.
+    requestAnimationFrame(function () {
+      backdrop.classList.add('show');
+      modalEl.classList.add('show');
+    });
+    modalEl.focus();
+  }
+
+  function closeModal(modalEl) {
+    if (!modalEl || !modalEl.classList.contains('show')) return;
+    modalEl.classList.remove('show');
+    const backdrop = document.querySelector('.modal-backdrop');
+    if (backdrop) backdrop.classList.remove('show');
+    window.setTimeout(function () {
+      modalEl.style.display = 'none';
+      modalEl.setAttribute('aria-hidden', 'true');
+      modalEl.removeAttribute('aria-modal');
+      if (backdrop) backdrop.remove();
+      document.body.style.overflow = '';
+      if (lastFocusedBeforeModal && lastFocusedBeforeModal.focus) {
+        lastFocusedBeforeModal.focus();
+      }
+    }, MODAL_ANIM_MS);
+  }
+  // API pubblica (usata da fmShowPerson).
+  window.fmModal = { show: openModal, hide: closeModal };
+
+  function closeAllDropdowns(except) {
+    document.querySelectorAll('.dropdown-menu.show').forEach(function (m) {
+      if (m === except) return;
+      m.classList.remove('show');
+      const t = m.parentElement && m.parentElement.querySelector('[data-fm-toggle="dropdown"]');
+      if (t) t.setAttribute('aria-expanded', 'false');
+    });
+  }
+
+  function activateTab(link) {
+    const sel = link.getAttribute('data-fm-target') || link.getAttribute('href');
+    if (!sel) return;
+    const pane = document.querySelector(sel);
+    if (!pane) return;
+    const navRoot = link.closest('.nav');
+    if (navRoot) {
+      navRoot.querySelectorAll('.nav-link').forEach(function (l) {
+        l.classList.remove('active');
+        l.setAttribute('aria-selected', 'false');
+      });
+    }
+    const content = pane.closest('.tab-content');
+    if (content) {
+      Array.prototype.forEach.call(content.children, function (p) {
+        p.classList.remove('active', 'show');
+      });
+    }
+    link.classList.add('active');
+    link.setAttribute('aria-selected', 'true');
+    pane.classList.add('active', 'show');
+  }
+
+  // Toggle dichiarativi (collapse / dropdown / tab).
+  document.addEventListener('click', function (e) {
+    const toggle = e.target.closest('[data-fm-toggle]');
+    if (toggle) {
+      const kind = toggle.getAttribute('data-fm-toggle');
+      if (kind === 'collapse') {
+        e.preventDefault();
+        const sel = toggle.getAttribute('data-fm-target');
+        const target = sel && document.querySelector(sel);
+        if (target) {
+          const open = target.classList.toggle('show');
+          toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        }
+        return;
+      }
+      if (kind === 'dropdown') {
+        e.preventDefault();
+        const menu = toggle.parentElement && toggle.parentElement.querySelector('.dropdown-menu');
+        if (menu) {
+          const willOpen = !menu.classList.contains('show');
+          closeAllDropdowns(willOpen ? menu : null);
+          menu.classList.toggle('show', willOpen);
+          toggle.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+        }
+        return;
+      }
+      if (kind === 'tab') {
+        e.preventDefault();
+        activateTab(toggle);
+        return;
+      }
+    }
+    // Chiusure (data-fm-dismiss)
+    const dismiss = e.target.closest('[data-fm-dismiss]');
+    if (dismiss) {
+      const what = dismiss.getAttribute('data-fm-dismiss');
+      if (what === 'alert') {
+        const al = dismiss.closest('.alert');
+        if (al) al.remove();
+      } else if (what === 'modal') {
+        closeModal(dismiss.closest('.modal'));
+      } else if (what === 'toast') {
+        hideToast(dismiss.closest('.toast'));
+      }
+      return;
+    }
+    // Click su backdrop → chiudi il modal aperto.
+    if (e.target.classList && e.target.classList.contains('modal-backdrop')) {
+      const open = document.querySelector('.modal.show');
+      if (open) closeModal(open);
+      return;
+    }
+    // Click fuori da un dropdown aperto → chiudi.
+    if (!e.target.closest('.dropdown')) closeAllDropdowns(null);
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    const openModalEl = document.querySelector('.modal.show');
+    if (openModalEl) { closeModal(openModalEl); return; }
+    closeAllDropdowns(null);
+  });
+
+  // -------- Toast --------
   function ensureToastContainer() {
     let c = document.querySelector('.toast-container');
     if (!c) {
       c = document.createElement('div');
-      c.className = 'toast-container position-fixed top-0 end-0 p-3';
+      c.className = 'toast-container top-0 end-0 p-3';
       document.body.appendChild(c);
     }
     return c;
+  }
+
+  function hideToast(el) {
+    if (!el) return;
+    el.classList.add('hide');
+    window.setTimeout(function () { el.remove(); }, 250);
   }
 
   window.fmToast = function (msg, kind) {
     const c = ensureToastContainer();
     const resolvedKind = kind || 'dark';
     const el = document.createElement('div');
-    el.className = 'toast align-items-center text-bg-' + resolvedKind + ' border-0';
+    el.className = 'toast text-bg-' + resolvedKind;
     el.setAttribute('role', 'alert');
-    const closeWhite = ['danger', 'dark', 'success', 'primary'].indexOf(resolvedKind) !== -1;
-    el.innerHTML = `<div class="d-flex"><div class="toast-body"></div>
-      <button type="button" class="btn-close${closeWhite ? ' btn-close-white' : ''} me-2 m-auto" data-bs-dismiss="toast" aria-label="Chiudi"></button></div>`;
+    const closeWhite = ['danger', 'dark', 'success', 'primary', 'info', 'warning'].indexOf(resolvedKind) !== -1;
+    el.innerHTML = `<div class="d-flex align-items-center"><div class="toast-body flex-grow-1"></div>
+      <button type="button" class="btn-close${closeWhite ? ' btn-close-white' : ''} me-2" data-fm-dismiss="toast" aria-label="Chiudi"></button></div>`;
     el.querySelector('.toast-body').textContent = msg;
     c.appendChild(el);
-    el.addEventListener('hidden.bs.toast', () => el.remove());
-    bootstrap.Toast.getOrCreateInstance(el, { delay: 5000, autohide: true }).show();
+    requestAnimationFrame(function () { el.classList.add('show'); });
+    window.setTimeout(function () { hideToast(el); }, 5000);
   };
 
   // -------- PWA install prompt --------
@@ -285,8 +437,7 @@
     } else {
       body.innerHTML = '<div class="text-center text-body-secondary py-5"><div class="spinner-border" role="status"></div></div>';
     }
-    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
-    modal.show();
+    window.fmModal.show(modalEl);
     try {
       const url = `/api/persona/${pk}/` +
         (leagueSlug ? `?league=${encodeURIComponent(leagueSlug)}` : '');

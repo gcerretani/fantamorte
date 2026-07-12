@@ -579,14 +579,14 @@ class PersonRefreshTest(ViewsBaseTestCase):
         self.assertIn('Errore Wikidata', err)
 
 
-class AllauthBootstrapFormsTest(TestCase):
+class AllauthFormClassesTest(TestCase):
     """I form allauth devono arrivare già stilati dal server (ACCOUNT_FORMS)."""
 
-    def test_login_ha_classi_bootstrap(self):
+    def test_login_ha_classi_form(self):
         resp = self.client.get(reverse('account_login'))
         self.assertContains(resp, 'form-control')
 
-    def test_signup_ha_classi_bootstrap(self):
+    def test_signup_ha_classi_form(self):
         resp = self.client.get(reverse('account_signup'))
         self.assertContains(resp, 'form-control')
 
@@ -1246,7 +1246,7 @@ class TeamWhatIfTest(ViewsBaseTestCase):
         self.assertContains(resp, 'Morte giovane +10')  # 60-age con age=50
         self.assertNotContains(resp, 'Bonus Manuale')
         # base 50 + Oscar 20 + Morte giovane 10 = 80 (nessun moltiplicatore).
-        self.assertContains(resp, '<td class="text-end fw-bold">80</td>', html=True)
+        self.assertContains(resp, '<span class="fm-metric-value fm-whatif-points">80</span>', html=True)
 
 
 class ClaimsRefreshOnCheckTest(ViewsBaseTestCase):
@@ -1367,3 +1367,63 @@ class ClaimsRefreshOnCheckTest(ViewsBaseTestCase):
         self.person.refresh_from_db()
         self.assertEqual(self.person.occupation, 'politico')
         self.assertIn('P39', self.person.claims_cache)
+
+
+class ShellNavigationTest(ViewsBaseTestCase):
+    """Guscio di navigazione del restyling: bottom nav, active_nav, PWA."""
+
+    def test_bottom_nav_presente_per_autenticati(self):
+        self.client.login(username='member', password='x')
+        resp = self.client.get(reverse('home'))
+        self.assertContains(resp, 'fm-tabbar')
+        self.assertContains(resp, 'fmIcoHome')
+
+    def test_bottom_nav_assente_per_anonimi(self):
+        resp = self.client.get(reverse('account_login'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, 'fm-tabbar')
+        # niente hamburger/offcanvas: la navigazione mobile è la bottom nav
+        self.assertNotContains(resp, 'navbar-toggler')
+
+    def test_active_nav_tab_leghe_acceso_nelle_sottopagine(self):
+        """Le sottopagine di lega/squadra tengono attivo il tab Leghe."""
+        from .context_processors import _active_nav
+
+        class FakeMatch:
+            def __init__(self, url_name):
+                self.url_name = url_name
+
+        class FakeRequest:
+            def __init__(self, url_name):
+                self.resolver_match = FakeMatch(url_name)
+
+        cases = {
+            'home': 'home',
+            'stats': 'stats',
+            'profile': 'profile',
+            'league_list': 'leghe',
+            'league_detail': 'leghe',
+            'team_edit': 'leghe',
+            'person_detail': 'leghe',
+            'death_detail': 'leghe',
+            'substitute_member': 'leghe',
+            'rules': '',
+        }
+        for url_name, expected in cases.items():
+            self.assertEqual(_active_nav(FakeRequest(url_name)), expected, url_name)
+
+    def test_manifest_contiene_maskable_e_monochrome(self):
+        self.client.login(username='member', password='x')
+        data = self.client.get(reverse('manifest')).json()
+        purposes = {icon['purpose'] for icon in data['icons']}
+        self.assertIn('maskable', purposes)
+        self.assertIn('monochrome', purposes)
+
+    def test_sw_usa_il_badge_monocromatico(self):
+        """Il badge delle notifiche deve essere il PNG trasparente dedicato,
+        mai l'icona quadrata opaca (su Android diventerebbe un quadrato
+        bianco: il badge usa solo il canale alpha)."""
+        resp = self.client.get(reverse('service_worker'))
+        content = resp.content.decode()
+        self.assertIn('badge-96', content)
+        self.assertIn('data.badge ||', content)

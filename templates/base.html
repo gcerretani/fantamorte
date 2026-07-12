@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="{{ PWA_THEME_COLOR|default:'#212529' }}">
+  <meta name="theme-color" content="{{ PWA_THEME_COLOR|default:'#171a20' }}">
   <meta name="description" content="Il fantacalcio dei decessi: pronostica, totalizza, vinci.">
   <link rel="manifest" href="{% url 'manifest' %}">
   <link rel="icon" href="{% static 'pwa/icon.svg' %}" type="image/svg+xml">
@@ -12,9 +12,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Fantamorte">
   <title>{% block title %}Fantamorte{% endblock %}</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet"
-        integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
   <link href="{% static 'css/fantamorte.css' %}" rel="stylesheet">
+  {% block extra_head %}{% endblock %}
   <script>
     // Applica subito il tema per evitare flash. Pref tri-state: auto|light|dark.
     (function(){
@@ -28,7 +27,7 @@
         effective = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
           ? 'dark' : 'light';
       }
-      html.setAttribute('data-bs-theme', effective);
+      html.setAttribute('data-fm-theme', effective);
       html.setAttribute('data-theme-pref', pref);
     })();
     window.FM_VAPID_PUBLIC_KEY = "{{ VAPID_PUBLIC_KEY }}";
@@ -36,56 +35,49 @@
 </head>
 <body class="bg-body-tertiary">
 <a href="#fmMainContent" class="fm-skip-link">Salta al contenuto</a>
+{# Sprite icone condivise (bottom nav, bottoni): referenziate con <use>. #}
+<svg xmlns="http://www.w3.org/2000/svg" class="d-none" aria-hidden="true" focusable="false">
+  <symbol id="fmIcoHome" viewBox="0 0 24 24"><path d="M12 3 3 10.2V21h6.4v-5.8h5.2V21H21V10.2L12 3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+  <symbol id="fmIcoLeagues" viewBox="0 0 24 24"><path d="M6 4h12v5a6 6 0 0 1-12 0V4zM6 6H3.5v1.5A3.5 3.5 0 0 0 7 11M18 6h2.5v1.5A3.5 3.5 0 0 1 17 11M12 15v3M8 21h8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+  <symbol id="fmIcoStats" viewBox="0 0 24 24"><path d="M5 20v-8M12 20V5M19 20v-6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+  <symbol id="fmIcoUser" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="fmIcoSkull" viewBox="0 0 512 512"><path fill="currentColor" d="M256 96c-79.5 0-144 60.4-144 134.9 0 41.4 19.6 78.4 50.5 103.4v33.4c0 14.4 11.7 26.1 26.1 26.1h12.5v33.6c0 9.4 7.6 17 17 17h75.8c9.4 0 17-7.6 17-17v-33.6h12.5c14.4 0 26.1-11.7 26.1-26.1v-33.4C380.4 309.3 400 272.3 400 230.9 400 156.4 335.5 96 256 96zm-52 184c-14.4 0-26-11.6-26-26s11.6-26 26-26 26 11.6 26 26-11.6 26-26 26zm104 0c-14.4 0-26-11.6-26-26s11.6-26 26-26 26 11.6 26 26-11.6 26-26 26zm-100 65l-13-26h130l-13 26h-26l-13-19-13 19h-26l-13-19-13 19h-26z"/></symbol>
+</svg>
+
 {# fixed-top (non sticky): la barra resta inchiodata al viewport anche con #}
 {# l'overscroll/rubber-band; il body compensa l'altezza via CSS (fantamorte.css). #}
-<nav class="navbar navbar-expand-lg bg-dark fixed-top" data-bs-theme="dark" aria-label="Navigazione principale">
+{# Sotto lg la navigazione sta nella bottom nav (_bottom_nav.html): qui #}
+{# restano solo brand, installa e tema. Da lg in su i link sono inline. #}
+<nav class="navbar navbar-expand-lg fm-topbar" aria-label="Navigazione principale">
   <div class="container">
-    <a class="navbar-brand" href="{% url 'home' %}"><span aria-hidden="true">&#9760;</span> Fantamorte</a>
-    <div class="d-flex align-items-center order-lg-last">
-      <button id="fmInstallBtn" class="btn btn-outline-light btn-sm me-2" type="button"
-        title="Installa app" aria-label="Installa app"><span aria-hidden="true">&#x2913;</span> Installa</button>
-      <button id="fmThemeBtn" class="btn btn-outline-light btn-sm me-2" type="button"
+    <a class="navbar-brand" href="{% url 'home' %}">{% include '_logo.html' %} Fantamorte</a>
+    {% if user.is_authenticated %}
+      <ul class="navbar-nav me-auto d-none d-lg-flex">
+        <li class="nav-item"><a class="nav-link{% if active_nav == 'home' %} active{% endif %}" href="{% url 'home' %}">Dashboard</a></li>
+        <li class="nav-item"><a class="nav-link{% if active_nav == 'leghe' %} active{% endif %}" href="{% url 'league_list' %}">Leghe</a></li>
+        <li class="nav-item"><a class="nav-link{% if active_nav == 'stats' %} active{% endif %}" href="{% url 'stats' %}">Statistiche</a></li>
+        <li class="nav-item"><a class="nav-link" href="{% url 'rules' %}">Come funziona</a></li>
+        <li class="nav-item"><a class="nav-link{% if active_nav == 'profile' %} active{% endif %}" href="{% url 'profile' %}">Profilo</a></li>
+        {% if user.is_staff %}
+          <li class="nav-item"><a class="nav-link" href="{% url 'admin:index' %}">Admin</a></li>
+        {% endif %}
+      </ul>
+    {% endif %}
+    <div class="d-flex align-items-center ms-auto gap-2">
+      <button id="fmInstallBtn" class="btn btn-icon" type="button"
+        title="Installa app" aria-label="Installa app"><span aria-hidden="true">&#x2913;</span></button>
+      <button id="fmThemeBtn" class="btn btn-icon" type="button"
         title="Cambia tema" aria-label="Cambia tema">◐</button>
-      <button class="navbar-toggler" type="button" data-bs-toggle="offcanvas" data-bs-target="#navOffcanvas"
-        aria-label="Apri menu di navigazione" aria-controls="navOffcanvas" aria-expanded="false">
-        <span class="navbar-toggler-icon" aria-hidden="true"></span>
-      </button>
-    </div>
-    <!-- offcanvas-lg: menu a scomparsa sotto il breakpoint lg, link inline
-         nella barra su desktop. Colori ereditati da data-bs-theme="dark". -->
-    <div class="offcanvas-lg offcanvas-end" tabindex="-1" id="navOffcanvas" aria-labelledby="navOffcanvasLabel">
-      <div class="offcanvas-header d-lg-none">
-        <h5 class="offcanvas-title" id="navOffcanvasLabel">Menu</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#navOffcanvas" aria-label="Chiudi menu"></button>
-      </div>
-      <div class="offcanvas-body">
-        <ul class="navbar-nav me-auto">
-          {% if user.is_authenticated %}
-            <li class="nav-item"><a class="nav-link" href="{% url 'home' %}">Dashboard</a></li>
-            <li class="nav-item"><a class="nav-link" href="{% url 'league_list' %}">Leghe</a></li>
-            <li class="nav-item"><a class="nav-link" href="{% url 'stats' %}">Statistiche</a></li>
-            <li class="nav-item"><a class="nav-link" href="{% url 'rules' %}">Come funziona</a></li>
-            <li class="nav-item"><a class="nav-link" href="{% url 'profile' %}">Profilo</a></li>
-          {% endif %}
-          {% if user.is_staff %}
-            <li class="nav-item"><a class="nav-link" href="{% url 'admin:index' %}">Admin</a></li>
-          {% endif %}
-        </ul>
-        <ul class="navbar-nav">
-          {% if user.is_authenticated %}
-            <li class="nav-item"><span class="nav-link">{{ user.username }}</span></li>
-            <li class="nav-item">
-              <form method="post" action="{% url 'account_logout' %}" class="d-inline">
-                {% csrf_token %}
-                <button type="submit" class="btn btn-outline-light btn-sm mt-1">Esci</button>
-              </form>
-            </li>
-          {% else %}
-            <li class="nav-item"><a class="nav-link" href="{% url 'account_login' %}">Accedi</a></li>
-            <li class="nav-item"><a class="nav-link" href="{% url 'account_signup' %}">Registrati</a></li>
-          {% endif %}
-        </ul>
-      </div>
+      {% if user.is_authenticated %}
+        <span class="navbar-text d-none d-lg-inline ms-3 me-2">{{ user.username }}</span>
+        <form method="post" action="{% url 'account_logout' %}" class="d-none d-lg-inline ms-1">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-outline-light btn-sm">Esci</button>
+        </form>
+      {% else %}
+        <a class="btn btn-outline-light btn-sm ms-2" href="{% url 'account_login' %}">Accedi</a>
+        <a class="nav-link ms-2 d-none d-sm-inline" href="{% url 'account_signup' %}">Registrati</a>
+      {% endif %}
     </div>
   </div>
 </nav>
@@ -97,13 +89,15 @@
   {% for msg in messages %}
     <div class="alert alert-{{ msg.tags|default:'info' }} alert-dismissible fade show" role="alert">
       {{ msg }}
-      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Chiudi messaggio"></button>
+      <button type="button" class="btn-close" data-fm-dismiss="alert" aria-label="Chiudi messaggio"></button>
     </div>
   {% endfor %}
   </div>
 
   {% block content %}{% endblock %}
 </main>
+
+{% include '_bottom_nav.html' %}
 
 <footer class="text-center text-body-secondary py-4 mt-5 border-top">
   <small>Fantamorte &mdash; dati da <a href="https://www.wikidata.org" target="_blank">Wikidata</a> &middot;
@@ -116,7 +110,7 @@
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="fmPersonModalLabel">…</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+        <button type="button" class="btn-close" data-fm-dismiss="modal" aria-label="Chiudi"></button>
       </div>
       <div class="modal-body" id="fmPersonModalBody">
         <div class="text-center text-body-secondary py-5"><div class="spinner-border" role="status"></div></div>
@@ -141,8 +135,6 @@
   </div>
 </template>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"
-        integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
 <script src="{% static 'js/fantamorte.js' %}"></script>
 {% block extra_js %}{% endblock %}
 </body>

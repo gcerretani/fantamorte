@@ -19,44 +19,49 @@
   </div>
 </header>
 
+{% include 'game/_league_nav.html' %}
+
 {% if rankings %}
-<div class="table-responsive">
-  <table class="table table-hover align-middle">
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>Squadra</th>
-        <th>Gestore</th>
-        <th class="d-none d-md-table-cell">Morti</th>
-        <th class="text-end">Punti</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for entry in rankings %}
-        <tr>
-          <td>
-            {% if forloop.counter == 1 %}&#127942;{% elif forloop.counter == 2 %}&#129352;{% elif forloop.counter == 3 %}&#129353;{% else %}{{ forloop.counter }}{% endif %}
-          </td>
-          <td>
-            <a href="{% url 'team_detail' entry.team.pk %}" class="fw-bold text-decoration-none">{{ entry.team.name }}</a>
-            {% if entry.team.jolly_month %}<span class="badge text-bg-info ms-1" title="Mese jolly">J</span>{% endif %}
-          </td>
-          <td><small class="text-body-secondary">{{ entry.team.manager.username }}</small></td>
-          <td class="d-none d-md-table-cell">
+<div class="list-group">
+  {% for entry in rankings %}
+    <div class="list-group-item py-3{% if forloop.counter == 1 %} fm-rank-first{% endif %}{% if entry.team.manager == user %} fm-rank-me{% endif %}">
+      <div class="d-flex align-items-center gap-2">
+        <span class="fm-pos{% if forloop.counter == 1 %} fm-pos-first{% endif %}" aria-label="Posizione {{ forloop.counter }}">{{ forloop.counter }}</span>
+        <div class="fm-row-main">
+          <a href="{% url 'team_detail' entry.team.pk %}" class="fw-bold text-decoration-none">{{ entry.team.name }}</a>
+          {% if entry.team.jolly_month %}<span class="badge text-bg-info" title="Mese jolly">J</span>{% endif %}
+          {% if entry.team.manager == user %}<span class="badge text-bg-primary">tu</span>{% endif %}
+          <div class="small text-body-secondary">{{ entry.team.manager.username }}</div>
+        </div>
+        {% if entry.deaths %}
+          <button class="btn btn-outline-secondary btn-sm" type="button" data-fm-toggle="collapse"
+                  data-fm-target="#rankDeaths{{ entry.team.pk }}" aria-expanded="false"
+                  aria-controls="rankDeaths{{ entry.team.pk }}"
+                  aria-label="Mostra i {{ entry.deaths|length }} decessi di {{ entry.team.name }}">
+            <svg class="fm-ico" aria-hidden="true"><use href="#fmIcoSkull"/></svg> {{ entry.deaths|length }}
+          </button>
+        {% endif %}
+        <div class="fm-metric">
+          <span class="fm-metric-value">{{ entry.score }}</span>
+          <span class="fm-metric-unit">punti</span>
+        </div>
+      </div>
+      {% if entry.deaths %}
+        <div class="collapse mt-2" id="rankDeaths{{ entry.team.pk }}">
+          <div class="d-flex flex-wrap gap-1">
             {% for d in entry.deaths %}
-              <span class="badge {% if d.is_captain %}text-bg-primary{% else %}text-bg-secondary{% endif %} me-1"
+              <span class="badge {% if d.is_captain %}text-bg-primary{% else %}text-bg-secondary{% endif %}"
                     title="{{ d.death.person.name_it }}{% if d.is_captain %} (capitano){% endif %}{% if d.jolly %} mese jolly{% endif %}">
                 {{ d.death.person.name_it|truncatechars:18 }}
                 {% if d.is_captain %}&#9813;{% endif %}
                 {% if d.jolly %}*{% endif %}
               </span>
             {% endfor %}
-          </td>
-          <td class="text-end fw-bold fs-5">{{ entry.score }}</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+          </div>
+        </div>
+      {% endif %}
+    </div>
+  {% endfor %}
 </div>
 {% else %}
   <p class="text-body-secondary">Nessuna squadra ancora.</p>

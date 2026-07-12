@@ -19,6 +19,9 @@
     </button>
   </div>
 </header>
+
+{% include 'game/_league_nav.html' with is_admin=True %}
+
 <p class="text-body-secondary small">
   Sincronizza i giocatori con Wikidata: è lo stesso identico aggiornamento del
   controllo automatico periodico — anagrafica, dati per il rilevamento dei
@@ -28,54 +31,35 @@
 </p>
 
 {% if persons %}
-<div class="table-responsive">
-  <table class="table table-sm table-hover align-middle">
-    <thead>
-      <tr>
-        <th>Nome</th>
-        <th class="d-none d-md-table-cell">Wikidata</th>
-        <th>Ultimo controllo</th>
-        <th>Stato</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for person in persons %}
-      <tr id="row-{{ person.pk }}">
-        <td>
-          <a href="#" data-fm-person-pk="{{ person.pk }}">{{ person.name_it }}</a>
-          {% if person.data_frozen %}
-          <span class="badge text-bg-secondary ms-1" title="Escluso dagli aggiornamenti automatici e manuali">Frozen</span>
-          {% endif %}
-        </td>
-        <td class="d-none d-md-table-cell"><code class="small">{{ person.wikidata_id }}</code></td>
-        <td class="text-body-secondary small" id="lastcheck-{{ person.pk }}">
-          {% if person.last_checked %}
-            {{ person.last_checked|date:"d/m/Y H:i" }}
-          {% else %}
-            <em>Mai</em>
-          {% endif %}
-        </td>
-        <td id="status-{{ person.pk }}">
+<ul class="list-group">
+  {% for person in persons %}
+    <li class="list-group-item py-3 d-flex align-items-center gap-2" id="row-{{ person.pk }}">
+      <div class="fm-row-main">
+        <a href="#" data-fm-person-pk="{{ person.pk }}">{{ person.name_it }}</a>
+        <span id="status-{{ person.pk }}">
           {% if person.is_dead %}
             <span class="badge text-bg-danger">Morto</span>
           {% else %}
             <span class="badge text-bg-success">Vivo</span>
           {% endif %}
-        </td>
-        <td>
-          <button class="btn btn-outline-secondary btn-sm btn-check-one"
-                  data-person-pk="{{ person.pk }}"
-                  data-person-name="{{ person.name_it }}">
-            <span class="spinner-border spinner-border-sm d-none" role="status"></span>
-            Aggiorna
-          </button>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+        </span>
+        {% if person.data_frozen %}
+          <span class="badge text-bg-secondary" title="Escluso dagli aggiornamenti automatici e manuali">Frozen</span>
+        {% endif %}
+        <div class="small text-body-secondary">
+          <code class="small">{{ person.wikidata_id }}</code>
+          &middot; ultimo controllo: <span id="lastcheck-{{ person.pk }}">{% if person.last_checked %}{{ person.last_checked|date:"d/m/Y H:i" }}{% else %}<em>mai</em>{% endif %}</span>
+        </div>
+      </div>
+      <button class="btn btn-outline-secondary btn-sm btn-check-one"
+              data-person-pk="{{ person.pk }}"
+              data-person-name="{{ person.name_it }}">
+        <span class="spinner-border spinner-border-sm d-none" role="status"></span>
+        Aggiorna
+      </button>
+    </li>
+  {% endfor %}
+</ul>
 {% else %}
 <p class="text-body-secondary">Nessun giocatore attivo in questa lega.</p>
 {% endif %}

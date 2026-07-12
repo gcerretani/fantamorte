@@ -97,6 +97,25 @@
     </div>
   </div>
   {% endif %}
+
+  {# Su mobile la top bar non ha più il menu: manuale, admin e logout vivono qui. #}
+  <div class="col-12">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">Account</h5>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+          <a href="{% url 'rules' %}" class="btn btn-outline-secondary btn-sm">Come funziona</a>
+          {% if user.is_staff %}
+            <a href="{% url 'admin:index' %}" class="btn btn-outline-secondary btn-sm">Django admin</a>
+          {% endif %}
+          <form method="post" action="{% url 'account_logout' %}" class="d-inline ms-auto">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-outline-danger btn-sm">Esci</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 {% endblock %}

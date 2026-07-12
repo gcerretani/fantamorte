@@ -68,8 +68,8 @@ if not DEBUG:
     SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool('SECURE_HSTS_INCLUDE_SUBDOMAINS', default=True)
     SECURE_HSTS_PRELOAD = env.bool('SECURE_HSTS_PRELOAD', default=False)
 
-# Le classi Bootstrap sono alert-<tag>: i tag Django di default 'error' e
-# 'debug' non esistono in Bootstrap, li rimappiamo su danger/secondary.
+# I messaggi Django sono resi come alert-<tag>: i tag di default 'error' e
+# 'debug' non hanno una variante alert dedicata, li rimappiamo su danger/secondary.
 MESSAGE_TAGS = {
     messages_constants.ERROR: 'danger',
     messages_constants.DEBUG: 'secondary',
@@ -152,7 +152,7 @@ ACCOUNT_SIGNUP_FIELDS = ['email*', 'username*', 'password1*', 'password2*']
 ACCOUNT_EMAIL_VERIFICATION = env('ACCOUNT_EMAIL_VERIFICATION', default='mandatory')
 ACCOUNT_UNIQUE_EMAIL = True
 ACCOUNT_DEFAULT_HTTP_PROTOCOL = env('ACCOUNT_DEFAULT_HTTP_PROTOCOL', default='https')
-# Widget con classi Bootstrap applicate server-side (game/forms.py).
+# Widget con le classi del design system applicate server-side (game/forms.py).
 ACCOUNT_FORMS = {
     'login': 'game.forms.LoginForm',
     'signup': 'game.forms.SignupForm',
@@ -220,8 +220,10 @@ VAPID_CLAIM_EMAIL = env('VAPID_CLAIM_EMAIL', default='admin@fantamorte.local')
 # --- PWA ---
 PWA_APP_NAME = 'Fantamorte'
 PWA_APP_SHORT_NAME = 'Fantamorte'
-PWA_APP_THEME_COLOR = '#212529'
-PWA_APP_BACKGROUND_COLOR = '#f8f9fa'
+# Palette «Notturno»: tenere in sync con i token --fm-* in
+# static/css/fantamorte.css (theme = top bar, background = fondo pagina dark).
+PWA_APP_THEME_COLOR = '#171a20'
+PWA_APP_BACKGROUND_COLOR = '#111318'
 
 WIKIDATA_USER_AGENT = env('WIKIDATA_USER_AGENT', default='Fantamorte/1.0 (fantamorte@example.com)')
 WIKIDATA_REQUEST_DELAY = env.float('WIKIDATA_REQUEST_DELAY', default=0.5)

@@ -10,3 +10,4 @@ build/
 .venv/
 venv/
 .claude/settings.local.json
+*.sqlite3

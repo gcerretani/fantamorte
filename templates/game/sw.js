@@ -12,8 +12,9 @@ const PRECACHE = [
   '{% static "pwa/icon.svg" %}',
   '{% static "pwa/icon-192.png" %}',
   '{% static "pwa/icon-512.png" %}',
-  'https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css',
-  'https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js',
+  '{% static "pwa/badge-96.png" %}',
+  '{% static "pwa/icon-maskable-192.png" %}',
+  '{% static "pwa/icon-maskable-512.png" %}',
 ];
 
 self.addEventListener('install', function (event) {
@@ -36,16 +37,13 @@ self.addEventListener('fetch', function (event) {
   const req = event.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  // Solo GET stessa-origine + CDN bootstrap
-  const sameOrigin = url.origin === self.location.origin;
-  const isBootstrap = url.host === 'cdn.jsdelivr.net';
-  if (!sameOrigin && !isBootstrap) return;
-  // Cache-first SOLO per asset immutabili: static (nomi con hash), media,
-  // CDN. Mai per le API: una risposta JSON cachata qui verrebbe riservita
-  // per sempre e il modal persona mostrerebbe bonus/dati vecchi anche a
-  // server aggiornato.
-  const isAsset = isBootstrap
-    || url.pathname.startsWith('/static/')
+  // Nessuna dipendenza esterna: si intercetta solo la stessa origine.
+  if (url.origin !== self.location.origin) return;
+  // Cache-first SOLO per asset immutabili: static (nomi con hash), media.
+  // Mai per le API: una risposta JSON cachata qui verrebbe riservita per
+  // sempre e il modal persona mostrerebbe bonus/dati vecchi anche a server
+  // aggiornato.
+  const isAsset = url.pathname.startsWith('/static/')
     || url.pathname.startsWith('/media/');
   if (isAsset) {
     event.respondWith(
@@ -87,8 +85,12 @@ self.addEventListener('push', function (event) {
   const title = data.title || '☠ Fantamorte';
   const options = {
     body: data.body || '',
-    icon: '{% static "pwa/icon-192.png" %}',
-    badge: '{% static "pwa/icon-192.png" %}',
+    // icon: immagine grande a colori. badge: silhouette nella status bar
+    // Android, che ne usa SOLO il canale alpha — deve essere il PNG
+    // monocromatico trasparente, mai l'icona quadrata opaca (diventerebbe
+    // un quadrato bianco). Il payload può fare override di entrambi.
+    icon: data.icon || '{% static "pwa/icon-192.png" %}',
+    badge: data.badge || '{% static "pwa/badge-96.png" %}',
     tag: data.tag || 'fantamorte',
     data: { url: data.url || '/' },
     requireInteraction: !!data.urgent,

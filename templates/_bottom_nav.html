@@ -1,0 +1,27 @@
+{# Bottom nav mobile (sotto lg): le 4 destinazioni principali sempre a un #}
+{# tap. Lo stato attivo arriva dal context processor (active_nav); le #}
+{# sottopagine di leghe/squadre tengono acceso il tab Leghe. #}
+{% if user.is_authenticated %}
+<nav class="fm-tabbar fixed-bottom d-lg-none" aria-label="Navigazione principale (mobile)">
+  <a href="{% url 'home' %}" class="fm-tab {% if active_nav == 'home' %}active{% endif %}"
+     {% if active_nav == 'home' %}aria-current="page"{% endif %}>
+    <svg class="fm-tab-icon" aria-hidden="true"><use href="#fmIcoHome"/></svg>
+    <span>Home</span>
+  </a>
+  <a href="{% url 'league_list' %}" class="fm-tab {% if active_nav == 'leghe' %}active{% endif %}"
+     {% if active_nav == 'leghe' %}aria-current="page"{% endif %}>
+    <svg class="fm-tab-icon" aria-hidden="true"><use href="#fmIcoLeagues"/></svg>
+    <span>Leghe</span>
+  </a>
+  <a href="{% url 'stats' %}" class="fm-tab {% if active_nav == 'stats' %}active{% endif %}"
+     {% if active_nav == 'stats' %}aria-current="page"{% endif %}>
+    <svg class="fm-tab-icon" aria-hidden="true"><use href="#fmIcoStats"/></svg>
+    <span>Statistiche</span>
+  </a>
+  <a href="{% url 'profile' %}" class="fm-tab {% if active_nav == 'profile' %}active{% endif %}"
+     {% if active_nav == 'profile' %}aria-current="page"{% endif %}>
+    <svg class="fm-tab-icon" aria-hidden="true"><use href="#fmIcoUser"/></svg>
+    <span>Profilo</span>
+  </a>
+</nav>
+{% endif %}

@@ -43,7 +43,7 @@
 
 <div class="row">
   <div class="col-md-6">
-    <h5>Rosa attiva</h5>
+    <span class="fm-label">Rosa attiva</span>
     <ul class="list-group mb-4">
       {% for member in active_members %}
         <li class="list-group-item d-flex justify-content-between align-items-center">
@@ -75,29 +75,28 @@
   </div>
 
   <div class="col-md-6">
-    <h5>Punti guadagnati</h5>
+    <span class="fm-label">Punti guadagnati</span>
     {% if death_details %}
-      <div class="table-responsive">
-      <table class="table table-sm align-middle">
-        <thead><tr><th>Persona</th><th>Data</th><th>Base</th><th>Bonus</th><th>×</th><th>Tot</th></tr></thead>
-        <tbody>
-          {% for d in death_details %}
-            <tr>
-              <td>
-                <a href="{% url 'death_detail' d.death.pk %}">{{ d.death.person.name_it }}</a>
+      <ul class="list-group mb-4">
+        {% for d in death_details %}
+          <li class="list-group-item py-3">
+            <div class="d-flex align-items-center gap-2">
+              <div class="fm-row-main">
+                <a href="{% url 'death_detail' d.death.pk %}" class="fw-semibold text-decoration-none">{{ d.death.person.name_it }}</a>
                 {% if d.is_captain %}<span class="badge text-bg-primary">C</span>{% endif %}
-                {% if d.jolly %}<span class="badge text-bg-info">J</span>{% endif %}
-              </td>
-              <td><small>{{ d.death.death_date|date:"d/m/Y" }}</small></td>
-              <td>{{ d.base }}</td>
-              <td>{{ d.bonuses|length }}</td>
-              <td>×{{ d.multiplier }}</td>
-              <td><strong>{{ d.points }}</strong></td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      </div>
+                {% if d.jolly %}<span class="badge text-bg-info" title="Mese jolly">J</span>{% endif %}
+                <div class="small text-body-secondary">
+                  {{ d.death.death_date|date:"d/m/Y" }} &middot; base {{ d.base }}{% for b in d.bonuses %} &middot; {{ b.bonus_type.name }}{% endfor %}{% if d.multiplier != 1 %} &middot; &times;{{ d.multiplier }}{% endif %}
+                </div>
+              </div>
+              <div class="fm-metric">
+                <span class="fm-metric-value">{{ d.points }}</span>
+                <span class="fm-metric-unit">punti</span>
+              </div>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
     {% else %}
       <p class="text-body-secondary">Nessun punto ancora.</p>
     {% endif %}
