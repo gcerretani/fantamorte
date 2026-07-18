@@ -4,6 +4,11 @@ Tutte le modifiche rilevanti di questo progetto sono documentate qui.
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 il versionamento segue [SemVer](https://semver.org/lang/it/).
 
+## [0.2.2] - 2026-07-18
+
+- Restyle della pagina statistiche: morituri più giocati/redditizi, record e
+  bonus
+
 ## [0.2.1] - 2026-07-12
 
 - Gestisci i decessi pre-stagione come rimozione, non sostituzione
