@@ -11,7 +11,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.cache import cache
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.http import Http404, HttpResponse, JsonResponse, HttpResponseForbidden
 from django.shortcuts import render, redirect, get_object_or_404
 from django.templatetags.static import static
@@ -88,10 +88,13 @@ class HomeView(LoginRequiredMixin, TemplateView):
 
 
 class StatsView(LoginRequiredMixin, TemplateView):
-    """Statistiche cross-lega: storico personale + leaderboard all-time.
+    """Statistiche cross-lega: morituri più giocati e più redditizi, record
+    sui decessi, bonus più frequenti, storico personale e leaderboard all-time.
 
-    La leaderboard aggrega solo le leghe visibili all'utente (pubbliche o di
-    cui è membro), per non rivelare dati di leghe private altrui.
+    Tutto aggrega solo le leghe visibili all'utente (pubbliche o di cui è
+    membro), per non rivelare dati di leghe private altrui. I punti vengono
+    dai ranking per-lega già cachati (`compute_league_rankings`): nessun
+    percorso di scoring parallelo.
     """
     template_name = 'game/stats.html'
 
@@ -109,6 +112,8 @@ class StatsView(LoginRequiredMixin, TemplateView):
 
         my_history = []
         totals = {}  # manager_id -> aggregato all-time
+        person_points = {}  # person_id -> punti generati in tutte le squadre
+        counted_deaths = {}  # death_pk -> Death (dedup: un decesso può contare in più leghe)
         for league in visible_leagues:
             rankings = scoring.compute_league_rankings(league)
             for pos, entry in enumerate(rankings, start=1):
@@ -129,10 +134,64 @@ class StatsView(LoginRequiredMixin, TemplateView):
                         'position': pos,
                         'teams_count': len(rankings),
                     })
+                for item in entry['deaths']:
+                    death = item['death']
+                    counted_deaths[death.pk] = death
+                    pp = person_points.setdefault(death.person_id, {
+                        'person': death.person, 'points': 0, 'teams': 0,
+                    })
+                    pp['points'] += item['points']
+                    pp['teams'] += 1
 
-        all_time = sorted(totals.values(), key=lambda a: -a['points'])[:50]
         ctx['my_history'] = my_history
-        ctx['all_time'] = all_time
+        ctx['all_time'] = sorted(totals.values(), key=lambda a: -a['points'])[:50]
+        ctx['top_scorers'] = sorted(
+            person_points.values(),
+            key=lambda p: (-p['points'], p['person'].name_it),
+        )[:10]
+
+        # Morituri più giocati: righe TeamMember (anche i sostituiti: sono
+        # comunque state giocate), una per squadra distinta.
+        visible_ids = [l.pk for l in visible_leagues]
+        played = (
+            TeamMember.objects.filter(team__league_id__in=visible_ids)
+            .values('person')
+            .annotate(n=Count('team', distinct=True))
+            .order_by('-n', 'person')[:10]
+        )
+        persons = WikipediaPerson.objects.in_bulk([row['person'] for row in played])
+        ctx['most_played'] = [
+            {'person': persons[row['person']], 'count': row['n']} for row in played
+        ]
+        ctx['players_count'] = (
+            TeamMember.objects.filter(team__league_id__in=visible_ids)
+            .values('person').distinct().count()
+        )
+
+        # Record anagrafici sui decessi conteggiati (chi non ha età nota
+        # resta fuori dalle statistiche anagrafiche, non dal conteggio).
+        ctx['deaths_count'] = len(counted_deaths)
+        aged = []
+        for death in counted_deaths.values():
+            age = death.death_age
+            if age is None:
+                age = death.person.get_age_at_death()
+            if age is not None:
+                aged.append({'age': age, 'death': death})
+        if aged:
+            ctx['avg_death_age'] = round(sum(a['age'] for a in aged) / len(aged))
+            ctx['youngest_death'] = min(aged, key=lambda a: a['age'])
+            ctx['oldest_death'] = max(aged, key=lambda a: a['age'])
+
+        # Bonus più frequenti sui decessi conteggiati. Le righe DeathBonus
+        # sono globali per decesso: conteggio indicativo, senza il filtro di
+        # attivazione per-lega (che è già applicato ai punti qui sopra).
+        ctx['top_bonuses'] = list(
+            DeathBonus.objects.filter(death_id__in=counted_deaths.keys())
+            .values('bonus_type__name')
+            .annotate(n=Count('id'))
+            .order_by('-n', 'bonus_type__name')[:8]
+        )
         return ctx
 
 

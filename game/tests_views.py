@@ -1473,3 +1473,115 @@ class ShellNavigationTest(ViewsBaseTestCase):
         content = resp.content.decode()
         self.assertIn('badge-96', content)
         self.assertIn('data.badge ||', content)
+
+class StatsPageTest(ViewsBaseTestCase):
+    """Statistiche cross-lega: aggregati sui morituri, privacy, tile."""
+
+    def setUp(self):
+        super().setUp()
+        from django.core.cache import cache
+        from .models import BonusType, Death, DeathBonus, LeagueBonus
+        cache.clear()  # i ranking per-lega sono cachati tra i test
+
+        # Squadra nella lega pubblica (visibile a tutti gli utenti).
+        self.public_team = Team.objects.create(
+            name='Squadra Pubblica', manager=self.owner, league=self.public_league,
+        )
+        # dead1: giocato sia nella squadra pubblica sia in quella privata.
+        self.dead1 = WikipediaPerson.objects.create(
+            wikidata_id='Q95001', name_it='Morituro Doppio', is_dead=True,
+            death_date=date(2021, 5, 1), occupation='attore',
+        )
+        TeamMember.objects.create(team=self.public_team, person=self.dead1)
+        TeamMember.objects.create(team=self.private_team, person=self.dead1)
+        self.death1 = Death.objects.create(
+            person=self.dead1, death_date=date(2021, 5, 1), death_age=60,
+            is_confirmed=True,
+        )
+        # dead2: solo nella squadra pubblica, senza età nota.
+        self.dead2 = WikipediaPerson.objects.create(
+            wikidata_id='Q95002', name_it='Morituro Misterioso', is_dead=True,
+            death_date=date(2022, 3, 1),
+        )
+        TeamMember.objects.create(team=self.public_team, person=self.dead2)
+        self.death2 = Death.objects.create(
+            person=self.dead2, death_date=date(2022, 3, 1), is_confirmed=True,
+        )
+        # Bonus attivo solo nella lega pubblica, assegnato a dead1.
+        self.bt = BonusType.objects.create(
+            name='Bonus Statistiche', points=25, detection_method='manual',
+        )
+        LeagueBonus.objects.create(league=self.public_league, bonus_type=self.bt)
+        DeathBonus.objects.create(
+            death=self.death1, bonus_type=self.bt, points_awarded=25,
+        )
+
+    def _get_stats(self, username):
+        self.client.login(username=username, password='x')
+        return self.client.get(reverse('stats'))
+
+    def test_membro_vede_aggregati_di_entrambe_le_leghe(self):
+        resp = self._get_stats('member')
+        played = {e['person'].pk: e['count'] for e in resp.context['most_played']}
+        # dead1 in 2 squadre, Berlusconi e dead2 in 1.
+        self.assertEqual(played[self.dead1.pk], 2)
+        self.assertEqual(played[self.person.pk], 1)
+        self.assertEqual(played[self.dead2.pk], 1)
+        self.assertEqual(resp.context['most_played'][0]['person'], self.dead1)
+        self.assertEqual(resp.context['players_count'], 3)
+
+    def test_top_scorers_somma_i_punti_cross_lega(self):
+        resp = self._get_stats('member')
+        scorers = {e['person'].pk: e for e in resp.context['top_scorers']}
+        # dead1: 50+25 nella pubblica (bonus attivo) + 50 nella privata.
+        self.assertEqual(scorers[self.dead1.pk]['points'], 125)
+        self.assertEqual(scorers[self.dead1.pk]['teams'], 2)
+        # dead2: solo base nella pubblica.
+        self.assertEqual(scorers[self.dead2.pk]['points'], 50)
+        self.assertEqual(resp.context['top_scorers'][0]['person'], self.dead1)
+
+    def test_tile_record_dedup_e_senza_eta(self):
+        resp = self._get_stats('member')
+        # dead1 conta in due leghe ma è un solo decesso; dead2 senza età
+        # entra nel conteggio ma non nelle statistiche anagrafiche.
+        self.assertEqual(resp.context['deaths_count'], 2)
+        self.assertEqual(resp.context['avg_death_age'], 60)
+        self.assertEqual(resp.context['youngest_death']['death'], self.death1)
+        self.assertEqual(resp.context['oldest_death']['death'], self.death1)
+
+    def test_bonus_piu_frequenti(self):
+        resp = self._get_stats('member')
+        self.assertEqual(
+            resp.context['top_bonuses'],
+            [{'bonus_type__name': 'Bonus Statistiche', 'n': 1}],
+        )
+
+    def test_privacy_esclude_le_leghe_private_altrui(self):
+        resp = self._get_stats('outsider')
+        played = {e['person'].pk: e['count'] for e in resp.context['most_played']}
+        self.assertNotIn(self.person.pk, played)      # Berlusconi solo in lega privata
+        self.assertEqual(played[self.dead1.pk], 1)    # conta solo la squadra pubblica
+        self.assertEqual(resp.context['players_count'], 2)
+        scorers = {e['person'].pk: e for e in resp.context['top_scorers']}
+        self.assertEqual(scorers[self.dead1.pk]['points'], 75)
+        self.assertNotContains(resp, 'Silvio Berlusconi')
+
+    def test_membro_sostituito_resta_tra_i_piu_giocati(self):
+        sub = WikipediaPerson.objects.create(wikidata_id='Q95003', name_it='Il Sostituto')
+        new_member = TeamMember.objects.create(team=self.private_team, person=sub)
+        old = self.private_team.members.get(person=self.dead1)
+        old.replaced_by = new_member
+        old.save()
+        resp = self._get_stats('member')
+        played = {e['person'].pk: e['count'] for e in resp.context['most_played']}
+        self.assertEqual(played[self.dead1.pk], 2)
+        self.assertEqual(played[sub.pk], 1)
+
+    def test_nessuna_lega_visibile_pagina_vuota_ma_ok(self):
+        self.public_league.visibility = League.VISIBILITY_PRIVATE
+        self.public_league.save()
+        resp = self._get_stats('outsider')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context['deaths_count'], 0)
+        self.assertEqual(resp.context['most_played'], [])
+        self.assertEqual(resp.context['top_bonuses'], [])

@@ -387,7 +387,8 @@ Note di efficienza (importanti se tocchi il client):
 /api/notifications/             JSON: lista notifiche (paginata; per live/native)
 /api/notifications/unread-count/  JSON: conteggio non-lette (badge campanella)
 /api/notifications/mark-read/   POST: segna lette (tutte o lista ids)
-/statistiche/                   statistiche cross-lega (storico + leaderboard all-time)
+/statistiche/                   statistiche cross-lega (morituri più giocati/redditizi,
+                                record decessi, bonus frequenti, storico + leaderboard all-time)
 /regolamento/                   manuale generico del portale (nessun punteggio: quelli sono per-lega)
 /healthz/                       healthcheck (pubblico, verifica anche il DB)
 
