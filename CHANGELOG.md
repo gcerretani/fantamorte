@@ -4,7 +4,7 @@ Tutte le modifiche rilevanti di questo progetto sono documentate qui.
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 il versionamento segue [SemVer](https://semver.org/lang/it/).
 
-## [Unreleased]
+## [0.2.3] - 2026-07-18
 
 - Nuova regola di lega `captain_succession`: cosa succede alla fascia quando
   il capitano muore (al sostituto — comportamento precedente e default —,
