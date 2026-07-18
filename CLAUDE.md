@@ -107,7 +107,17 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
   età dei membri attivi di una squadra, 0 = nessun limite; enforced in
   AddPersonView e SubstituteMemberView), `jolly_enabled`,
   `substitution_deadline_days`, `visibility` (public/private), `invite_code`,
-  `search_wikipedia_langs` (CSV di wiki, es. `itwiki,enwiki`; vuoto = tutta Wikidata).
+  `search_wikipedia_langs` (CSV di wiki, es. `itwiki,enwiki`; vuoto = tutta Wikidata),
+  `captain_succession` (destino della fascia quando il capitano muore:
+  `substitute` = la eredita il sostituto, default; `free` = il manager la
+  assegna durante la sostituzione, radio in `substitute_member.html`;
+  `none` = non si riassegna. Il flag `is_captain` del membro **morto** non
+  si tocca mai: lo scoring storico legge quello) e
+  `secret_rosters_preseason` (se True, prima di `start_date` ogni manager
+  vede solo la propria rosa: gate `League.roster_hidden_for(user, team)`
+  applicato a team_detail, person_detail, death_detail, statistiche e
+  pagina sync giocatori — vale anche per staff e admin di lega, che sono
+  giocatori pure loro; la scappatoia resta il Django admin).
 - **`LeagueMembership.role`** ∈ `owner|admin|member`.
 - **`Team`** ha FK a `League` (vincolo unique `(manager, league)` →
   un utente ha **una squadra per lega**). Ha anche `jolly_month` (mese del

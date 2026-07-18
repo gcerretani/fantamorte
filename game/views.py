@@ -151,8 +151,10 @@ class StatsView(LoginRequiredMixin, TemplateView):
         )[:10]
 
         # Morituri più giocati: righe TeamMember (anche i sostituiti: sono
-        # comunque state giocate), una per squadra distinta.
-        visible_ids = [l.pk for l in visible_leagues]
+        # comunque state giocate), una per squadra distinta. Le leghe in fase
+        # segreta pre-campionato restano fuori: anche il conteggio aggregato
+        # rivelerebbe le giocate altrui.
+        visible_ids = [l.pk for l in visible_leagues if not l.rosters_secret_now()]
         played = (
             TeamMember.objects.filter(team__league_id__in=visible_ids)
             .values('person')
@@ -406,6 +408,9 @@ class LeagueAdminView(LoginRequiredMixin, View):
             visibility = request.POST.get('visibility', league.visibility)
             if visibility in dict(League.VISIBILITY_CHOICES):
                 league.visibility = visibility
+            captain_succession = request.POST.get('captain_succession', league.captain_succession)
+            if captain_succession in dict(League.CAPTAIN_SUCCESSION_CHOICES):
+                league.captain_succession = captain_succession
             try:
                 for field in ('start_date', 'end_date', 'registration_opens', 'registration_closes'):
                     raw = request.POST.get(field)
@@ -441,6 +446,7 @@ class LeagueAdminView(LoginRequiredMixin, View):
                 return redirect('league_admin', slug=slug)
             league.jolly_enabled = request.POST.get('jolly_enabled') == 'on'
             league.is_locked = request.POST.get('is_locked') == 'on'
+            league.secret_rosters_preseason = request.POST.get('secret_rosters_preseason') == 'on'
             checked_wikis = [w for w in request.POST.getlist('search_wiki_langs') if w in _VALID_WIKIS]
             league.search_wikipedia_langs = ','.join(checked_wikis)
             league.save()
@@ -804,6 +810,15 @@ class TeamDetailView(LoginRequiredMixin, DetailView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         team = self.object
+        roster_hidden = bool(
+            team.league_id and team.league.roster_hidden_for(self.request.user, team)
+        )
+        ctx['roster_hidden'] = roster_hidden
+        if roster_hidden:
+            # La rosa e i punti non vengono renderizzati (il template mostra la
+            # card "Rosa segreta"); serve solo `score` nell'header di pagina.
+            ctx['score'] = 0
+            return ctx
         details = scoring.compute_team_death_details(team)
         ctx['death_details'] = details
         ctx['score'] = sum(d['points'] for d in details)
@@ -826,8 +841,11 @@ class DeathDetailView(LoginRequiredMixin, DetailView):
         )
         for member in members:
             league = member.team.league
-            # Le squadre di leghe private restano visibili solo ai membri.
+            # Le squadre di leghe private restano visibili solo ai membri;
+            # in fase segreta pre-campionato anche le appartenenze alle rose.
             if league and not league.can_user_view(self.request.user):
+                continue
+            if league and league.roster_hidden_for(self.request.user, member.team):
                 continue
             pts = scoring.compute_team_points_for_death(member.team, death)
             if pts:
@@ -1147,7 +1165,17 @@ class SubstituteMemberView(LoginRequiredMixin, View):
             'member': member,
             'deadline': member.get_substitution_deadline(),
             'seconds_left': member.substitution_seconds_remaining(),
+            'captain_policy': team.league.captain_succession if team.league_id else League.CAPTAIN_SUCCESSION_SUBSTITUTE,
+            'captain_candidates': self._captain_candidates(team, member) if member.is_captain else [],
         })
+
+    @staticmethod
+    def _captain_candidates(team, member):
+        """Membri attivi e vivi che possono ricevere la fascia (policy 'free')."""
+        return (team.get_active_members()
+                .exclude(pk=member.pk)
+                .exclude(person__is_dead=True)
+                .select_related('person'))
 
     def post(self, request, pk, member_pk):
         team = get_object_or_404(Team, pk=pk)
@@ -1199,11 +1227,32 @@ class SubstituteMemberView(LoginRequiredMixin, View):
                 )
                 return redirect('substitute_member', pk=pk, member_pk=member_pk)
 
+        # Destino della fascia secondo la politica di lega. Il flag del membro
+        # morto non si tocca mai: lo scoring legge is_captain dal membro
+        # associato al decesso.
+        policy = league.captain_succession if league else League.CAPTAIN_SUCCESSION_SUBSTITUTE
+        new_captain = None  # membro esistente da promuovere (solo policy 'free')
+        sub_is_captain = member.is_captain and policy == League.CAPTAIN_SUCCESSION_SUBSTITUTE
+        if member.is_captain and policy == League.CAPTAIN_SUCCESSION_FREE:
+            choice = request.POST.get('new_captain_id', '').strip()
+            if choice == 'sub':
+                sub_is_captain = True
+            else:
+                if choice.isdigit():
+                    new_captain = self._captain_candidates(team, member).filter(pk=int(choice)).first()
+                if new_captain is None:
+                    messages.error(request, 'Scegli a chi assegnare la fascia di capitano.')
+                    return redirect('substitute_member', pk=pk, member_pk=member_pk)
+
         new_member = TeamMember.objects.create(
-            team=team, person=person, is_captain=member.is_captain
+            team=team, person=person, is_captain=sub_is_captain
         )
         member.replaced_by = new_member
         member.save()
+        if new_captain is not None:
+            new_captain.is_captain = True
+            new_captain.save()
+            messages.info(request, f'{new_captain.person.name_it} è il nuovo capitano.')
 
         messages.success(request, f'{member.person.name_it} sostituito/a con {person.name_it}.')
         return redirect('team_edit', pk=pk)
@@ -1225,10 +1274,12 @@ class PersonDetailView(LoginRequiredMixin, DetailView):
         members = TeamMember.objects.filter(person=person).select_related(
             'team__manager', 'team__league',
         )
-        # Le squadre di leghe private restano visibili solo ai membri.
+        # Le squadre di leghe private restano visibili solo ai membri;
+        # in fase segreta pre-campionato anche le appartenenze alle rose.
         ctx['team_members'] = [
             m for m in members
-            if not m.team.league_id or m.team.league.can_user_view(self.request.user)
+            if (not m.team.league_id or m.team.league.can_user_view(self.request.user))
+            and not (m.team.league_id and m.team.league.roster_hidden_for(self.request.user, m.team))
         ]
         return ctx
 
@@ -1773,6 +1824,15 @@ class LeaguePlayersRefreshView(LoginRequiredMixin, View):
         league = get_object_or_404(League, slug=slug)
         if not league.is_admin(request.user):
             return HttpResponseForbidden('Permesso negato.')
+        # In fase segreta pre-campionato anche gli admin di lega (che sono
+        # giocatori) non devono vedere l'elenco aggregato delle giocate.
+        if league.rosters_secret_now():
+            messages.info(
+                request,
+                'Le rose sono segrete fino all\'inizio della lega: '
+                'la sincronizzazione giocatori sarà disponibile dal via.',
+            )
+            return redirect('league_admin', slug=slug)
         persons = _league_persons(league)
         return render(request, self.template_name, {
             'league': league,
@@ -1800,6 +1860,9 @@ class LeagueBulkDiffView(LoginRequiredMixin, View):
         league = get_object_or_404(League, slug=slug)
         if not league.is_admin(request.user):
             return JsonResponse({'error': 'Permesso negato'}, status=403)
+        if league.rosters_secret_now():
+            return JsonResponse(
+                {'error': 'Rose segrete fino all\'inizio della lega'}, status=403)
 
         try:
             body = json.loads(request.body or '{}')
@@ -1971,12 +2034,16 @@ class LeagueCalendarView(LoginRequiredMixin, View):
         add_event(f'league-{league.id}-end', f'Fine stagione — {league.name}',
                   league.end_date)
 
-        # Scadenze di sostituzione per membri morti non ancora sostituiti
-        member_qs = TeamMember.objects.filter(
-            team__league=league,
-            replaced_by__isnull=True,
-            person__death__is_confirmed=True,
-        ).select_related('person', 'person__death', 'team', 'team__manager')
+        # Scadenze di sostituzione per membri morti non ancora sostituiti.
+        # In fase segreta pre-campionato questi eventi rivelerebbero le coppie
+        # persona/manager delle rose altrui: si omettono del tutto.
+        member_qs = TeamMember.objects.none()
+        if not league.rosters_secret_now():
+            member_qs = TeamMember.objects.filter(
+                team__league=league,
+                replaced_by__isnull=True,
+                person__death__is_confirmed=True,
+            ).select_related('person', 'person__death', 'team', 'team__manager')
         # Filtro lato Python perché get_substitution_deadline è un metodo
         for m in member_qs:
             deadline = m.get_substitution_deadline()

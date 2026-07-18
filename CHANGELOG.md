@@ -4,6 +4,15 @@ Tutte le modifiche rilevanti di questo progetto sono documentate qui.
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 il versionamento segue [SemVer](https://semver.org/lang/it/).
 
+## [Unreleased]
+
+- Nuova regola di lega `captain_succession`: cosa succede alla fascia quando
+  il capitano muore (al sostituto — comportamento precedente e default —,
+  a scelta del manager durante la sostituzione, o nessuna riassegnazione)
+- Nuova opzione di lega `secret_rosters_preseason`: prima dell'inizio del
+  gioco ogni manager vede solo la propria rosa (dettaglio squadra, pagina
+  persona, dettaglio decesso, statistiche e sync giocatori)
+
 ## [0.2.2] - 2026-07-18
 
 - Restyle della pagina statistiche: morituri più giocati/redditizi, record e

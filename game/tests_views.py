@@ -1585,3 +1585,206 @@ class StatsPageTest(ViewsBaseTestCase):
         self.assertEqual(resp.context['deaths_count'], 0)
         self.assertEqual(resp.context['most_played'], [])
         self.assertEqual(resp.context['top_bonuses'], [])
+
+
+class CaptainSuccessionTest(ViewsBaseTestCase):
+    """Politica di lega per la fascia di capitano alla morte del capitano."""
+
+    def setUp(self):
+        from django.utils import timezone
+        super().setUp()
+        self.captain_member = self.private_team.members.get(person=self.person)
+        self.captain_member.is_captain = True
+        self.captain_member.save()
+        self.person.is_dead = True
+        self.person.death_date = timezone.now().date()
+        self.person.save()
+        alive = WikipediaPerson.objects.create(
+            wikidata_id='Q90401', name_it='Compagno Vivo',
+            is_dead=False, last_checked=timezone.now(),
+        )
+        self.mate = TeamMember.objects.create(team=self.private_team, person=alive)
+        self.fresh = WikipediaPerson.objects.create(
+            wikidata_id='Q90400', name_it='Sostituto Fresco',
+            is_dead=False, last_checked=timezone.now(),
+        )
+        self.url = reverse(
+            'substitute_member', args=[self.private_team.pk, self.captain_member.pk])
+        self.client.login(username='member', password='x')
+
+    def _set_policy(self, policy):
+        self.private_league.captain_succession = policy
+        self.private_league.save()
+
+    def _substitute(self, **extra):
+        return self.client.post(self.url, {'wikidata_id': self.fresh.wikidata_id, **extra})
+
+    def _sub_member(self):
+        return self.private_team.members.filter(person=self.fresh).first()
+
+    def test_default_il_sostituto_eredita_la_fascia(self):
+        self._substitute()
+        self.assertTrue(self._sub_member().is_captain)
+        # Il flag del morto non si tocca: serve allo scoring storico.
+        self.captain_member.refresh_from_db()
+        self.assertTrue(self.captain_member.is_captain)
+
+    def test_none_il_sostituto_entra_da_giocatore_normale(self):
+        self._set_policy(League.CAPTAIN_SUCCESSION_NONE)
+        self._substitute()
+        self.assertFalse(self._sub_member().is_captain)
+        self.captain_member.refresh_from_db()
+        self.assertTrue(self.captain_member.is_captain)
+
+    def test_free_fascia_al_sostituto(self):
+        self._set_policy(League.CAPTAIN_SUCCESSION_FREE)
+        self._substitute(new_captain_id='sub')
+        self.assertTrue(self._sub_member().is_captain)
+
+    def test_free_fascia_a_un_compagno(self):
+        self._set_policy(League.CAPTAIN_SUCCESSION_FREE)
+        self._substitute(new_captain_id=str(self.mate.pk))
+        self.assertFalse(self._sub_member().is_captain)
+        self.mate.refresh_from_db()
+        self.assertTrue(self.mate.is_captain)
+        self.captain_member.refresh_from_db()
+        self.assertTrue(self.captain_member.is_captain)
+
+    def test_free_scelta_mancante_rifiuta_la_sostituzione(self):
+        self._set_policy(League.CAPTAIN_SUCCESSION_FREE)
+        self._substitute()
+        self.assertIsNone(self._sub_member())
+        self.captain_member.refresh_from_db()
+        self.assertIsNone(self.captain_member.replaced_by)
+
+    def test_free_scelta_estranea_rifiutata(self):
+        self._set_policy(League.CAPTAIN_SUCCESSION_FREE)
+        self._substitute(new_captain_id='999999')
+        self.assertIsNone(self._sub_member())
+        self._substitute(new_captain_id=str(self.captain_member.pk))  # il morto stesso
+        self.assertIsNone(self._sub_member())
+
+    def test_policy_ignorata_se_il_morto_non_e_capitano(self):
+        self._set_policy(League.CAPTAIN_SUCCESSION_FREE)
+        self.captain_member.is_captain = False
+        self.captain_member.save()
+        self._substitute()  # nessun new_captain_id richiesto
+        member = self._sub_member()
+        self.assertIsNotNone(member)
+        self.assertFalse(member.is_captain)
+
+    def test_get_mostra_i_candidati_con_policy_free(self):
+        self._set_policy(League.CAPTAIN_SUCCESSION_FREE)
+        resp = self.client.get(self.url)
+        self.assertContains(resp, 'new_captain_id')
+        self.assertContains(resp, 'Compagno Vivo')
+
+
+class SecretRostersTest(ViewsBaseTestCase):
+    """Opzione di lega: rose segrete fino all'inizio del gioco."""
+
+    def setUp(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        super().setUp()
+        today = timezone.now().date()
+        self.private_league.secret_rosters_preseason = True
+        self.private_league.start_date = today + timedelta(days=30)
+        self.private_league.end_date = today + timedelta(days=300)
+        self.private_league.registration_opens = today - timedelta(days=10)
+        self.private_league.registration_closes = today + timedelta(days=30)
+        self.private_league.save()
+        self.member2 = User.objects.create_user('member2', password='x')
+        LeagueMembership.objects.create(
+            league=self.private_league, user=self.member2,
+            role=LeagueMembership.ROLE_MEMBER,
+        )
+        self.detail_url = reverse('team_detail', args=[self.private_team.pk])
+
+    def _start_league(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        self.private_league.start_date = timezone.now().date() - timedelta(days=1)
+        self.private_league.registration_closes = self.private_league.start_date
+        self.private_league.save()
+
+    def test_altro_membro_non_vede_la_rosa(self):
+        self.client.login(username='member2', password='x')
+        resp = self.client.get(self.detail_url)
+        self.assertContains(resp, 'Rosa segreta')
+        self.assertNotContains(resp, 'Silvio Berlusconi')
+
+    def test_owner_e_admin_di_lega_non_vedono(self):
+        # Anche gli admin di lega sono giocatori: la segretezza vale per tutti.
+        self.client.login(username='owner', password='x')
+        resp = self.client.get(self.detail_url)
+        self.assertNotContains(resp, 'Silvio Berlusconi')
+
+    def test_manager_vede_la_propria_rosa(self):
+        self.client.login(username='member', password='x')
+        resp = self.client.get(self.detail_url)
+        self.assertContains(resp, 'Silvio Berlusconi')
+
+    def test_person_detail_nasconde_le_appartenenze(self):
+        self.client.login(username='member2', password='x')
+        resp = self.client.get(reverse('person_detail', args=[self.person.pk]))
+        self.assertNotContains(resp, 'Squadra Privata')
+
+    def test_a_lega_iniziata_tutto_torna_visibile(self):
+        self._start_league()
+        self.client.login(username='member2', password='x')
+        resp = self.client.get(self.detail_url)
+        self.assertContains(resp, 'Silvio Berlusconi')
+
+    def test_opzione_spenta_comportamento_invariato(self):
+        self.private_league.secret_rosters_preseason = False
+        self.private_league.save()
+        self.client.login(username='member2', password='x')
+        resp = self.client.get(self.detail_url)
+        self.assertContains(resp, 'Silvio Berlusconi')
+
+    def test_sync_giocatori_bloccata_in_fase_segreta(self):
+        self.client.login(username='owner', password='x')
+        resp = self.client.get(
+            reverse('league_players_refresh', args=[self.private_league.slug]))
+        self.assertRedirects(
+            resp, reverse('league_admin', args=[self.private_league.slug]))
+        resp = self.client.post(
+            reverse('league_wikidata_diff', args=[self.private_league.slug]),
+            data='{"person_pks": [1]}', content_type='application/json')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_stats_esclude_le_leghe_in_fase_segreta(self):
+        self.client.login(username='member2', password='x')
+        resp = self.client.get(reverse('stats'))
+        played = {e['person'].pk for e in resp.context['most_played']}
+        self.assertNotIn(self.person.pk, played)
+        self._start_league()
+        resp = self.client.get(reverse('stats'))
+        played = {e['person'].pk for e in resp.context['most_played']}
+        self.assertIn(self.person.pk, played)
+
+    def _make_dead_member(self):
+        from django.utils import timezone
+        from .models import Death
+        self.person.is_dead = True
+        self.person.death_date = timezone.now().date()
+        self.person.save()
+        Death.objects.create(
+            person=self.person, death_date=timezone.now().date(), death_age=80,
+            is_confirmed=True, confirmed_at=timezone.now(),
+        )
+        # La conferma pre-stagione rimuove il membro dalla rosa (signal): lo
+        # ricreo per avere uno stato "morto con deadline" verificabile nel feed.
+        TeamMember.objects.get_or_create(team=self.private_team, person=self.person)
+
+    def test_calendario_ical_non_rivela_le_rose_in_fase_segreta(self):
+        # Il feed .ics esporta eventi "Scadenza sostituzione <persona> (<manager>)":
+        # in fase segreta rivelerebbe la coppia persona/manager di rose altrui.
+        self._make_dead_member()
+        self.client.login(username='member2', password='x')
+        resp = self.client.get(reverse('league_calendar', args=[self.private_league.slug]))
+        self.assertNotContains(resp, 'Silvio Berlusconi')
+        self._start_league()
+        resp = self.client.get(reverse('league_calendar', args=[self.private_league.slug]))
+        self.assertContains(resp, 'Silvio Berlusconi')

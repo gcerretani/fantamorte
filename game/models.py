@@ -404,6 +404,10 @@ class League(models.Model):
         help_text='Somma massima delle età dei membri attivi di una squadra (0 = nessun limite).',
     )
     jolly_enabled = models.BooleanField(default=True, help_text='Se True, ogni squadra può avere un mese jolly.')
+    secret_rosters_preseason = models.BooleanField(
+        default=False,
+        help_text='Se True, prima dell\'inizio della lega ogni manager vede solo la propria rosa.',
+    )
 
     # Regole punteggio
     base_points = models.PositiveIntegerField(default=50)
@@ -411,6 +415,19 @@ class League(models.Model):
     jolly_multiplier = models.PositiveSmallIntegerField(default=2)
     substitution_deadline_days = models.PositiveIntegerField(
         default=7, help_text='Giorni per sostituire un giocatore deceduto.'
+    )
+
+    CAPTAIN_SUCCESSION_SUBSTITUTE = 'substitute'
+    CAPTAIN_SUCCESSION_FREE = 'free'
+    CAPTAIN_SUCCESSION_NONE = 'none'
+    CAPTAIN_SUCCESSION_CHOICES = [
+        (CAPTAIN_SUCCESSION_SUBSTITUTE, 'Il sostituto eredita la fascia'),
+        (CAPTAIN_SUCCESSION_FREE, 'Il manager sceglie il nuovo capitano alla sostituzione'),
+        (CAPTAIN_SUCCESSION_NONE, 'La fascia non viene riassegnata'),
+    ]
+    captain_succession = models.CharField(
+        max_length=12, choices=CAPTAIN_SUCCESSION_CHOICES, default=CAPTAIN_SUCCESSION_SUBSTITUTE,
+        help_text='Cosa succede alla fascia di capitano quando il capitano muore.',
     )
 
     # Bonus della lega: M2M con through per override punti
@@ -441,6 +458,28 @@ class League(models.Model):
     def is_registration_open(self):
         today = timezone.now().date()
         return self.registration_opens <= today <= self.registration_closes
+
+    def has_started(self):
+        return timezone.now().date() >= self.start_date
+
+    def rosters_secret_now(self):
+        """True se siamo nella finestra in cui le rose sono segrete.
+
+        Sorgente di verità unica per la fase segreta pre-campionato: la usano
+        `roster_hidden_for` e i gate lato view (statistiche, sync giocatori,
+        feed calendario). Non duplicare la condizione altrove.
+        """
+        return self.secret_rosters_preseason and not self.has_started()
+
+    def roster_hidden_for(self, user, team):
+        """True se la rosa di `team` va nascosta a `user` (fase segreta pre-campionato).
+
+        Vale per chiunque non sia il manager, staff e admin di lega inclusi (sono
+        anche loro giocatori); il Django admin resta la scappatoia per i superuser.
+        """
+        if not self.rosters_secret_now():
+            return False
+        return not (user.is_authenticated and team.manager_id == user.pk)
 
     # ---- Permessi ----
     def is_owner(self, user):
