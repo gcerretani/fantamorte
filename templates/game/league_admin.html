@@ -101,6 +101,14 @@
         <label class="form-label">×Jolly</label>
         <input type="number" name="jolly_multiplier" class="form-control" value="{{ league.jolly_multiplier }}" min="1" max="10">
       </div>
+      <div class="col-md-6">
+        <label class="form-label">Fascia del capitano alla sua morte</label>
+        <select name="captain_succession" class="form-select">
+          {% for value, label in league.CAPTAIN_SUCCESSION_CHOICES %}
+            <option value="{{ value }}" {% if league.captain_succession == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
       <div class="col-md-3 form-check ms-3 mt-4">
         <input class="form-check-input" type="checkbox" name="jolly_enabled" id="jolly_enabled" {% if league.jolly_enabled %}checked{% endif %}>
         <label class="form-check-label" for="jolly_enabled">Mese jolly</label>
@@ -108,6 +116,12 @@
       <div class="col-md-3 form-check ms-3 mt-4">
         <input class="form-check-input" type="checkbox" name="is_locked" id="is_locked" {% if league.is_locked %}checked{% endif %}>
         <label class="form-check-label" for="is_locked">Squadre bloccate</label>
+      </div>
+      <div class="col-md-5 form-check ms-3 mt-4">
+        <input class="form-check-input" type="checkbox" name="secret_rosters_preseason" id="secret_rosters_preseason" {% if league.secret_rosters_preseason %}checked{% endif %}
+               aria-describedby="secretRostersHelp">
+        <label class="form-check-label" for="secret_rosters_preseason">Rose segrete fino all'inizio</label>
+        <div id="secretRostersHelp" class="form-text">Prima dell'inizio della lega ogni manager vede solo la propria rosa.</div>
       </div>
       <div class="col-12">
         <label class="form-label fw-semibold">Filtro ricerca persone</label>

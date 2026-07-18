@@ -38,6 +38,31 @@
     {% csrf_token %}
     <input type="hidden" id="selectedQid" name="wikidata_id">
     <p id="selectedName" class="text-body-secondary">Nessuna persona selezionata</p>
+
+    {% if member.is_captain %}
+      {% if captain_policy == 'free' %}
+        <div class="card mb-3">
+          <div class="card-body">
+            <p class="fm-label mb-2">Nuovo capitano</p>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="new_captain_id" value="sub" id="capSub" checked>
+              <label class="form-check-label" for="capSub">Il sostituto che sto inserendo</label>
+            </div>
+            {% for candidate in captain_candidates %}
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="new_captain_id" value="{{ candidate.pk }}" id="cap{{ candidate.pk }}">
+                <label class="form-check-label" for="cap{{ candidate.pk }}">{{ candidate.person.name_it }}</label>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% elif captain_policy == 'none' %}
+        <div class="alert alert-info">La fascia di capitano non viene riassegnata: il sostituto entra come giocatore normale.</div>
+      {% else %}
+        <div class="alert alert-info">Il sostituto erediterà la fascia di capitano.</div>
+      {% endif %}
+    {% endif %}
+
     <button type="submit" id="submitBtn" class="btn btn-primary" disabled>Conferma sostituzione</button>
     <a href="{% url 'team_edit' team.pk %}" class="btn btn-outline-secondary ms-2">Annulla</a>
   </form>

@@ -41,6 +41,15 @@
   {% endif %}
 </header>
 
+{% if roster_hidden %}
+<div class="card">
+  <div class="card-body text-center py-5">
+    <p class="display-6 mb-2" aria-hidden="true">&#128274;</p>
+    <p class="fw-semibold mb-1">Rosa segreta</p>
+    <p class="text-body-secondary mb-0">Le rose di questa lega restano segrete fino all'inizio del gioco ({{ team.league.start_date|date:"d/m/Y" }}).</p>
+  </div>
+</div>
+{% else %}
 <div class="row">
   <div class="col-md-6">
     <span class="fm-label">Rosa attiva</span>
@@ -102,5 +111,6 @@
     {% endif %}
   </div>
 </div>
+{% endif %}
 
 {% endblock %}

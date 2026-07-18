@@ -40,6 +40,20 @@ sia su mobile (2 colonne) sia su desktop.
       <div class="fm-stat-label">Per sostituire</div>
     </div>
   </div>
+  {% if league.max_captains %}
+  <div class="col">
+    <div class="fm-stat">
+      {% if league.captain_succession == 'substitute' %}
+        <div class="fm-stat-value">Al sostituto</div>
+      {% elif league.captain_succession == 'free' %}
+        <div class="fm-stat-value">A scelta</div>
+      {% else %}
+        <div class="fm-stat-value">Non riassegnata</div>
+      {% endif %}
+      <div class="fm-stat-label">Fascia se il capitano muore</div>
+    </div>
+  </div>
+  {% endif %}
   {% if league.max_total_age %}
   <div class="col">
     <div class="fm-stat">
