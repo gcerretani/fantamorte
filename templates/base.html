@@ -128,6 +128,77 @@
   </div>
 </div>
 
+{% if user.is_authenticated %}
+<!-- Onboarding: proponi installazione app + notifiche (apertura una tantum via JS). -->
+<div class="modal fade" id="fmOnboardModal" tabindex="-1" aria-hidden="true" aria-labelledby="fmOnboardTitle">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="fmOnboardTitle">Porta Fantamorte sul telefono</h5>
+        <button type="button" class="btn-close" data-fm-dismiss="modal" aria-label="Chiudi"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-body-secondary">Installa l'app sulla schermata Home e attiva le
+          notifiche: così non ti perdi nessun decesso della tua rosa.</p>
+
+        <!-- Passo 1 · installazione (un solo blocco visibile, scelto in base al dispositivo) -->
+        <section data-fm-onboard-install class="d-none mb-4">
+          <div class="fm-label">1 · Installa l'app</div>
+
+          <div data-fm-install-native class="d-none">
+            <p class="mb-2">Aggiungi Fantamorte alla schermata Home con un tocco.</p>
+            <button type="button" class="btn btn-primary" data-fm-install-trigger>Installa l'app</button>
+          </div>
+
+          <div data-fm-install-ios class="d-none">
+            <p class="mb-2">Su iPhone/iPad, da <strong>Safari</strong>:</p>
+            <ol class="mb-0 ps-3">
+              <li>Tocca il pulsante <strong>Condividi</strong> (il quadrato con la freccia verso l'alto).</li>
+              <li>Scorri e scegli <strong>«Aggiungi a Home»</strong>.</li>
+              <li>Conferma toccando <strong>Aggiungi</strong> in alto a destra.</li>
+            </ol>
+          </div>
+
+          <div data-fm-install-android class="d-none">
+            <p class="mb-2">Su Android, dal menu del browser:</p>
+            <ol class="mb-0 ps-3">
+              <li>Apri il menu <strong>⋮</strong> in alto a destra.</li>
+              <li>Tocca <strong>«Installa app»</strong> o <strong>«Aggiungi a schermata Home»</strong>.</li>
+              <li>Conferma.</li>
+            </ol>
+          </div>
+        </section>
+
+        <!-- Passo 2 · notifiche -->
+        <section data-fm-onboard-push class="d-none">
+          <div class="fm-label">2 · Attiva le notifiche</div>
+
+          <div data-fm-push-cta class="d-none">
+            <p class="mb-2">Ricevi un avviso quando muore un personaggio della tua squadra.</p>
+            <button type="button" class="btn btn-primary" data-fm-push-trigger>Abilita le notifiche</button>
+          </div>
+
+          <div data-fm-push-ios-hint class="d-none">
+            <p class="mb-0 text-body-secondary">Su iPhone le notifiche funzionano solo dopo aver
+              installato l'app dalla schermata Home (iOS 16.4+). Completa prima il passo 1, poi
+              riapri l'app e attivale dal <a href="{% url 'profile' %}">profilo</a>.</p>
+          </div>
+
+          <div data-fm-push-blocked class="d-none">
+            <p class="mb-0 text-body-secondary">Le notifiche risultano bloccate nelle impostazioni
+              del browser per questo sito: riattivale da lì per poterle ricevere.</p>
+          </div>
+        </section>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-fm-onboard-dismiss>Non mostrare più</button>
+        <button type="button" class="btn btn-outline-secondary" data-fm-dismiss="modal">Più tardi</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <!-- Skeleton del modal persona: clonato da fmShowPerson a ogni apertura. -->
 <template id="fmPersonSkeleton">
   <div class="row placeholder-glow" aria-busy="true" aria-label="Caricamento dettagli persona">
