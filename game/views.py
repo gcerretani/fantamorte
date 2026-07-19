@@ -25,7 +25,7 @@ from django.views.generic import TemplateView, DetailView, View
 
 from wikidata_api.client import WikidataClient
 
-from . import person_sync, scoring
+from . import person_sync, scoring, timeline
 from .models import (
     MONTHS_IT, BonusType, Death, DeathBonus, League, LeagueBonus,
     LeagueMembership, Notification, PushSubscription, SiteSettings, Team,
@@ -77,13 +77,6 @@ class HomeView(LoginRequiredMixin, TemplateView):
                     entry['next_deadline'] = min(deadlines)
             my_leagues.append(entry)
         ctx['my_leagues'] = my_leagues
-        # Suggerimenti: leghe pubbliche di cui non sono membro
-        member_ids = [m.league_id for m in my_memberships]
-        ctx['suggested_leagues'] = (
-            League.objects.filter(visibility=League.VISIBILITY_PUBLIC)
-            .exclude(pk__in=member_ids)
-            .order_by('-start_date')[:5]
-        )
         return ctx
 
 
@@ -277,21 +270,12 @@ class LeagueDetailView(LoginRequiredMixin, View):
 
         my_team = Team.objects.filter(manager=request.user, league=league).first()
         rankings = scoring.compute_league_rankings(league)
-        recent_deaths = (
-            Death.objects.filter(
-                is_confirmed=True,
-                death_date__gte=league.start_date,
-                death_date__lte=league.end_date,
-            )
-            .select_related('person')
-            .order_by('-death_date')[:10]
-        )
         return render(request, self.template_name, {
             'league': league,
             'my_team': my_team,
             'rankings': rankings,
             'top_rankings': rankings[:3],
-            'recent_deaths': recent_deaths,
+            'timeline_events': timeline.league_timeline(league, rankings=rankings, limit=15),
             'is_member': league.is_member(request.user),
             'is_admin': league.is_admin(request.user),
             'is_owner': league.is_owner(request.user),
@@ -662,12 +646,16 @@ class LeagueDeathsView(LoginRequiredMixin, View):
     )
 
     def _deaths(self, league):
+        # Solo persone giocate in questa lega: il database dei decessi è
+        # condiviso tra leghe, ma chi non è in nessuna rosa qui non conta.
         return (
             Death.objects.filter(
                 is_confirmed=True,
                 death_date__gte=league.start_date,
                 death_date__lte=league.end_date,
+                person__team_members__team__league=league,
             )
+            .distinct()
             .select_related('person')
             .prefetch_related('bonuses__bonus_type')
             .order_by('-death_date')
@@ -738,11 +726,13 @@ class LeagueDeathsView(LoginRequiredMixin, View):
 
         if action == 'assign_bonus':
             try:
-                death = Death.objects.select_related('person').get(
-                    pk=int(request.POST.get('death_id', '')),
+                death = Death.objects.filter(
                     is_confirmed=True,
                     death_date__gte=league.start_date,
                     death_date__lte=league.end_date,
+                    person__team_members__team__league=league,
+                ).distinct().select_related('person').get(
+                    pk=int(request.POST.get('death_id', '')),
                 )
                 lb = league.league_bonuses.select_related('bonus_type').get(
                     bonus_type_id=int(request.POST.get('bonus_type_id', '')),
@@ -2105,7 +2095,9 @@ class LeagueDeathsCSVView(LoginRequiredMixin, View):
                 is_confirmed=True,
                 death_date__gte=league.start_date,
                 death_date__lte=league.end_date,
+                person__team_members__team__league=league,
             )
+            .distinct()
             .select_related('person')
             .prefetch_related('bonuses__bonus_type')
             .order_by('death_date')

@@ -87,25 +87,66 @@
     {% endif %}
 
     <div class="d-flex justify-content-between align-items-center mb-2">
-      <span class="fm-label mb-0">Ultimi decessi</span>
-      <a href="{% url 'league_deaths' league.slug %}" class="btn btn-link btn-sm">Tutti &rarr;</a>
+      <span class="fm-label mb-0">Ultime dalla lega</span>
+      <a href="{% url 'league_deaths' league.slug %}" class="btn btn-link btn-sm">Tutti i decessi &rarr;</a>
     </div>
-    {% if recent_deaths %}
+    {% if timeline_events %}
       <ul class="list-group">
-        {% for death in recent_deaths %}
-          <li class="list-group-item d-flex align-items-center gap-2">
-            <span class="fm-dot" aria-hidden="true"><svg class="fm-ico"><use href="#fmIcoSkull"/></svg></span>
-            <div class="fm-row-main">
-              <a href="{% url 'person_detail' death.person.pk %}" class="text-decoration-none fw-semibold" data-fm-person-pk="{{ death.person.pk }}">{{ death.person.name_it }}</a>
-              <div class="small text-body-secondary">
-                {% if death.death_age %}{{ death.death_age }} anni &middot; {% endif %}{{ death.death_date|date:"d/m/Y" }}
+        {% for event in timeline_events %}
+          {% ifchanged event.date %}
+            <li class="list-group-item py-1 small text-body-secondary" aria-hidden="true">{{ event.date|date:"d/m/Y" }}</li>
+          {% endifchanged %}
+          {% if event.kind == 'death' %}
+            <li class="list-group-item d-flex align-items-center gap-2">
+              <span class="fm-dot" aria-hidden="true"><svg class="fm-ico"><use href="#fmIcoSkull"/></svg></span>
+              <div class="fm-row-main">
+                <a href="{% url 'person_detail' event.death.person.pk %}" class="text-decoration-none fw-semibold" data-fm-person-pk="{{ event.death.person.pk }}">{{ event.death.person.name_it }}</a>
+                {% if event.death.death_age %}<span class="small text-body-secondary">{{ event.death.death_age }} anni</span>{% endif %}
+                {% if event.scorers %}
+                  <div class="d-flex flex-wrap gap-1 mt-1">
+                    {% for s in event.scorers %}
+                      <a href="{% url 'team_detail' s.team.pk %}" class="badge text-bg-secondary text-decoration-none">{{ s.team.name }} +{{ s.points }}</a>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <div class="small text-body-secondary">Nessuna squadra a punti.</div>
+                {% endif %}
               </div>
-            </div>
-          </li>
+            </li>
+          {% elif event.kind == 'substitution' %}
+            <li class="list-group-item d-flex align-items-center gap-2">
+              <span class="fm-dot" aria-hidden="true">&#8644;</span>
+              <div class="fm-row-main">
+                <span class="small">
+                  Sostituzione in <a href="{% url 'team_detail' event.team.pk %}" class="text-decoration-none fw-semibold">{{ event.team.name }}</a>:
+                  <a href="#" class="text-decoration-none" data-fm-person-pk="{{ event.member_out.person.pk }}">{{ event.member_out.person.name_it }}</a>
+                  &rarr;
+                  <a href="#" class="text-decoration-none" data-fm-person-pk="{{ event.member_in.person.pk }}">{{ event.member_in.person.name_it }}</a>
+                </span>
+              </div>
+            </li>
+          {% elif event.kind == 'team' %}
+            <li class="list-group-item d-flex align-items-center gap-2">
+              <span class="fm-dot" aria-hidden="true"><svg class="fm-ico"><use href="#fmIcoLeagues"/></svg></span>
+              <div class="fm-row-main">
+                <span class="small">
+                  Nuova squadra: <a href="{% url 'team_detail' event.team.pk %}" class="text-decoration-none fw-semibold">{{ event.team.name }}</a>
+                  di {{ event.team.manager.username }}
+                </span>
+              </div>
+            </li>
+          {% elif event.kind == 'join' %}
+            <li class="list-group-item d-flex align-items-center gap-2">
+              <span class="fm-dot" aria-hidden="true"><svg class="fm-ico"><use href="#fmIcoUser"/></svg></span>
+              <div class="fm-row-main">
+                <span class="small">Nuova iscrizione alla lega: <strong>{{ event.user.username }}</strong></span>
+              </div>
+            </li>
+          {% endif %}
         {% endfor %}
       </ul>
     {% else %}
-      <p class="text-body-secondary">Nessun decesso ancora.</p>
+      <p class="text-body-secondary">Ancora nessuna attività.</p>
     {% endif %}
   </div>
 

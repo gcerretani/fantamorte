@@ -49,6 +49,7 @@ fantamorte/
 │   ├── admin.py             # Django admin
 │   ├── forms.py             # Form allauth con classi CSS del design system (ACCOUNT_FORMS)
 │   ├── scoring.py           # Calcolo punteggi (sorgente di verità: la League)
+│   ├── timeline.py          # Feed eventi di lega (decessi+punti, sostituzioni, squadre, iscrizioni)
 │   ├── person_sync.py       # Core UNICO di sync persona da Wikidata (campi, claims, Death)
 │   ├── push.py              # Web Push (VAPID + broadcast)
 │   ├── email.py             # Email transazionali (decesso, reminder sostituzione)
@@ -297,13 +298,17 @@ Implementato in `game/scoring.py`. La **League** è la sorgente di verità:
 3. Se `member.is_original`, somma anche i bonus con
    `detection_method='original'` attivi nella lega.
 4. I bonus `first_death`/`last_death` sono **calcolati dinamicamente per
-   lega** (primo/ultimo decesso confermato nel periodo della lega; l'ultimo
-   solo a lega conclusa). Non esistono righe `DeathBonus` per questi tipi:
-   le leghe condividono solo il database degli eventi, nessuna correlazione.
+   lega** (primo/ultimo decesso confermato nel periodo della lega **tra le
+   persone presenti in almeno una rosa della lega**; l'ultimo solo a lega
+   conclusa). Non esistono righe `DeathBonus` per questi tipi: le leghe
+   condividono solo il database degli eventi, nessuna correlazione.
 5. Moltiplicatore = `captain_multiplier` (se capitano) × `jolly_multiplier`
    (se mese jolly) — moltiplicano tra loro (es. entrambi attivi = 4×).
-6. Le morti considerate sono solo quelle con `is_confirmed=True` e
-   `start_date ≤ death_date ≤ end_date` della lega.
+6. Le morti considerate sono solo quelle con `is_confirmed=True`,
+   `start_date ≤ death_date ≤ end_date` della lega e persona presente in
+   almeno una rosa della lega (stesso filtro usato dalla timeline decessi,
+   dal dettaglio lega e dal CSV: un decesso giocato solo in altre leghe non
+   compare e non conta).
 
 API pubblica:
 - `compute_team_total_score(team)` → int
@@ -367,7 +372,7 @@ Note di efficienza (importanti se tocchi il client):
 /                               home (dashboard utente)
 /leghe/                         lista leghe pubbliche
 /leghe/nuova/                   crea lega
-/leghe/<slug>/                  detail (top 3 + recent deaths + regole + iscrizione)
+/leghe/<slug>/                  detail (top 3 + timeline eventi lega + regole + iscrizione)
 /leghe/<slug>/admin/            pannello admin (regole, bonus, membri, invito, danger zone)
 /leghe/<slug>/elimina/          POST: elimina la lega (owner o staff, richiede il nome digitato)
 /leghe/<slug>/regolamento/      riepilogo regole+bonus della lega (visibile a tutti i membri)

@@ -824,19 +824,30 @@ class PrimoUltimoMortoTest(TestCase):
         self.assertEqual(compute_team_points_for_death(team, self.d2), 10)
 
     def test_nessuna_correlazione_tra_leghe(self):
-        # Lega A copre tutto il 2021: il suo primo morto è d1.
+        # Lega A copre tutto il 2021 e gioca p1: il suo primo morto è d1.
         # Lega B copre solo il secondo semestre: il suo primo morto è d2.
         league_a = self._make_league('FL A', 'fl-a', date(2021, 1, 1), date(2021, 12, 31),
                                      first_pts=50)
         league_b = self._make_league('FL B', 'fl-b', date(2021, 6, 1), date(2021, 12, 31),
                                      first_pts=50)
         team_a = Team.objects.create(name='FL Team A', manager=self.manager, league=league_a)
+        TeamMember.objects.create(team=team_a, person=self.p1)
         TeamMember.objects.create(team=team_a, person=self.p2)
         team_b = Team.objects.create(name='FL Team B', manager=self.manager, league=league_b)
         TeamMember.objects.create(team=team_b, person=self.p2)
         # In A d2 non è il primo morto → solo base. In B d2 è il primo → base+50.
         self.assertEqual(compute_team_points_for_death(team_a, self.d2), 10)
         self.assertEqual(compute_team_points_for_death(team_b, self.d2), 60)
+
+    def test_primo_morto_ignora_persone_non_giocate(self):
+        # d1 (p1) precede d2 ma p1 non è in nessuna rosa della lega: il primo
+        # morto DELLA LEGA è d2. I decessi di altre leghe non bruciano il bonus.
+        league = self._make_league('FL Non Giocato', 'fl-non-giocato',
+                                   date(2021, 1, 1), date(2021, 12, 31),
+                                   first_pts=50)
+        team = Team.objects.create(name='FL Team NG', manager=self.manager, league=league)
+        TeamMember.objects.create(team=team, person=self.p2)
+        self.assertEqual(compute_team_points_for_death(team, self.d2), 60)
 
     def test_riga_deathbonus_legacy_ignorata(self):
         league = self._make_league('FL Legacy', 'fl-legacy',

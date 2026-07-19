@@ -141,9 +141,17 @@ def invalidate_person_bonus_caches(person):
 
 
 def _confirmed_deaths_for_league(league):
+    """Decessi confermati che riguardano la lega: nel periodo di gioco e di
+    persone presenti in almeno una rosa della lega. Il database dei decessi è
+    condiviso tra leghe, ma un morto che nessuno gioca qui non conta — nemmeno
+    come "primo/ultimo morto" della lega (vedi `_first_last_death_pks`)."""
     qs = Death.objects.filter(is_confirmed=True).select_related('person').prefetch_related('bonuses__bonus_type')
     if league is not None:
-        qs = qs.filter(death_date__gte=league.start_date, death_date__lte=league.end_date)
+        qs = qs.filter(
+            death_date__gte=league.start_date,
+            death_date__lte=league.end_date,
+            person__team_members__team__league=league,
+        ).distinct()
     return qs
 
 
