@@ -247,42 +247,187 @@
     window.setTimeout(function () { hideToast(el); }, 5000);
   };
 
-  // -------- PWA install prompt --------
+  // -------- PWA install prompt + onboarding --------
+  const ua = navigator.userAgent || '';
+  // iPadOS 13+ si maschera da desktop: riconoscilo dal touch su piattaforma Mac.
+  const isIos = /iphone|ipad|ipod/i.test(ua)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isAndroid = /android/i.test(ua);
+  function isStandalone() {
+    return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+      || window.navigator.standalone === true;
+  }
+  function pushSupported() {
+    return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  }
+  function pushPerm() {
+    return ('Notification' in window) ? Notification.permission : 'unsupported';
+  }
+
+  // Evento nativo di installabilità (Android/desktop Chromium). Su iOS non arriva.
   let deferredPrompt = null;
   window.addEventListener('beforeinstallprompt', function (e) {
     e.preventDefault();
     deferredPrompt = e;
     const btn = document.getElementById('fmInstallBtn');
     if (btn) btn.style.display = '';
+    updateOnboardInstallUi();
+  });
+
+  // Chiede al browser di installare. Ritorna 'accepted' | 'dismissed' | 'unavailable'.
+  window.fmTriggerInstall = async function () {
+    if (!deferredPrompt) return 'unavailable';
+    deferredPrompt.prompt();
+    const choice = await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    return (choice && choice.outcome === 'accepted') ? 'accepted' : 'dismissed';
+  };
+
+  window.addEventListener('appinstalled', function () {
+    deferredPrompt = null;
+    const btn = document.getElementById('fmInstallBtn');
+    if (btn) btn.style.display = 'none';
+    updateOnboardInstallUi();
+    maybeCloseOnboardIfDone();
   });
 
   document.addEventListener('DOMContentLoaded', function () {
     const btn = document.getElementById('fmInstallBtn');
-    if (!btn) return;
-
-    // iOS Safari non supporta beforeinstallprompt: mostra istruzioni manuali.
-    const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
-    const isStandalone = window.matchMedia('(display-mode: standalone)').matches
-      || window.navigator.standalone === true;
-    if (isIos && !isStandalone) {
-      btn.style.display = '';
-      btn.addEventListener('click', function () {
-        window.fmToast('Per installare: tocca il pulsante Condividi di Safari e poi "Aggiungi alla schermata Home".', 'info');
-      });
-      return;
+    if (btn) {
+      if (isStandalone()) {
+        btn.style.display = 'none';
+      } else if (isIos) {
+        // iOS Safari non supporta beforeinstallprompt: istruzioni manuali.
+        btn.style.display = '';
+        btn.addEventListener('click', function () {
+          window.fmToast('Per installare: tocca Condividi in Safari e poi «Aggiungi a Home».', 'info');
+        });
+      } else {
+        btn.addEventListener('click', async function () {
+          const r = await window.fmTriggerInstall();
+          if (r === 'accepted') { window.fmToast('App installata!', 'success'); btn.style.display = 'none'; }
+          else if (r === 'unavailable') { window.fmToast('Apri il menu del browser e scegli «Installa app».', 'info'); }
+        });
+      }
     }
+    initOnboarding();
+  });
 
-    btn.addEventListener('click', async function () {
-      if (!deferredPrompt) return;
-      deferredPrompt.prompt();
-      const choice = await deferredPrompt.userChoice;
-      deferredPrompt = null;
-      btn.style.display = 'none';
-      if (choice.outcome === 'accepted') {
+  // -------- Onboarding: proponi installazione + notifiche (una tantum) --------
+  // Non insiste se le procedure sono già fatte (app installata / permesso
+  // notifiche concesso) né dopo un rifiuto esplicito ("Non mostrare più").
+  const ONBOARD_KEY = 'fm_onboard';       // JSON: { dismissed:bool, seen:<ms> }
+  const ONBOARD_SNOOZE_DAYS = 7;          // se ignorato, ripropone dopo N giorni
+
+  function onboardState() {
+    try { return JSON.parse(localStorage.getItem(ONBOARD_KEY)) || {}; }
+    catch (e) { return {}; }
+  }
+  function saveOnboardState(s) {
+    try { localStorage.setItem(ONBOARD_KEY, JSON.stringify(s)); } catch (e) { /* private mode */ }
+  }
+
+  // "Da fare": l'app non è installata e siamo su una piattaforma installabile.
+  function installPending() {
+    if (isStandalone()) return false;
+    if (isIos || isAndroid) return true;
+    return !!deferredPrompt;   // desktop: solo se il browser la dà installabile
+  }
+  // "Da fare": push supportate e permesso non ancora concesso.
+  function pushPending() {
+    if (!pushSupported()) return false;
+    return pushPerm() !== 'granted';
+  }
+
+  function updateOnboardInstallUi() {
+    const modal = document.getElementById('fmOnboardModal');
+    if (!modal) return;
+    const section = modal.querySelector('[data-fm-onboard-install]');
+    const native = modal.querySelector('[data-fm-install-native]');
+    const ios = modal.querySelector('[data-fm-install-ios]');
+    const android = modal.querySelector('[data-fm-install-android]');
+    [native, ios, android].forEach(function (el) { if (el) el.classList.add('d-none'); });
+    if (!section) return;
+    if (!installPending()) { section.classList.add('d-none'); return; }
+    section.classList.remove('d-none');
+    if (isIos) { if (ios) ios.classList.remove('d-none'); return; }
+    if (deferredPrompt) { if (native) native.classList.remove('d-none'); return; }
+    if (android) android.classList.remove('d-none');   // Android/altri: istruzioni manuali
+  }
+
+  function updateOnboardPushUi() {
+    const modal = document.getElementById('fmOnboardModal');
+    if (!modal) return;
+    const section = modal.querySelector('[data-fm-onboard-push]');
+    const cta = modal.querySelector('[data-fm-push-cta]');
+    const iosHint = modal.querySelector('[data-fm-push-ios-hint]');
+    const blocked = modal.querySelector('[data-fm-push-blocked]');
+    [cta, iosHint, blocked].forEach(function (el) { if (el) el.classList.add('d-none'); });
+    if (!section) return;
+    if (!pushPending()) { section.classList.add('d-none'); return; }
+    section.classList.remove('d-none');
+    // Su iOS le push richiedono la PWA installata (16.4+): prima installa.
+    if (isIos && !isStandalone()) { if (iosHint) iosHint.classList.remove('d-none'); return; }
+    if (pushPerm() === 'denied') { if (blocked) blocked.classList.remove('d-none'); return; }
+    if (cta) cta.classList.remove('d-none');
+  }
+
+  function maybeCloseOnboardIfDone() {
+    const modal = document.getElementById('fmOnboardModal');
+    if (!modal || !modal.classList.contains('show')) return;
+    if (!installPending() && !pushPending()) window.fmModal.hide(modal);
+  }
+
+  function initOnboarding() {
+    const modal = document.getElementById('fmOnboardModal');
+    if (!modal) return;
+
+    const installBtn = modal.querySelector('[data-fm-install-trigger]');
+    if (installBtn) installBtn.addEventListener('click', async function () {
+      const r = await window.fmTriggerInstall();
+      if (r === 'accepted') {
         window.fmToast('App installata!', 'success');
+        updateOnboardInstallUi();
+        updateOnboardPushUi();   // su Android le push ora sono attivabili
+        maybeCloseOnboardIfDone();
+      } else if (r === 'unavailable') {
+        const native = modal.querySelector('[data-fm-install-native]');
+        const android = modal.querySelector('[data-fm-install-android]');
+        if (native) native.classList.add('d-none');
+        if (android) android.classList.remove('d-none');
       }
     });
-  });
+
+    const pushBtn = modal.querySelector('[data-fm-push-trigger]');
+    if (pushBtn) pushBtn.addEventListener('click', async function () {
+      pushBtn.disabled = true;
+      const ok = await window.fmEnablePush();
+      pushBtn.disabled = false;
+      updateOnboardPushUi();
+      if (ok) maybeCloseOnboardIfDone();
+    });
+
+    const dontShow = modal.querySelector('[data-fm-onboard-dismiss]');
+    if (dontShow) dontShow.addEventListener('click', function () {
+      const s = onboardState();
+      s.dismissed = true;
+      saveOnboardState(s);
+      window.fmModal.hide(modal);
+    });
+
+    updateOnboardInstallUi();
+    updateOnboardPushUi();
+
+    // Auto-apertura: solo se c'è qualcosa da proporre, mai rifiutato, non in snooze.
+    const s = onboardState();
+    if (s.dismissed) return;
+    if (!installPending() && !pushPending()) return;
+    const now = Date.now();
+    if (s.seen && (now - s.seen) < ONBOARD_SNOOZE_DAYS * 86400000) return;
+    s.seen = now;
+    saveOnboardState(s);
+    window.setTimeout(function () { window.fmModal.show(modal); }, 1200);
+  }
 
   // -------- Service worker registration --------
   if ('serviceWorker' in navigator) {
