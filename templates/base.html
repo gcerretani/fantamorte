@@ -42,6 +42,7 @@
   <symbol id="fmIcoStats" viewBox="0 0 24 24"><path d="M5 20v-8M12 20V5M19 20v-6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
   <symbol id="fmIcoUser" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
   <symbol id="fmIcoBell" viewBox="0 0 24 24"><path d="M12 3a5 5 0 0 0-5 5c0 5-2 6-2 8h14c0-2-2-3-2-8a5 5 0 0 0-5-5zM10 20a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+  <symbol id="fmIcoGitHub" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></symbol>
   <symbol id="fmIcoSkull" viewBox="0 0 512 512"><path fill="currentColor" d="M256 96c-79.5 0-144 60.4-144 134.9 0 41.4 19.6 78.4 50.5 103.4v33.4c0 14.4 11.7 26.1 26.1 26.1h12.5v33.6c0 9.4 7.6 17 17 17h75.8c9.4 0 17-7.6 17-17v-33.6h12.5c14.4 0 26.1-11.7 26.1-26.1v-33.4C380.4 309.3 400 272.3 400 230.9 400 156.4 335.5 96 256 96zm-52 184c-14.4 0-26-11.6-26-26s11.6-26 26-26 26 11.6 26 26-11.6 26-26 26zm104 0c-14.4 0-26-11.6-26-26s11.6-26 26-26 26 11.6 26 26-11.6 26-26 26zm-100 65l-13-26h130l-13 26h-26l-13-19-13 19h-26l-13-19-13 19h-26z"/></symbol>
 </svg>
 
@@ -108,9 +109,21 @@
 
 {% include '_bottom_nav.html' %}
 
-<footer class="text-center text-body-secondary py-4 mt-5 border-top">
-  <small>Fantamorte &mdash; dati da <a href="https://www.wikidata.org" target="_blank">Wikidata</a> &middot;
-    <a href="{% url 'rules' %}">come funziona</a></small>
+<footer class="fm-footer">
+  <div class="container">
+    <div class="fm-footer-brand">{% include '_logo.html' %} Fantamorte</div>
+    <nav class="fm-footer-links" aria-label="Collegamenti a piè di pagina">
+      <a href="{% url 'rules' %}">Come funziona</a>
+      <span class="fm-footer-sep" aria-hidden="true">&middot;</span>
+      <a href="https://www.wikidata.org" target="_blank" rel="noopener">Dati da Wikidata</a>
+      <span class="fm-footer-sep" aria-hidden="true">&middot;</span>
+      <a href="https://github.com/gcerretani/fantamorte" target="_blank" rel="noopener"
+         title="Codice sorgente su GitHub">
+        <svg class="fm-ico" aria-hidden="true"><use href="#fmIcoGitHub"/></svg> GitHub
+      </a>
+    </nav>
+    <div class="fm-footer-motto">Pronostica, totalizza, vinci.</div>
+  </div>
 </footer>
 
 <!-- Modal dettagli persona -->

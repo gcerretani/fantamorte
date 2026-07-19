@@ -1393,6 +1393,49 @@ a.list-group-item,
 .fm-countdown { font-variant-numeric: tabular-nums; font-weight: 700; }
 .fm-countdown.urgent { color: var(--fm-danger); }
 
+/* ---- Footer ---- */
+.fm-footer {
+  margin-top: 3.5rem;
+  padding: 1.75rem 0 2rem;
+  border-top: 1px solid var(--fm-line);
+  text-align: center;
+  color: var(--fm-muted);
+  font-size: 0.85rem;
+}
+.fm-footer-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: var(--fm-font-mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  margin-bottom: 0.65rem;
+}
+.fm-footer-brand .fm-logo { height: 1.5em; color: var(--fm-accent); }
+.fm-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.35rem 0.6rem;
+}
+.fm-footer-links a {
+  color: var(--fm-muted);
+  text-decoration: none;
+}
+.fm-footer-links a:hover,
+.fm-footer-links a:focus-visible { color: var(--fm-accent); text-decoration: underline; }
+.fm-footer-links .fm-ico { width: 1.1em; height: 1.1em; }
+.fm-footer-sep { opacity: 0.55; }
+.fm-footer-motto {
+  margin-top: 0.65rem;
+  font-size: 0.75rem;
+  font-style: italic;
+  opacity: 0.75;
+}
+
 /* ---- Misc fm ---- */
 .fm-preline { white-space: pre-line; }
 .fm-input-narrow { max-width: 160px; }
