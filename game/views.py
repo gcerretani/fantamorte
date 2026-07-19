@@ -25,7 +25,7 @@ from django.views.generic import TemplateView, DetailView, View
 
 from wikidata_api.client import WikidataClient
 
-from . import person_sync, scoring
+from . import person_sync, scoring, timeline
 from .models import (
     MONTHS_IT, BonusType, Death, DeathBonus, League, LeagueBonus,
     LeagueMembership, Notification, PushSubscription, SiteSettings, Team,
@@ -270,24 +270,12 @@ class LeagueDetailView(LoginRequiredMixin, View):
 
         my_team = Team.objects.filter(manager=request.user, league=league).first()
         rankings = scoring.compute_league_rankings(league)
-        # Solo persone giocate in questa lega (come la timeline decessi).
-        recent_deaths = (
-            Death.objects.filter(
-                is_confirmed=True,
-                death_date__gte=league.start_date,
-                death_date__lte=league.end_date,
-                person__team_members__team__league=league,
-            )
-            .distinct()
-            .select_related('person')
-            .order_by('-death_date')[:10]
-        )
         return render(request, self.template_name, {
             'league': league,
             'my_team': my_team,
             'rankings': rankings,
             'top_rankings': rankings[:3],
-            'recent_deaths': recent_deaths,
+            'timeline_events': timeline.league_timeline(league, rankings=rankings, limit=15),
             'is_member': league.is_member(request.user),
             'is_admin': league.is_admin(request.user),
             'is_owner': league.is_owner(request.user),

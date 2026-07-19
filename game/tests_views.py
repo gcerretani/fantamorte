@@ -993,6 +993,64 @@ class ManualBonusAssignTest(ViewsBaseTestCase):
         self.assertContains(resp, 'Bonus Manuale Test +99')
 
 
+class LeagueTimelineTest(ViewsBaseTestCase):
+    """Timeline eventi nel dettaglio lega: decessi con squadre a punti,
+    sostituzioni, nuove squadre e iscrizioni in un unico feed."""
+
+    def test_decesso_mostra_squadre_a_punti(self):
+        Death.objects.create(
+            person=self.person, death_date=date(2021, 5, 1), death_age=86,
+            is_confirmed=True,
+        )
+        self.client.login(username='member', password='x')
+        resp = self.client.get(reverse('league_detail', args=['lega-privata']))
+        self.assertContains(resp, 'Silvio Berlusconi')
+        # Base points di default (50), nessun capitano/jolly.
+        self.assertContains(resp, 'Squadra Privata +50')
+
+    def test_sostituzione_squadra_e_iscrizione_in_timeline(self):
+        entrante = WikipediaPerson.objects.create(
+            wikidata_id='Q91000', name_it='Subentrante Test', is_dead=False,
+        )
+        nuovo = TeamMember.objects.create(team=self.private_team, person=entrante)
+        uscente = self.private_team.members.get(person=self.person)
+        uscente.replaced_by = nuovo
+        uscente.save()
+        self.client.login(username='member', password='x')
+        resp = self.client.get(reverse('league_detail', args=['lega-privata']))
+        self.assertContains(resp, 'Sostituzione in')
+        self.assertContains(resp, 'Subentrante Test')
+        self.assertContains(resp, 'Nuova squadra:')
+        self.assertContains(resp, 'Nuova iscrizione alla lega:')
+
+    def test_decesso_non_giocato_fuori_dalla_timeline(self):
+        altrove = WikipediaPerson.objects.create(
+            wikidata_id='Q91001', name_it='Morto Altrove', is_dead=True,
+        )
+        Death.objects.create(
+            person=altrove, death_date=date(2021, 5, 1), death_age=90,
+            is_confirmed=True,
+        )
+        self.client.login(username='member', password='x')
+        resp = self.client.get(reverse('league_detail', args=['lega-privata']))
+        self.assertNotContains(resp, 'Morto Altrove')
+
+    def test_ordinamento_dal_piu_recente(self):
+        from .timeline import league_timeline
+        Death.objects.create(
+            person=self.person, death_date=date(2021, 5, 1), death_age=86,
+            is_confirmed=True,
+        )
+        events = league_timeline(self.private_league)
+        whens = [e['when'] for e in events]
+        self.assertEqual(whens, sorted(whens, reverse=True))
+        # Iscrizioni/squadra (create "adesso") precedono il decesso del 2021.
+        self.assertEqual(events[-1]['kind'], 'death')
+        kinds = {e['kind'] for e in events}
+        self.assertIn('join', kinds)
+        self.assertIn('team', kinds)
+
+
 class LeagueDeleteTest(ViewsBaseTestCase):
     """Danger zone: eliminazione definitiva della lega (solo owner, nome digitato)."""
 

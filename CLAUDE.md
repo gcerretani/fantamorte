@@ -49,6 +49,7 @@ fantamorte/
 │   ├── admin.py             # Django admin
 │   ├── forms.py             # Form allauth con classi CSS del design system (ACCOUNT_FORMS)
 │   ├── scoring.py           # Calcolo punteggi (sorgente di verità: la League)
+│   ├── timeline.py          # Feed eventi di lega (decessi+punti, sostituzioni, squadre, iscrizioni)
 │   ├── person_sync.py       # Core UNICO di sync persona da Wikidata (campi, claims, Death)
 │   ├── push.py              # Web Push (VAPID + broadcast)
 │   ├── email.py             # Email transazionali (decesso, reminder sostituzione)
@@ -371,7 +372,7 @@ Note di efficienza (importanti se tocchi il client):
 /                               home (dashboard utente)
 /leghe/                         lista leghe pubbliche
 /leghe/nuova/                   crea lega
-/leghe/<slug>/                  detail (top 3 + recent deaths + regole + iscrizione)
+/leghe/<slug>/                  detail (top 3 + timeline eventi lega + regole + iscrizione)
 /leghe/<slug>/admin/            pannello admin (regole, bonus, membri, invito, danger zone)
 /leghe/<slug>/elimina/          POST: elimina la lega (owner o staff, richiede il nome digitato)
 /leghe/<slug>/regolamento/      riepilogo regole+bonus della lega (visibile a tutti i membri)
