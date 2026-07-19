@@ -7,7 +7,8 @@ from django.test import Client, TestCase
 from django.urls import reverse
 
 from .models import (
-    League, LeagueMembership, Team, TeamMember, WikipediaPerson,
+    BonusType, Death, DeathBonus, League, LeagueMembership, Team, TeamMember,
+    WikipediaPerson,
 )
 
 User = get_user_model()
@@ -162,6 +163,53 @@ class LeagueAdminPermessiTest(ViewsBaseTestCase):
         self.private_league.refresh_from_db()
         self.assertEqual(self.private_league.start_date, date(2031, 6, 1))
         self.assertEqual(self.private_league.registration_closes, date(2031, 6, 1))
+
+
+class DeathDetailBonusVisibilityTest(ViewsBaseTestCase):
+    """La pagina globale /morte/<pk>/ non deve esporre i bonus custom di
+    leghe private a chi non ne è membro."""
+
+    def setUp(self):
+        super().setUp()
+        self.death = Death.objects.create(
+            person=self.person, death_date=date(2023, 6, 12), death_age=86,
+            is_confirmed=True,
+        )
+        # Bonus custom della lega privata.
+        self.custom_bonus = BonusType.objects.create(
+            name='Bonus Segreto Privato', league=self.private_league,
+            points=100, detection_method=BonusType.DETECTION_MANUAL,
+        )
+        DeathBonus.objects.create(
+            death=self.death, bonus_type=self.custom_bonus, points_awarded=100,
+        )
+        # Bonus di sistema (nessuna lega): sempre visibile.
+        self.system_bonus = BonusType.objects.create(
+            name='Bonus Di Sistema', league=None,
+            points=10, detection_method=BonusType.DETECTION_MANUAL,
+        )
+        DeathBonus.objects.create(
+            death=self.death, bonus_type=self.system_bonus, points_awarded=10,
+        )
+        self.url = reverse('death_detail', args=[self.death.pk])
+
+    def test_outsider_non_vede_bonus_custom_di_lega_privata(self):
+        self.client.login(username='outsider', password='x')
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, 'Bonus Segreto Privato')
+
+    def test_membro_vede_bonus_custom_di_lega_privata(self):
+        self.client.login(username='member', password='x')
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Bonus Segreto Privato')
+
+    def test_bonus_di_sistema_sempre_visibile(self):
+        self.client.login(username='outsider', password='x')
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Bonus Di Sistema')
 
 
 class BulkSyncServerSideTest(ViewsBaseTestCase):

@@ -834,7 +834,16 @@ class DeathDetailView(LoginRequiredMixin, DetailView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         death = self.object
-        ctx['bonuses'] = death.bonuses.select_related('bonus_type')
+        # Pagina globale senza gate di lega: i bonus custom appartengono a una
+        # lega (bonus_type.league). Nome e punti di un bonus di lega privata non
+        # devono trapelare a chi non può vederla — stesso criterio di
+        # teams_affected qui sotto. I bonus di sistema (league_id None) sono
+        # sempre visibili.
+        ctx['bonuses'] = [
+            b for b in death.bonuses.select_related('bonus_type', 'bonus_type__league')
+            if not b.bonus_type.league_id
+            or b.bonus_type.league.can_user_view(self.request.user)
+        ]
         ctx['teams_affected'] = []
         members = TeamMember.objects.filter(person=death.person).select_related(
             'team__manager', 'team__league',
