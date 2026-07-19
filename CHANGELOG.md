@@ -4,6 +4,18 @@ Tutte le modifiche rilevanti di questo progetto sono documentate qui.
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 il versionamento segue [SemVer](https://semver.org/lang/it/).
 
+## [0.2.4] - 2026-07-19
+
+- Fix: `DeathDetailView` non deve esporre i bonus custom di leghe private
+  a chi non ne fa parte
+- Onboarding: proponi l'installazione dell'app e l'abilitazione delle
+  notifiche push all'apertura
+- Home: rimossa la sezione "Suggerite", i decessi mostrati sono ora
+  raggruppati per lega
+- Dettaglio lega: timeline degli eventi al posto della semplice lista
+  "Ultimi decessi"
+- Footer: restyling con brand, motto e link al repo GitHub
+
 ## [0.2.3] - 2026-07-18
 
 - Nuova regola di lega `captain_succession`: cosa succede alla fascia quando
