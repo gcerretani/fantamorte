@@ -866,6 +866,8 @@ class ManualBonusAssignTest(ViewsBaseTestCase):
         self.dead = WikipediaPerson.objects.create(
             wikidata_id='Q90300', name_it='Defunto Test', is_dead=True,
         )
+        # La pagina decessi mostra (e lascia gestire) solo persone in rosa.
+        TeamMember.objects.create(team=self.private_team, person=self.dead)
         self.death = Death.objects.create(
             person=self.dead, death_date=date(2021, 5, 1), death_age=70, is_confirmed=True,
         )
@@ -911,6 +913,23 @@ class ManualBonusAssignTest(ViewsBaseTestCase):
         self.client.login(username='owner', password='x')
         self._assign(bonus_type_id=str(special.pk))
         self.assertFalse(DeathBonus.objects.filter(death=self.death).exists())
+
+    def test_decesso_non_giocato_nella_lega_escluso(self):
+        # Il database dei decessi è condiviso: una persona giocata solo in
+        # altre leghe non compare nella timeline e non accetta bonus manuali.
+        from .models import Death, DeathBonus
+        altrove = WikipediaPerson.objects.create(
+            wikidata_id='Q90302', name_it='Giocato Altrove', is_dead=True,
+        )
+        death_altrove = Death.objects.create(
+            person=altrove, death_date=date(2021, 5, 2), death_age=80, is_confirmed=True,
+        )
+        self.client.login(username='owner', password='x')
+        resp = self.client.get(reverse('league_deaths', args=['lega-privata']))
+        self.assertContains(resp, 'Defunto Test')
+        self.assertNotContains(resp, 'Giocato Altrove')
+        self._assign(death_id=str(death_altrove.pk))
+        self.assertFalse(DeathBonus.objects.filter(death=death_altrove).exists())
 
     def test_decesso_fuori_periodo_rifiutato(self):
         from .models import Death, DeathBonus
