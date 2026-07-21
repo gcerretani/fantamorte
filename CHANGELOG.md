@@ -4,6 +4,11 @@ Tutte le modifiche rilevanti di questo progetto sono documentate qui.
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 il versionamento segue [SemVer](https://semver.org/lang/it/).
 
+## [0.3.2] - 2026-07-21
+
+- Fix: commento multi-riga in `_league_entry_list.html` renderizzato in
+  chiaro nella home (mostrato due volte, una per sezione)
+
 ## [0.3.1] - 2026-07-21
 
 - Home: leghe attive separate da quelle concluse, in due sezioni distinte
