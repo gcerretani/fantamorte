@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from unittest.mock import MagicMock
 
 from django.contrib.auth import get_user_model
 from django.core import mail
@@ -9,6 +10,7 @@ from .models import (
     BonusType, Death, DeathBonus, League, LeagueBonus,
     SubstitutionReminder, Team, TeamMember, UserProfile, WikipediaPerson,
 )
+from .person_sync import sync_person_from_entity
 from .scoring import (
     compute_league_rankings,
     compute_team_death_details,
@@ -859,3 +861,84 @@ class PrimoUltimoMortoTest(TestCase):
         DeathBonus.objects.create(death=self.d1, bonus_type=self.bt_first,
                                   points_awarded=50, is_auto_detected=True)
         self.assertEqual(compute_team_points_for_death(team, self.d1), 60)
+
+
+class DeathAgeRecomputeTest(TestCase):
+    """`death_age`/`death_date` riallineati quando i dati anagrafici cambiano
+    dopo la creazione della Death (bug: snapshot congelato)."""
+
+    def setUp(self):
+        self.person = WikipediaPerson.objects.create(
+            wikidata_id='Q1', name_it='Al-Qurayshi',
+            birth_date=None, death_date=date(2022, 2, 3), is_dead=True,
+        )
+        # Death creata quando la data di nascita non era nota → età mancante.
+        self.death = Death.objects.create(
+            person=self.person, death_date=date(2022, 2, 3),
+            death_age=None, is_confirmed=True,
+        )
+
+    def _entity(self, **overrides):
+        base = {f: None for f in (
+            'name_it', 'name_en', 'description_it', 'birth_date', 'birth_year',
+            'death_date', 'death_year', 'image_url', 'occupation', 'nationality',
+            'wikipedia_url_it',
+        )}
+        base['claims_cache'] = {}
+        base.update(overrides)
+        return base
+
+    def test_death_age_ricalcolato_dopo_correzione_nascita(self):
+        # Corretta la data di nascita: l'età deve ricomparire sulla Death.
+        entity = self._entity(birth_date=date(1976, 10, 1), death_date=date(2022, 2, 3))
+        sync_person_from_entity(self.person, entity, client=MagicMock())
+        self.death.refresh_from_db()
+        self.assertEqual(self.death.death_age, 45)
+
+    def test_death_date_riallineata_al_resync(self):
+        self.person.birth_date = date(1976, 10, 1)
+        entity = self._entity(birth_date=date(1976, 10, 1), death_date=date(2022, 2, 5))
+        sync_person_from_entity(self.person, entity, client=MagicMock())
+        self.death.refresh_from_db()
+        self.assertEqual(self.death.death_date, date(2022, 2, 5))
+
+    def test_eta_nota_non_azzerata_se_diventa_indeterminabile(self):
+        # death_age già valorizzato: un re-sync che non rende l'età
+        # determinabile non deve azzerarlo.
+        self.death.death_age = 45
+        self.death.save()
+        self.person.birth_date = None
+        self.person.save()
+        entity = self._entity(death_date=date(2022, 2, 3))
+        sync_person_from_entity(self.person, entity, client=MagicMock())
+        self.death.refresh_from_db()
+        self.assertEqual(self.death.death_age, 45)
+
+
+class InviteCodeTest(TestCase):
+    """`League.save()` auto-genera l'invite_code per le leghe private anche
+    fuori dalla view di creazione (shell/ORM/migration/admin)."""
+
+    def _league(self, **overrides):
+        owner = User.objects.create_user(overrides.pop('username', 'u'), password='x')
+        kwargs = dict(
+            name='L', slug='l', owner=owner,
+            start_date=date(2026, 1, 1), end_date=date(2026, 12, 31),
+            registration_opens=date(2025, 12, 1), registration_closes=date(2025, 12, 31),
+        )
+        kwargs.update(overrides)
+        return League.objects.create(**kwargs)
+
+    def test_lega_privata_genera_invite_code(self):
+        league = self._league(visibility=League.VISIBILITY_PRIVATE)
+        self.assertTrue(league.invite_code)
+
+    def test_lega_pubblica_non_genera_invite_code(self):
+        league = self._league(visibility=League.VISIBILITY_PUBLIC)
+        self.assertEqual(league.invite_code, '')
+
+    def test_invite_code_esistente_non_sovrascritto(self):
+        league = self._league(
+            visibility=League.VISIBILITY_PRIVATE, invite_code='fisso123',
+        )
+        self.assertEqual(league.invite_code, 'fisso123')

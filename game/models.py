@@ -15,7 +15,7 @@ class WikipediaPerson(models.Model):
     death_date = models.DateField(null=True, blank=True)
     death_year = models.IntegerField(null=True, blank=True)
     is_dead = models.BooleanField(default=False)
-    image_url = models.URLField(max_length=500, blank=True)
+    image_url = models.URLField(max_length=1000, blank=True)
     occupation = models.CharField(max_length=300, blank=True)
     nationality = models.CharField(max_length=100, blank=True)
     summary_it = models.TextField(blank=True)
@@ -449,6 +449,16 @@ class League(models.Model):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        # Genera il codice invito per le leghe private anche fuori dalle view
+        # (shell/ORM/migration/admin): finora era valorizzato solo in
+        # LeagueCreateView, quindi una lega privata creata altrove restava
+        # senza codice e andava sistemata a mano.
+        if self.visibility == self.VISIBILITY_PRIVATE and not self.invite_code:
+            import secrets
+            self.invite_code = secrets.token_urlsafe(8)
+        super().save(*args, **kwargs)
 
     def get_absolute_url(self):
         from django.urls import reverse
