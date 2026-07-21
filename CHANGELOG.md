@@ -4,6 +4,10 @@ Tutte le modifiche rilevanti di questo progetto sono documentate qui.
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 il versionamento segue [SemVer](https://semver.org/lang/it/).
 
+## [0.3.1] - 2026-07-21
+
+- Home: leghe attive separate da quelle concluse, in due sezioni distinte
+
 ## [0.3.0] - 2026-07-21
 
 - Perf: rimosso il collo di bottiglia che rallentava home e statistiche (deferred
