@@ -76,7 +76,10 @@ class HomeView(LoginRequiredMixin, TemplateView):
                 if deadlines:
                     entry['next_deadline'] = min(deadlines)
             my_leagues.append(entry)
-        ctx['my_leagues'] = my_leagues
+        # Due sezioni distinte in home: leghe in corso sopra, concluse sotto
+        # (l'ordinamento -start_date delle membership vale per entrambe).
+        ctx['active_leagues'] = [e for e in my_leagues if not e['league'].is_finished()]
+        ctx['past_leagues'] = [e for e in my_leagues if e['league'].is_finished()]
         return ctx
 
 

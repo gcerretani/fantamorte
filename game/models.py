@@ -485,6 +485,15 @@ class League(models.Model):
     def has_started(self):
         return timezone.now().date() >= self.start_date
 
+    def is_finished(self):
+        """True se la lega è conclusa (periodo di gioco terminato).
+
+        Stesso test usato in `scoring.py` (bonus ultimo decesso) e in
+        `emit_league_lifecycle` (notifica "lega conclusa"): la stagione è
+        finita quando oggi supera `end_date`.
+        """
+        return timezone.now().date() > self.end_date
+
     def rosters_secret_now(self):
         """True se siamo nella finestra in cui le rose sono segrete.
 

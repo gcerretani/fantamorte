@@ -1,0 +1,32 @@
+{# Lista di leghe dell'utente (righe `entry` = {league, role, team, score, next_deadline}).
+   Usato dalla home per le sezioni "Leghe attive" e "Leghe concluse".
+   Parametro opzionale `muted`: smorza le righe (leghe concluse). #}
+<div class="list-group{% if muted %} opacity-75{% endif %}">
+  {% for entry in entries %}
+    <a href="{% url 'league_detail' entry.league.slug %}" class="list-group-item list-group-item-action py-3">
+      <div class="d-flex align-items-center gap-2">
+        <div class="fm-row-main">
+          <strong>{{ entry.league.name }}</strong>
+          {% if entry.role == 'owner' %}<span class="badge text-bg-secondary">Owner</span>
+          {% elif entry.role == 'admin' %}<span class="badge text-bg-secondary">Admin</span>{% endif %}
+          {% if muted %}<span class="badge text-bg-secondary">conclusa</span>{% endif %}
+          <div class="small text-body-secondary">
+            {{ entry.league.start_date|date:"Y" }}
+            {% if entry.team %}&middot; {{ entry.team.name }}{% else %}&middot; nessuna squadra{% endif %}
+          </div>
+          {% if entry.next_deadline %}
+            <div class="small text-danger">
+              sostituzione entro <span class="fm-countdown" data-fm-countdown="{{ entry.next_deadline|date:'U' }}">…</span>
+            </div>
+          {% endif %}
+        </div>
+        {% if entry.team and entry.score is not None %}
+          <div class="fm-metric">
+            <span class="fm-metric-value">{{ entry.score }}</span>
+            <span class="fm-metric-unit">punti</span>
+          </div>
+        {% endif %}
+      </div>
+    </a>
+  {% endfor %}
+</div>
