@@ -1388,6 +1388,24 @@ a.list-group-item,
   background: var(--fm-danger);
   box-shadow: 0 0 0 3px var(--fm-ground);
 }
+/* Nodo colorato per tipo di evento (timeline mista decessi + attività) */
+.fm-timeline-item[data-fm-event-kind="substitution"]::before { background: var(--fm-info); }
+.fm-timeline-item[data-fm-event-kind="team"]::before,
+.fm-timeline-item[data-fm-event-kind="join"]::before { background: var(--fm-muted); }
+/* Separatore giorno nella timeline */
+.fm-timeline-day {
+  margin: 0 0 0.5rem -1.5rem;
+  padding-left: 1.5rem;
+  font-variant: small-caps;
+  letter-spacing: 0.02em;
+}
+.fm-timeline-day:not(:first-child) { margin-top: 1.25rem; }
+/* Chip di filtro della cronologia: la voce attiva è piena (accento) */
+[data-fm-timeline-filter].active {
+  background: var(--fm-accent);
+  border-color: var(--fm-accent);
+  color: var(--fm-accent-ink);
+}
 
 /* ---- Countdown ---- */
 .fm-countdown { font-variant-numeric: tabular-nums; font-weight: 700; }

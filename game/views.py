@@ -706,11 +706,13 @@ class LeagueDeathsView(LoginRequiredMixin, View):
             .order_by('-death_date')
         )
 
-    def get(self, request, slug):
-        league = get_object_or_404(League, slug=slug)
-        if not league.can_user_view(request.user):
-            return redirect('league_list')
-        is_admin = league.is_admin(request.user)
+    def _death_info(self, league, is_admin):
+        """Mappa death.pk → arricchimento bonus/primo-ultimo per la timeline.
+
+        Riusa il filtro/prefetch di `_deaths` e la stessa logica di calcolo
+        punti già usata dalla pagina, così i decessi mostrati nella timeline
+        portano bonus attivi, badge primo/ultimo e controlli admin.
+        """
         lb_map = {
             lb.bonus_type_id: lb
             for lb in league.league_bonuses.filter(is_active=True).select_related('bonus_type')
@@ -721,7 +723,7 @@ class LeagueDeathsView(LoginRequiredMixin, View):
         last_lb = next((lb for lb in lb_map.values()
                         if lb.bonus_type.detection_method == BonusType.DETECTION_LAST_DEATH), None)
 
-        death_rows = []
+        info = {}
         for d in self._deaths(league):
             items = []
             for b in d.bonuses.all():
@@ -742,23 +744,38 @@ class LeagueDeathsView(LoginRequiredMixin, View):
                     # sono condivisi e si revocano dal Django admin).
                     'removable': is_admin and (not b.is_auto_detected or bt.league_id == league.pk),
                 })
-            death_rows.append({
-                'death': d,
+            info[d.pk] = {
                 'bonus_items': items,
                 'is_first': first_lb is not None and d.pk == first_pk,
                 'first_points': first_lb.compute_points(age=d.death_age) if first_lb else None,
                 'is_last': last_lb is not None and last_pk is not None and d.pk == last_pk,
                 'last_points': last_lb.compute_points(age=d.death_age) if last_lb else None,
-            })
-
+            }
         assignable = sorted(
             (lb for lb in lb_map.values()
              if lb.bonus_type.detection_method in self.ASSIGNABLE_METHODS),
             key=lambda lb: (lb.bonus_type.ordering, lb.bonus_type.name),
         ) if is_admin else []
+        return info, assignable
+
+    def get(self, request, slug):
+        league = get_object_or_404(League, slug=slug)
+        if not league.can_user_view(request.user):
+            return redirect('league_list')
+        is_admin = league.is_admin(request.user)
+
+        rankings = scoring.compute_league_rankings(league)
+        death_info, assignable = self._death_info(league, is_admin)
+        # Timeline unica (decessi + sostituzioni + eventi lega); ai decessi
+        # agganciamo l'arricchimento bonus (stesso filtro → le pk combaciano).
+        timeline_events = timeline.league_timeline(league, rankings=rankings)
+        for event in timeline_events:
+            if event['kind'] == 'death':
+                event.update(death_info.get(event['death'].pk, {}))
+
         return render(request, 'game/league_deaths.html', {
             'league': league,
-            'death_rows': death_rows,
+            'timeline_events': timeline_events,
             'is_admin': is_admin,
             'assignable_bonuses': assignable,
         })
