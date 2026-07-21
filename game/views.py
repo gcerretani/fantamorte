@@ -107,11 +107,21 @@ class StatsView(LoginRequiredMixin, TemplateView):
         ]
 
         my_history = []
+        albo_doro = []  # vincitore (o leader attuale) di ogni lega visibile
         totals = {}  # manager_id -> aggregato all-time
         person_points = {}  # person_id -> punti generati in tutte le squadre
         counted_deaths = {}  # death_pk -> Death (dedup: un decesso può contare in più leghe)
         for league in visible_leagues:
             rankings = scoring.compute_league_rankings(league)
+            if rankings:
+                winner = rankings[0]
+                albo_doro.append({
+                    'league': league,
+                    'team': winner['team'],
+                    'manager': winner['team'].manager,
+                    'score': winner['score'],
+                    'finished': league.is_finished(),
+                })
             for pos, entry in enumerate(rankings, start=1):
                 team = entry['team']
                 manager = team.manager
@@ -140,6 +150,7 @@ class StatsView(LoginRequiredMixin, TemplateView):
                     pp['teams'] += 1
 
         ctx['my_history'] = my_history
+        ctx['albo_doro'] = albo_doro
         ctx['all_time'] = sorted(totals.values(), key=lambda a: -a['points'])[:50]
         ctx['top_scorers'] = sorted(
             person_points.values(),
