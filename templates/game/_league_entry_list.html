@@ -1,6 +1,4 @@
-{# Lista di leghe dell'utente (righe `entry` = {league, role, team, score, next_deadline}).
-   Usato dalla home per le sezioni "Leghe attive" e "Leghe concluse".
-   Parametro opzionale `muted`: smorza le righe (leghe concluse). #}
+{# Lista leghe utente (entry={league,role,team,score,next_deadline}); muted=True per le concluse. #}
 <div class="list-group{% if muted %} opacity-75{% endif %}">
   {% for entry in entries %}
     <a href="{% url 'league_detail' entry.league.slug %}" class="list-group-item list-group-item-action py-3">
