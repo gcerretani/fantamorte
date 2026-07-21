@@ -615,7 +615,14 @@ class PushSubscription(models.Model):
 class SiteSettings(models.Model):
     wikidata_check_interval_hours = models.PositiveIntegerField(
         default=24,
-        help_text="Ore minime tra un controllo Wikidata e il successivo per ogni giocatore.",
+        help_text="Periodo-obiettivo entro cui ogni giocatore viene ricontrollato su "
+                  "Wikidata. I controlli sono distribuiti sui run dello scheduler.",
+    )
+    wikidata_check_schedule_hours = models.PositiveIntegerField(
+        default=1,
+        help_text="Ogni quante ore gira lo scheduler dei controlli (deve combaciare con "
+                  "la cadenza reale del cron/compose). Usato per dimensionare la fetta di "
+                  "giocatori controllati a ogni run e distribuire il carico su Wikidata.",
     )
 
     class Meta:
