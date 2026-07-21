@@ -6,41 +6,16 @@
 
 <div class="mb-4">
   <div class="d-flex justify-content-between align-items-center mb-2">
-    <span class="fm-label mb-0">Le mie leghe</span>
+    <span class="fm-label mb-0">Leghe attive</span>
     <div class="d-flex gap-2">
       <a href="{% url 'league_create' %}" class="btn btn-primary btn-sm">+ Nuova lega</a>
       <a href="{% url 'league_list' %}" class="btn btn-outline-secondary btn-sm">Esplora</a>
     </div>
   </div>
-  {% if my_leagues %}
-    <div class="list-group">
-      {% for entry in my_leagues %}
-        <a href="{% url 'league_detail' entry.league.slug %}" class="list-group-item list-group-item-action py-3">
-          <div class="d-flex align-items-center gap-2">
-            <div class="fm-row-main">
-              <strong>{{ entry.league.name }}</strong>
-              {% if entry.role == 'owner' %}<span class="badge text-bg-secondary">Owner</span>
-              {% elif entry.role == 'admin' %}<span class="badge text-bg-secondary">Admin</span>{% endif %}
-              <div class="small text-body-secondary">
-                {{ entry.league.start_date|date:"Y" }}
-                {% if entry.team %}&middot; {{ entry.team.name }}{% else %}&middot; nessuna squadra{% endif %}
-              </div>
-              {% if entry.next_deadline %}
-                <div class="small text-danger">
-                  sostituzione entro <span class="fm-countdown" data-fm-countdown="{{ entry.next_deadline|date:'U' }}">…</span>
-                </div>
-              {% endif %}
-            </div>
-            {% if entry.team and entry.score is not None %}
-              <div class="fm-metric">
-                <span class="fm-metric-value">{{ entry.score }}</span>
-                <span class="fm-metric-unit">punti</span>
-              </div>
-            {% endif %}
-          </div>
-        </a>
-      {% endfor %}
-    </div>
+  {% if active_leagues %}
+    {% include 'game/_league_entry_list.html' with entries=active_leagues %}
+  {% elif past_leagues %}
+    <p class="text-body-secondary">Nessuna lega in corso. Le tue leghe concluse sono qui sotto.</p>
   {% else %}
     <div class="card">
       <div class="card-body text-center text-body-secondary">
@@ -51,5 +26,12 @@
     </div>
   {% endif %}
 </div>
+
+{% if past_leagues %}
+  <div class="mb-4">
+    <span class="fm-label mb-2">Leghe concluse</span>
+    {% include 'game/_league_entry_list.html' with entries=past_leagues muted=True %}
+  </div>
+{% endif %}
 
 {% endblock %}

@@ -763,6 +763,59 @@
     window.fmInitCountdowns(document);
   });
 
+  // -------- Filtro cronologia di lega --------
+  // Mostra/nasconde le voci `.fm-timeline-item` in base a `data-fm-event-kind`;
+  // i separatori-giorno `.fm-timeline-day` senza voci visibili sotto vengono
+  // nascosti. Il gruppo "league" copre team + join. Nessun reload.
+  window.fmInitTimelineFilter = function (root) {
+    (root || document).querySelectorAll('#fmTimeline').forEach(function (timeline) {
+      if (timeline.dataset.fmFilterInit) return;
+      timeline.dataset.fmFilterInit = '1';
+      const buttons = document.querySelectorAll('[data-fm-timeline-filter]');
+      if (!buttons.length) return;
+      const emptyMsg = document.querySelector('[data-fm-timeline-empty]');
+      const GROUPS = { league: ['team', 'join'] };
+
+      function apply(filter) {
+        const kinds = GROUPS[filter] || (filter === 'all' ? null : [filter]);
+        // 1) mostra/nasconde le voci; 2) sistema i separatori-giorno.
+        const children = Array.from(timeline.children);
+        let anyVisible = false;
+        let dayHeader = null;
+        let dayHasItem = false;
+        function flushDay() {
+          if (dayHeader) dayHeader.hidden = !dayHasItem;
+        }
+        children.forEach(function (el) {
+          if (el.classList.contains('fm-timeline-day')) {
+            flushDay();
+            dayHeader = el;
+            dayHasItem = false;
+            return;
+          }
+          if (!el.classList.contains('fm-timeline-item')) return;
+          const show = !kinds || kinds.indexOf(el.dataset.fmEventKind) !== -1;
+          el.hidden = !show;
+          if (show) { dayHasItem = true; anyVisible = true; }
+        });
+        flushDay();
+        if (emptyMsg) emptyMsg.classList.toggle('d-none', anyVisible);
+      }
+
+      buttons.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          buttons.forEach(function (b) { b.classList.remove('active'); });
+          btn.classList.add('active');
+          apply(btn.dataset.fmTimelineFilter);
+        });
+      });
+    });
+  };
+
+  document.addEventListener('DOMContentLoaded', function () {
+    window.fmInitTimelineFilter(document);
+  });
+
   // -------- Ricerca persona (componente condiviso) --------
   // Inizializza il partial _person_search.html: debounce 600ms, min 2
   // caratteri, AbortController per annullare le richieste obsolete,

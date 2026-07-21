@@ -43,6 +43,45 @@
   {% endif %}
 </div>
 
+{# Albo d'Oro: campione (o leader attuale) di ogni lega visibile #}
+<div class="mb-4">
+  <span class="fm-label mb-1">Albo d'Oro</span>
+  <p class="text-body-secondary small mb-2">
+    Campioni delle leghe concluse e leader delle leghe in corso, su tutte le leghe che puoi vedere.
+  </p>
+  {% if albo_doro %}
+    <ul class="list-group">
+      {% for a in albo_doro %}
+        <li class="list-group-item py-3{% if a.finished %} fm-rank-first{% endif %}{% if a.manager == user %} fm-rank-me{% endif %}">
+          <div class="d-flex align-items-center gap-2">
+            <span class="fm-pos{% if a.finished %} fm-pos-first{% endif %}" aria-hidden="true">{% if a.finished %}&#127942;{% else %}&middot;{% endif %}</span>
+            <div class="fm-row-main">
+              <a href="{% url 'league_detail' a.league.slug %}" class="fw-semibold text-decoration-none">{{ a.league.name }}</a>
+              {% if a.finished %}
+                <span class="badge text-bg-success">conclusa</span>
+              {% else %}
+                <span class="badge text-bg-warning">in corso</span>
+              {% endif %}
+              <div class="small text-body-secondary">
+                {% if a.finished %}Campione{% else %}Leader{% endif %}:
+                <a href="{% url 'team_detail' a.team.pk %}" class="text-decoration-none text-reset">{{ a.team.name }}</a>
+                &middot; {{ a.manager.username }}
+                {% if a.manager == user %}<span class="badge text-bg-primary">tu</span>{% endif %}
+              </div>
+            </div>
+            <div class="fm-metric">
+              <span class="fm-metric-value">{{ a.score }}</span>
+              <span class="fm-metric-unit">punti</span>
+            </div>
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="text-body-secondary">Nessuna lega con squadre da mostrare.</p>
+  {% endif %}
+</div>
+
 <div class="row">
   <div class="col-lg-6 mb-4">
     <span class="fm-label mb-1">I più giocati</span>
