@@ -4,6 +4,25 @@ Tutte le modifiche rilevanti di questo progetto sono documentate qui.
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 il versionamento segue [SemVer](https://semver.org/lang/it/).
 
+## [0.3.0] - 2026-07-21
+
+- Perf: rimosso il collo di bottiglia che rallentava home e statistiche (deferred
+  `claims_cache` nelle query di scoring, decessi, dettaglio squadra, CSV e
+  timeline; N+1 in home risolto) — rose 348→16 ms, decessi 404→12 ms su dati
+  reali
+- Fix: `death_age`/`death_date` ricalcolati al re-sync (prima restavano uno
+  snapshot congelato dopo una correzione dati)
+- Fix: `image_url` più lungo (max 1000, evitava errori su filename Commons
+  lunghi)
+- Fix: `invite_code` generato automaticamente al salvataggio di una lega
+  privata, anche fuori dalla view di creazione
+- Bonus Wikidata con più QID (es. Nobel per l'Economia, non sottoclasse del
+  Nobel su Wikidata)
+- Nuovo `Team.score_adjustment`: aggiustamento manuale del punteggio (con
+  motivazione) dalla tab "Squadre" del pannello admin di lega
+- `check_deaths` ora ruota i controlli per data dell'ultimo check invece di
+  un burst ogni 24h, con nuova setting `wikidata_check_schedule_hours`
+
 ## [0.2.4] - 2026-07-19
 
 - Fix: `DeathDetailView` non deve esporre i bonus custom di leghe private
