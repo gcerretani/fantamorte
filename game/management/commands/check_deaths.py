@@ -4,9 +4,9 @@ Una lega è "in corso" quando `start_date <= oggi <= end_date`. Per ogni
 anno coperto da almeno una lega in corso, vengono controllate le
 persone che fanno parte di quelle leghe (TeamMember attivi, non sostituiti).
 """
-from datetime import timedelta
+import math
+
 from django.core.management.base import BaseCommand
-from django.db.models import Q
 from django.utils import timezone
 
 from game.models import League, SiteSettings, WikipediaPerson
@@ -21,7 +21,8 @@ class Command(BaseCommand):
         parser.add_argument('--dry-run', action='store_true', help='Non salvare nulla')
         parser.add_argument('--league', type=str, help='Slug di una lega specifica')
         parser.add_argument('--year', type=int, help='Forza un singolo anno per la query SPARQL')
-        parser.add_argument('--force', action='store_true', help='Ignora il filtro last_checked e data_frozen')
+        parser.add_argument('--force', action='store_true', help='Ignora la rotazione (batch) e data_frozen: controlla tutti subito')
+        parser.add_argument('--limit', type=int, help='Forza la dimensione della fetta di giocatori per questo run (override della rotazione automatica)')
         parser.add_argument(
             '--no-autoconfirm', action='store_true',
             help='Crea i decessi come non confermati (default: i decessi da Wikidata '
@@ -63,15 +64,36 @@ class Command(BaseCommand):
             is_dead=False,
         ).distinct()
 
-        if not options.get('force'):
-            interval = SiteSettings.get().wikidata_check_interval_hours
-            threshold = timezone.now() - timedelta(hours=interval)
-            active_persons = active_persons.exclude(data_frozen=True).filter(
-                Q(last_checked__isnull=True) | Q(last_checked__lt=threshold)
-            )
+        force = options.get('force')
+        if not force:
+            active_persons = active_persons.exclude(data_frozen=True)
 
-        wikidata_ids = list(active_persons.values_list('wikidata_id', flat=True))
-        self.stdout.write(f'Persone da controllare: {len(wikidata_ids)}')
+        # Rotazione: invece di controllare tutti in un colpo (burst ogni
+        # `interval` ore, poi scheduler a vuoto), ogni run controlla solo la
+        # fetta più "vecchia" di giocatori, dimensionata per coprire l'intero
+        # pool nell'arco dell'intervallo. I mai-controllati (last_checked NULL)
+        # hanno priorità (in MySQL/MariaDB i NULL ordinano per primi in ASC).
+        total_active = active_persons.count()
+        if force:
+            batch = total_active  # --force: tutto subito (comportamento storico)
+        elif options.get('limit') is not None:
+            batch = max(0, options['limit'])
+        else:
+            settings = SiteSettings.get()
+            interval = max(1, settings.wikidata_check_interval_hours)
+            schedule = max(1, settings.wikidata_check_schedule_hours)
+            # Copri `total_active` persone in `interval/schedule` run:
+            batch = max(1, math.ceil(total_active * schedule / interval))
+
+        selected = active_persons.order_by('last_checked')[:batch]
+        # Materializza prima dello slice-update (non si può .update() un
+        # queryset già affettato): tengo pk (per l'update) e wikidata_id.
+        selected = list(selected.values_list('pk', 'wikidata_id'))
+        selected_pks = [pk for pk, _ in selected]
+        wikidata_ids = [qid for _, qid in selected]
+        self.stdout.write(
+            f'Persone attive: {total_active} · controllate in questo run: {len(wikidata_ids)}'
+        )
         if not wikidata_ids:
             return
 
@@ -117,5 +139,11 @@ class Command(BaseCommand):
             ))
 
         if not dry_run:
-            active_persons.exclude(wikidata_id__in=dead_ids).update(last_checked=timezone.now())
+            # Segna controllati solo i giocatori di questo run (la fetta),
+            # esclusi quelli appena rilevati morti (sync_person_from_entity ha
+            # già aggiornato il loro last_checked). Così al run successivo la
+            # rotazione passa alla fetta successiva (last_checked più vecchio).
+            WikipediaPerson.objects.filter(pk__in=selected_pks).exclude(
+                wikidata_id__in=dead_ids
+            ).update(last_checked=timezone.now())
         self.stdout.write(self.style.SUCCESS('Controllo completato.'))

@@ -51,6 +51,7 @@ def league_timeline(league, rankings=None, limit=None):
         )
         .distinct()
         .select_related('person')
+        .defer('person__claims_cache')
     )
     for death in deaths:
         # Mezzanotte locale: a parità di giorno il decesso precede le

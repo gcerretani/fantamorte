@@ -10,9 +10,10 @@ ultimo morto inclusi — viene calcolato qui, senza righe persistite condivise.
 import time
 
 from django.core.cache import cache
+from django.db.models import Prefetch
 from django.utils import timezone
 
-from .models import Death, BonusType, League, LeagueBonus
+from .models import Death, BonusType, League, LeagueBonus, TeamMember
 
 
 # ---------- helpers ----------
@@ -145,7 +146,15 @@ def _confirmed_deaths_for_league(league):
     persone presenti in almeno una rosa della lega. Il database dei decessi è
     condiviso tra leghe, ma un morto che nessuno gioca qui non conta — nemmeno
     come "primo/ultimo morto" della lega (vedi `_first_last_death_pks`)."""
-    qs = Death.objects.filter(is_confirmed=True).select_related('person').prefetch_related('bonuses__bonus_type')
+    # `claims_cache` è un blob JSON enorme (media ~100 KB/persona) che lo
+    # scoring non usa mai: deferirlo evita la deserializzazione JSON che
+    # domina il costo CPU del calcolo classifiche.
+    qs = (
+        Death.objects.filter(is_confirmed=True)
+        .select_related('person')
+        .defer('person__claims_cache')
+        .prefetch_related('bonuses__bonus_type')
+    )
     if league is not None:
         qs = qs.filter(
             death_date__gte=league.start_date,
@@ -274,11 +283,18 @@ def compute_team_total_score(team):
         total += _points_for_member_death(
             member, team, death, league, lb_map, first_pk=first_pk, last_pk=last_pk,
         )
-    return total
+    return total + team.score_adjustment
 
 
 def _compute_league_rankings_uncached(league):
-    teams = league.teams.select_related('manager').prefetch_related('members__person')
+    # Come sopra: defer di `claims_cache` sulle persone in rosa (vedi
+    # `_confirmed_deaths_for_league`).
+    teams = league.teams.select_related('manager').prefetch_related(
+        Prefetch(
+            'members',
+            queryset=TeamMember.objects.select_related('person').defer('person__claims_cache'),
+        )
+    )
     deaths_list = list(_confirmed_deaths_for_league(league))
     first_pk, last_pk = _first_last_death_pks(league, deaths_list)
     lb_map = _league_bonus_map(league)
@@ -306,6 +322,7 @@ def _compute_league_rankings_uncached(league):
                 'is_original': member.is_original,
                 'jolly': team.jolly_month == death.death_date.month,
             })
+        score += team.score_adjustment
         rankings.append({'team': team, 'score': score, 'deaths': items})
     rankings.sort(key=lambda x: -x['score'])
     return rankings

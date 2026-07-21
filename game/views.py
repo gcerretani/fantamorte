@@ -11,7 +11,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.cache import cache
-from django.db.models import Count, Q
+from django.db.models import Count, Prefetch, Q
 from django.http import Http404, HttpResponse, JsonResponse, HttpResponseForbidden
 from django.shortcuts import render, redirect, get_object_or_404
 from django.templatetags.static import static
@@ -69,7 +69,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
                     member.get_substitution_deadline()
                     for member in team.members.filter(
                         replaced_by=None, person__is_dead=True,
-                    ).select_related('person')
+                    ).select_related('person', 'person__death').defer('person__claims_cache')
                     if member.can_be_substituted()
                 ]
                 deadlines = [d for d in deadlines if d]
@@ -366,6 +366,7 @@ class LeagueAdminView(LoginRequiredMixin, View):
         return render(request, self.template_name, {
             'league': league,
             'memberships': league.memberships.select_related('user').order_by('role', 'user__username'),
+            'teams': league.teams.select_related('manager').order_by('name'),
             'league_bonuses': league.league_bonuses.select_related('bonus_type').order_by('bonus_type__ordering'),
             # Bonus proponibili: quelli di sistema + i personalizzati di QUESTA lega
             'all_bonus_types': BonusType.objects.filter(
@@ -463,6 +464,28 @@ class LeagueAdminView(LoginRequiredMixin, View):
                 LeagueBonus.objects.get_or_create(league=league, bonus_type=bt, defaults={'is_active': True})
             messages.success(request, 'Bonus aggiornati.')
 
+        elif action == 'set_team_adjustment':
+            # Aggiustamento manuale del punteggio per singola squadra (es.
+            # penalità per formazione in ritardo): indipendente dai decessi,
+            # che colpirebbero tutte le rose con quella persona.
+            changed = False
+            for team in league.teams.all():
+                raw = request.POST.get(f'adjustment_{team.pk}', '').strip()
+                reason = request.POST.get(f'adjustment_reason_{team.pk}', '').strip()[:200]
+                try:
+                    value = int(raw) if raw else 0
+                except (ValueError, TypeError):
+                    messages.error(request, f'Aggiustamento non valido per {team.name}.')
+                    return redirect('league_admin', slug=slug)
+                if value != team.score_adjustment or reason != team.score_adjustment_reason:
+                    team.score_adjustment = value
+                    team.score_adjustment_reason = reason
+                    # Il post_save su Team invalida la cache classifiche della
+                    # lega (game/signals.py).
+                    team.save(update_fields=['score_adjustment', 'score_adjustment_reason'])
+                    changed = True
+            messages.success(request, 'Aggiustamenti aggiornati.' if changed else 'Nessuna modifica.')
+
         elif action == 'create_custom_bonus':
             name = request.POST.get('bonus_name', '').strip()
             prop = request.POST.get('bonus_wikidata_property', '').strip().upper()
@@ -484,10 +507,17 @@ class LeagueAdminView(LoginRequiredMixin, View):
             if prop and not re.fullmatch(r'P\d+', prop):
                 messages.error(request, 'Proprietà Wikidata non valida (formato: P166).')
                 return redirect('league_admin', slug=slug)
-            if value and not re.fullmatch(r'Q\d+', value):
-                messages.error(request, 'Valore Wikidata non valido (formato: Q7191, oppure vuoto '
-                                        'per "qualsiasi valore della proprietà").')
-                return redirect('league_admin', slug=slug)
+            # Il valore può essere uno o più QID separati da virgola
+            # (es. Q7191,Q47170): il bonus scatta se il claim soddisfa uno
+            # qualsiasi dei target. Normalizzo e valido ciascun QID.
+            if value:
+                value_tokens = [v for v in (t.strip() for t in value.split(',')) if v]
+                if not value_tokens or not all(re.fullmatch(r'Q\d+', v) for v in value_tokens):
+                    messages.error(request, 'Valore Wikidata non valido (formato: Q7191, '
+                                            'più QID separati da virgola come Q7191,Q47170, '
+                                            'oppure vuoto per "qualsiasi valore della proprietà").')
+                    return redirect('league_admin', slug=slug)
+                value = ','.join(value_tokens)
             if BonusType.objects.filter(league=league, name__iexact=name).exists():
                 messages.error(request, 'Esiste già un bonus personalizzato con questo nome.')
                 return redirect('league_admin', slug=slug)
@@ -657,6 +687,7 @@ class LeagueDeathsView(LoginRequiredMixin, View):
             )
             .distinct()
             .select_related('person')
+            .defer('person__claims_cache')
             .prefetch_related('bonuses__bonus_type')
             .order_by('-death_date')
         )
@@ -795,7 +826,13 @@ class TeamDetailView(LoginRequiredMixin, DetailView):
 
     def get_queryset(self):
         # I membri prefetchati vengono riusati da _find_member nello scoring.
-        return Team.objects.select_related('league', 'manager').prefetch_related('members__person')
+        # `claims_cache` (blob JSON pesante) non serve qui: deferito.
+        return Team.objects.select_related('league', 'manager').prefetch_related(
+            Prefetch(
+                'members',
+                queryset=TeamMember.objects.select_related('person').defer('person__claims_cache'),
+            )
+        )
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -811,7 +848,9 @@ class TeamDetailView(LoginRequiredMixin, DetailView):
             return ctx
         details = scoring.compute_team_death_details(team)
         ctx['death_details'] = details
-        ctx['score'] = sum(d['points'] for d in details)
+        ctx['score'] = sum(d['points'] for d in details) + team.score_adjustment
+        ctx['score_adjustment'] = team.score_adjustment
+        ctx['score_adjustment_reason'] = team.score_adjustment_reason
         ctx['active_members'] = [m for m in team.members.all() if m.is_active()]
         return ctx
 
@@ -2099,6 +2138,7 @@ class LeagueDeathsCSVView(LoginRequiredMixin, View):
             )
             .distinct()
             .select_related('person')
+            .defer('person__claims_cache')
             .prefetch_related('bonuses__bonus_type')
             .order_by('death_date')
         )

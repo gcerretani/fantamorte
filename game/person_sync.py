@@ -99,10 +99,33 @@ def sync_person_from_entity(person, entity, *, client, autoconfirm=True):
                         death=death, bonus_type=bt,
                         defaults={'points_awarded': bt.points, 'is_auto_detected': True},
                     )
-    elif autoconfirm and not death.is_confirmed:
-        # Decesso già registrato ma mai confermato: promuovilo (la
-        # transizione False→True fa scattare punti e notifiche).
-        death.is_confirmed = True
-        death.save()
+    else:
+        # Death già registrata: riallinea i campi derivati (snapshot) se i dati
+        # anagrafici della persona sono cambiati dopo la creazione — es. una
+        # correzione della data di nascita/morte. `death_age` è calcolato una
+        # sola volta alla creazione: senza questo riallineamento i bonus età
+        # (che leggono `death.death_age` nello scoring) resterebbero congelati
+        # al valore vecchio, con punteggi silenziosamente sbagliati.
+        expected_date = person.death_date or date_cls(year_for_death, 12, 31)
+        expected_age = person.get_age_at_death()
+        update_fields = []
+        if death.death_date != expected_date:
+            death.death_date = expected_date
+            update_fields.append('death_date')
+        # Non azzerare un'età nota se ora risulta non determinabile (dato
+        # transitoriamente assente): aggiorna solo verso un valore concreto.
+        if expected_age is not None and death.death_age != expected_age:
+            death.death_age = expected_age
+            update_fields.append('death_age')
+        if autoconfirm and not death.is_confirmed:
+            # Decesso già registrato ma mai confermato: promuovilo (la
+            # transizione False→True fa scattare punti e notifiche).
+            death.is_confirmed = True
+            update_fields.append('is_confirmed')
+        if update_fields:
+            # Il post_save su Death invalida le classifiche delle leghe che
+            # coprono la data del decesso (game/signals.py): il punteggio dei
+            # bonus età, che dipende da death_age, viene così ricalcolato.
+            death.save(update_fields=update_fields)
 
     return death, created

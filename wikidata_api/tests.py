@@ -186,6 +186,33 @@ class HierarchicalBonusCheckTest(TestCase):
             'Q937', self.FakeBonus('P39', ''), self._claims('P39', 'Q11696'))
         self.assertTrue(ok)
 
+    def test_multi_qid_match_esatto_su_secondo_valore(self):
+        """Value con più QID (Q7191,Q47170): il claim che punta al secondo
+        target matcha in modo esatto, senza rete. Copre il Nobel Economia
+        (Q47170), che su Wikidata non è sottoclasse di "Premio Nobel"."""
+        client = WikidataClient()
+        with patch.object(WikidataClient, '_sparql', side_effect=AssertionError('rete non attesa')):
+            ok = client._check_wikidata_bonus(
+                'Q1', self.FakeBonus('P166', 'Q7191,Q47170'), self._claims('P166', 'Q47170'))
+        self.assertTrue(ok)
+
+    def test_multi_qid_query_gerarchica_include_tutti_i_target(self):
+        client = WikidataClient()
+        with patch.object(WikidataClient, '_sparql', return_value={'boolean': True}) as mock_sparql:
+            ok = client._check_wikidata_bonus(
+                'Q1', self.FakeBonus('P166', 'Q7191,Q47170'), self._claims('P166', 'Q999'))
+        self.assertTrue(ok)
+        query = mock_sparql.call_args[0][0]
+        self.assertIn('wd:Q7191', query)
+        self.assertIn('wd:Q47170', query)
+
+    def test_multi_qid_con_token_malformato_rifiutato(self):
+        client = WikidataClient()
+        claims = self._claims('P166', 'Q47170')
+        with patch.object(WikidataClient, '_sparql', side_effect=AssertionError('rete non attesa')):
+            self.assertFalse(client._check_wikidata_bonus(
+                'Q1', self.FakeBonus('P166', 'Q7191,evil'), claims))
+
     def test_ask_gerarchico_cachato(self):
         """La seconda chiamata con gli stessi argomenti non tocca SPARQL."""
         client = WikidataClient()

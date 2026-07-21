@@ -225,7 +225,7 @@ class PushSubscriptionAdmin(admin.ModelAdmin):
 
 @admin.register(SiteSettings)
 class SiteSettingsAdmin(admin.ModelAdmin):
-    fields = ('wikidata_check_interval_hours',)
+    fields = ('wikidata_check_interval_hours', 'wikidata_check_schedule_hours')
 
     def has_add_permission(self, request):
         return not SiteSettings.objects.exists()
