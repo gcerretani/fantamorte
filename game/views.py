@@ -11,7 +11,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.cache import cache
-from django.db.models import Count, Q
+from django.db.models import Count, Prefetch, Q
 from django.http import Http404, HttpResponse, JsonResponse, HttpResponseForbidden
 from django.shortcuts import render, redirect, get_object_or_404
 from django.templatetags.static import static
@@ -69,7 +69,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
                     member.get_substitution_deadline()
                     for member in team.members.filter(
                         replaced_by=None, person__is_dead=True,
-                    ).select_related('person')
+                    ).select_related('person', 'person__death').defer('person__claims_cache')
                     if member.can_be_substituted()
                 ]
                 deadlines = [d for d in deadlines if d]
@@ -657,6 +657,7 @@ class LeagueDeathsView(LoginRequiredMixin, View):
             )
             .distinct()
             .select_related('person')
+            .defer('person__claims_cache')
             .prefetch_related('bonuses__bonus_type')
             .order_by('-death_date')
         )
@@ -795,7 +796,13 @@ class TeamDetailView(LoginRequiredMixin, DetailView):
 
     def get_queryset(self):
         # I membri prefetchati vengono riusati da _find_member nello scoring.
-        return Team.objects.select_related('league', 'manager').prefetch_related('members__person')
+        # `claims_cache` (blob JSON pesante) non serve qui: deferito.
+        return Team.objects.select_related('league', 'manager').prefetch_related(
+            Prefetch(
+                'members',
+                queryset=TeamMember.objects.select_related('person').defer('person__claims_cache'),
+            )
+        )
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -2099,6 +2106,7 @@ class LeagueDeathsCSVView(LoginRequiredMixin, View):
             )
             .distinct()
             .select_related('person')
+            .defer('person__claims_cache')
             .prefetch_related('bonuses__bonus_type')
             .order_by('death_date')
         )
