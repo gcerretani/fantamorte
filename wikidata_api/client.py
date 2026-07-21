@@ -364,8 +364,15 @@ class WikidataClient:
             return False
         if not value:
             return True
-        if not re.fullmatch(r'Q\d+', value):
+        # `value` può contenere più QID separati da virgola (es. Q7191,Q47170):
+        # il bonus scatta se il claim soddisfa uno qualsiasi dei target. Serve
+        # per premi che su Wikidata non condividono una radice comune — es. il
+        # Nobel per l'Economia (Q47170) non è sottoclasse di "Premio Nobel"
+        # (Q7191). Ogni QID è validato prima di finire nella SPARQL.
+        targets = [v for v in (t.strip() for t in value.split(',')) if v]
+        if not targets or not all(re.fullmatch(r'Q\d+', v) for v in targets):
             return False
+        target_set = set(targets)
         # 1) Match esatto sui claim in cache: nessuna richiesta di rete.
         claims = claims_cache.get(prop, [])
         for claim in claims:
@@ -373,19 +380,22 @@ class WikidataClient:
             if snak.get('snaktype') == 'value':
                 dv = snak.get('datavalue', {})
                 if dv.get('type') == 'wikibase-entityid':
-                    if dv.get('value', {}).get('id') == value:
+                    if dv.get('value', {}).get('id') in target_set:
                         return True
         # 2) Match gerarchico via SPARQL: il claim può puntare a una
-        # istanza/sottoclasse/parte del target (es. P166=Q38104 "Nobel per
-        # la fisica" per il bonus generico Q7191 "Premio Nobel").
+        # istanza/sottoclasse/parte di uno dei target (es. P166=Q38104 "Nobel
+        # per la fisica" per il bonus generico Q7191 "Premio Nobel").
         # Il risultato è cachato: il property path (P31|P279|P361)* è la
-        # query più a rischio timeout su WDQS, meglio non ripeterla.
+        # query più a rischio timeout su WDQS, meglio non ripeterla. La chiave
+        # usa `value` grezzo (tutta la lista) → resta allineata con
+        # invalidate_person_bonus_caches in game/scoring.py.
         cache_key = f'wd_bonus:{wikidata_id}:{prop}:{value}'
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
         query = sparql_templates.PROPERTY_VALUE_CHECK_QUERY.format(
-            qid=wikidata_id, prop=prop, value=value
+            qid=wikidata_id, prop=prop,
+            targets=' '.join(f'wd:{v}' for v in targets),
         )
         try:
             result = self._sparql(query)

@@ -11,14 +11,17 @@ SELECT ?item WHERE {{
 }}
 """
 
-# Match gerarchico: il valore del claim può essere il target stesso (path a
-# lunghezza zero) oppure una sua istanza/sottoclasse/parte, in qualunque
+# Match gerarchico: il valore del claim può essere uno dei target stessi (path
+# a lunghezza zero) oppure una loro istanza/sottoclasse/parte, in qualunque
 # combinazione. Es. Einstein ha P166=Q38104 (Nobel per la fisica), che è
 # "parte di" Q7191 (Premio Nobel): deve far scattare il bonus generico.
+# `{targets}` è una lista di uno o più `wd:Q...` (bonus con più QID accettati,
+# es. Q7191,Q47170 per includere il Nobel per l'Economia).
 PROPERTY_VALUE_CHECK_QUERY = """
 ASK {{
   wd:{qid} wdt:{prop} ?v .
-  ?v (wdt:P31|wdt:P279|wdt:P361)* wd:{value} .
+  ?v (wdt:P31|wdt:P279|wdt:P361)* ?target .
+  VALUES ?target {{ {targets} }}
 }}
 """
 

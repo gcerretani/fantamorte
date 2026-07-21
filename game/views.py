@@ -484,10 +484,17 @@ class LeagueAdminView(LoginRequiredMixin, View):
             if prop and not re.fullmatch(r'P\d+', prop):
                 messages.error(request, 'Proprietà Wikidata non valida (formato: P166).')
                 return redirect('league_admin', slug=slug)
-            if value and not re.fullmatch(r'Q\d+', value):
-                messages.error(request, 'Valore Wikidata non valido (formato: Q7191, oppure vuoto '
-                                        'per "qualsiasi valore della proprietà").')
-                return redirect('league_admin', slug=slug)
+            # Il valore può essere uno o più QID separati da virgola
+            # (es. Q7191,Q47170): il bonus scatta se il claim soddisfa uno
+            # qualsiasi dei target. Normalizzo e valido ciascun QID.
+            if value:
+                value_tokens = [v for v in (t.strip() for t in value.split(',')) if v]
+                if not value_tokens or not all(re.fullmatch(r'Q\d+', v) for v in value_tokens):
+                    messages.error(request, 'Valore Wikidata non valido (formato: Q7191, '
+                                            'più QID separati da virgola come Q7191,Q47170, '
+                                            'oppure vuoto per "qualsiasi valore della proprietà").')
+                    return redirect('league_admin', slug=slug)
+                value = ','.join(value_tokens)
             if BonusType.objects.filter(league=league, name__iexact=name).exists():
                 messages.error(request, 'Esiste già un bonus personalizzato con questo nome.')
                 return redirect('league_admin', slug=slug)

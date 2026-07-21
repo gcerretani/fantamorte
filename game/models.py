@@ -100,7 +100,11 @@ class BonusType(models.Model):
         max_length=20, choices=DETECTION_CHOICES, default=DETECTION_MANUAL
     )
     wikidata_property = models.CharField(max_length=20, blank=True)
-    wikidata_value = models.CharField(max_length=20, blank=True)
+    wikidata_value = models.CharField(
+        max_length=200, blank=True,
+        help_text='Uno o più QID separati da virgola (es. Q7191,Q47170). '
+                  'Vuoto = qualsiasi valore della proprietà.',
+    )
     age_formula = models.CharField(
         max_length=100, blank=True,
         help_text='Condizione che deve essere vera (es. "age < 60").'
