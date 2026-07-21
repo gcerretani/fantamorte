@@ -283,7 +283,7 @@ def compute_team_total_score(team):
         total += _points_for_member_death(
             member, team, death, league, lb_map, first_pk=first_pk, last_pk=last_pk,
         )
-    return total
+    return total + team.score_adjustment
 
 
 def _compute_league_rankings_uncached(league):
@@ -322,6 +322,7 @@ def _compute_league_rankings_uncached(league):
                 'is_original': member.is_original,
                 'jolly': team.jolly_month == death.death_date.month,
             })
+        score += team.score_adjustment
         rankings.append({'team': team, 'score': score, 'deaths': items})
     rankings.sort(key=lambda x: -x['score'])
     return rankings

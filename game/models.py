@@ -154,6 +154,15 @@ class Team(models.Model):
     )
     jolly_month = models.IntegerField(choices=MONTHS_IT, null=True, blank=True)
     is_locked = models.BooleanField(default=False)
+    score_adjustment = models.IntegerField(
+        default=0,
+        help_text='Aggiustamento manuale del punteggio (anche negativo, es. penalità '
+                  'per formazione in ritardo). Sommato al totale della squadra.',
+    )
+    score_adjustment_reason = models.CharField(
+        max_length=200, blank=True,
+        help_text='Motivazione dell\'aggiustamento manuale (mostrata nel dettaglio squadra).',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

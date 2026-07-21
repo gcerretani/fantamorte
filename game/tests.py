@@ -863,6 +863,33 @@ class PrimoUltimoMortoTest(TestCase):
         self.assertEqual(compute_team_points_for_death(team, self.d1), 60)
 
 
+class ScoreAdjustmentTest(ScoringBaseTestCase):
+    """Aggiustamento manuale del punteggio a livello di squadra (Team)."""
+
+    def setUp(self):
+        super().setUp()
+        # Un membro morto in periodo → 50 punti base, così il totale non è 0.
+        TeamMember.objects.create(team=self.team, person=self.berlusconi)
+
+    def test_adjustment_positivo_sommato_al_totale(self):
+        self.assertEqual(compute_team_total_score(self.team), 50)
+        self.team.score_adjustment = 20
+        self.team.save()
+        self.assertEqual(compute_team_total_score(self.team), 70)
+
+    def test_adjustment_negativo_sottratto(self):
+        self.team.score_adjustment = -20
+        self.team.save()
+        self.assertEqual(compute_team_total_score(self.team), 30)
+
+    def test_adjustment_riflesso_in_classifica(self):
+        self.team.score_adjustment = -15
+        self.team.save()
+        rankings = compute_league_rankings(self.league)
+        mine = next(r for r in rankings if r['team'].pk == self.team.pk)
+        self.assertEqual(mine['score'], 35)
+
+
 class DeathAgeRecomputeTest(TestCase):
     """`death_age`/`death_date` riallineati quando i dati anagrafici cambiano
     dopo la creazione della Death (bug: snapshot congelato)."""

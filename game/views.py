@@ -366,6 +366,7 @@ class LeagueAdminView(LoginRequiredMixin, View):
         return render(request, self.template_name, {
             'league': league,
             'memberships': league.memberships.select_related('user').order_by('role', 'user__username'),
+            'teams': league.teams.select_related('manager').order_by('name'),
             'league_bonuses': league.league_bonuses.select_related('bonus_type').order_by('bonus_type__ordering'),
             # Bonus proponibili: quelli di sistema + i personalizzati di QUESTA lega
             'all_bonus_types': BonusType.objects.filter(
@@ -462,6 +463,28 @@ class LeagueAdminView(LoginRequiredMixin, View):
                     continue
                 LeagueBonus.objects.get_or_create(league=league, bonus_type=bt, defaults={'is_active': True})
             messages.success(request, 'Bonus aggiornati.')
+
+        elif action == 'set_team_adjustment':
+            # Aggiustamento manuale del punteggio per singola squadra (es.
+            # penalità per formazione in ritardo): indipendente dai decessi,
+            # che colpirebbero tutte le rose con quella persona.
+            changed = False
+            for team in league.teams.all():
+                raw = request.POST.get(f'adjustment_{team.pk}', '').strip()
+                reason = request.POST.get(f'adjustment_reason_{team.pk}', '').strip()[:200]
+                try:
+                    value = int(raw) if raw else 0
+                except (ValueError, TypeError):
+                    messages.error(request, f'Aggiustamento non valido per {team.name}.')
+                    return redirect('league_admin', slug=slug)
+                if value != team.score_adjustment or reason != team.score_adjustment_reason:
+                    team.score_adjustment = value
+                    team.score_adjustment_reason = reason
+                    # Il post_save su Team invalida la cache classifiche della
+                    # lega (game/signals.py).
+                    team.save(update_fields=['score_adjustment', 'score_adjustment_reason'])
+                    changed = True
+            messages.success(request, 'Aggiustamenti aggiornati.' if changed else 'Nessuna modifica.')
 
         elif action == 'create_custom_bonus':
             name = request.POST.get('bonus_name', '').strip()
@@ -825,7 +848,9 @@ class TeamDetailView(LoginRequiredMixin, DetailView):
             return ctx
         details = scoring.compute_team_death_details(team)
         ctx['death_details'] = details
-        ctx['score'] = sum(d['points'] for d in details)
+        ctx['score'] = sum(d['points'] for d in details) + team.score_adjustment
+        ctx['score_adjustment'] = team.score_adjustment
+        ctx['score_adjustment_reason'] = team.score_adjustment_reason
         ctx['active_members'] = [m for m in team.members.all() if m.is_active()]
         return ctx
 

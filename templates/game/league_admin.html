@@ -25,6 +25,7 @@
   <li class="nav-item"><a class="nav-link active" data-fm-toggle="tab" href="#tabRules">Regole</a></li>
   <li class="nav-item"><a class="nav-link" data-fm-toggle="tab" href="#tabBonus">Bonus</a></li>
   <li class="nav-item"><a class="nav-link" data-fm-toggle="tab" href="#tabMembers">Iscritti</a></li>
+  <li class="nav-item"><a class="nav-link" data-fm-toggle="tab" href="#tabTeams">Squadre</a></li>
   {% if league.visibility == 'private' %}
   <li class="nav-item"><a class="nav-link" data-fm-toggle="tab" href="#tabInvite">Codice invito</a></li>
   {% endif %}
@@ -340,6 +341,46 @@
         </li>
       {% endfor %}
     </ul>
+  </div>
+
+  <!-- SQUADRE -->
+  <div class="tab-pane fade" id="tabTeams">
+    <p class="small text-body-secondary">
+      Aggiustamento manuale del punteggio per squadra (anche negativo, es.
+      penalità per formazione in ritardo). È indipendente dai decessi e si
+      somma al totale della squadra in classifica.
+    </p>
+    {% if teams %}
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="set_team_adjustment">
+      <ul class="list-group mb-3">
+        {% for t in teams %}
+          <li class="list-group-item py-3">
+            <div class="fm-row-main mb-2">
+              <strong>{{ t.name }}</strong>
+              <span class="small text-body-secondary">&middot; {{ t.manager.username }}</span>
+            </div>
+            <div class="row g-2">
+              <div class="col-4 col-md-2">
+                <label class="form-label small">Punti</label>
+                <input type="number" step="1" name="adjustment_{{ t.pk }}"
+                       class="form-control form-control-sm" value="{{ t.score_adjustment }}">
+              </div>
+              <div class="col-8 col-md-6">
+                <label class="form-label small">Motivazione (opz.)</label>
+                <input type="text" name="adjustment_reason_{{ t.pk }}" maxlength="200"
+                       class="form-control form-control-sm" value="{{ t.score_adjustment_reason }}">
+              </div>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+      <button class="btn btn-primary">Salva aggiustamenti</button>
+    </form>
+    {% else %}
+    <p class="text-body-secondary">Nessuna squadra iscritta a questa lega.</p>
+    {% endif %}
   </div>
 
   {% if league.visibility == 'private' %}
