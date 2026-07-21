@@ -1913,3 +1913,139 @@ class SecretRostersTest(ViewsBaseTestCase):
         self._start_league()
         resp = self.client.get(reverse('league_calendar', args=[self.private_league.slug]))
         self.assertContains(resp, 'Silvio Berlusconi')
+
+
+class LeagueIsFinishedTest(TestCase):
+    """Helper di stato `League.is_finished()` (end_date superata)."""
+
+    def _mk(self, user, end, key):
+        from datetime import timedelta
+        from django.utils import timezone
+        today = timezone.now().date()
+        return League.objects.create(
+            name=f'Lega {key}', slug=f'lega-{key}', owner=user,
+            visibility=League.VISIBILITY_PUBLIC,
+            start_date=today - timedelta(days=30), end_date=end,
+            registration_opens=today - timedelta(days=40),
+            registration_closes=today - timedelta(days=30),
+        )
+
+    def test_is_finished_bordi(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        user = User.objects.create_user('u', password='x')
+        today = timezone.now().date()
+        self.assertTrue(self._mk(user, today - timedelta(days=1), 'ieri').is_finished())
+        self.assertFalse(self._mk(user, today, 'oggi').is_finished())
+        self.assertFalse(self._mk(user, today + timedelta(days=1), 'domani').is_finished())
+
+
+class HomeLeaguesSectionTest(TestCase):
+    """La home separa le leghe attive da quelle concluse in due sezioni."""
+
+    def setUp(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        self.user = User.objects.create_user('u', password='x')
+        today = timezone.now().date()
+        self.ongoing = League.objects.create(
+            name='In Corso', slug='in-corso', owner=self.user,
+            visibility=League.VISIBILITY_PUBLIC,
+            start_date=today - timedelta(days=10), end_date=today + timedelta(days=10),
+            registration_opens=today - timedelta(days=20), registration_closes=today - timedelta(days=10),
+        )
+        self.finished = League.objects.create(
+            name='Conclusa', slug='conclusa', owner=self.user,
+            visibility=League.VISIBILITY_PUBLIC,
+            start_date=today - timedelta(days=100), end_date=today - timedelta(days=1),
+            registration_opens=today - timedelta(days=120), registration_closes=today - timedelta(days=100),
+        )
+        for lg in (self.ongoing, self.finished):
+            LeagueMembership.objects.create(league=lg, user=self.user, role=LeagueMembership.ROLE_OWNER)
+
+    def test_partizione_attive_concluse(self):
+        self.client.login(username='u', password='x')
+        resp = self.client.get(reverse('home'))
+        active = [e['league'] for e in resp.context['active_leagues']]
+        past = [e['league'] for e in resp.context['past_leagues']]
+        self.assertIn(self.ongoing, active)
+        self.assertNotIn(self.finished, active)
+        self.assertIn(self.finished, past)
+        self.assertNotIn(self.ongoing, past)
+
+    def test_intestazioni_sezioni_presenti(self):
+        self.client.login(username='u', password='x')
+        resp = self.client.get(reverse('home'))
+        self.assertContains(resp, 'Leghe attive')
+        self.assertContains(resp, 'Leghe concluse')
+
+
+class StatsAlboDoroTest(TestCase):
+    """Albo d'Oro: vincitore/leader di ogni lega visibile all'utente."""
+
+    def setUp(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        self.user = User.objects.create_user('u', password='x')
+        self.other = User.objects.create_user('other', password='x')
+        today = timezone.now().date()
+        self.finished = League.objects.create(
+            name='Finita', slug='finita', owner=self.user,
+            visibility=League.VISIBILITY_PUBLIC,
+            start_date=today - timedelta(days=100), end_date=today - timedelta(days=1),
+            registration_opens=today - timedelta(days=120), registration_closes=today - timedelta(days=100),
+        )
+        LeagueMembership.objects.create(league=self.finished, user=self.user, role=LeagueMembership.ROLE_OWNER)
+        self.team = Team.objects.create(name='Campioni', manager=self.user, league=self.finished)
+        # Lega privata di un altro utente: non deve comparire nell'albo dell'utente.
+        self.privata_altrui = League.objects.create(
+            name='Segreta', slug='segreta', owner=self.other,
+            visibility=League.VISIBILITY_PRIVATE, invite_code='segreto',
+            start_date=today - timedelta(days=100), end_date=today - timedelta(days=1),
+            registration_opens=today - timedelta(days=120), registration_closes=today - timedelta(days=100),
+        )
+        LeagueMembership.objects.create(league=self.privata_altrui, user=self.other, role=LeagueMembership.ROLE_OWNER)
+        Team.objects.create(name='Nascosti', manager=self.other, league=self.privata_altrui)
+
+    def test_albo_include_campione_lega_conclusa(self):
+        self.client.login(username='u', password='x')
+        resp = self.client.get(reverse('stats'))
+        albo = resp.context['albo_doro']
+        finita = [a for a in albo if a['league'] == self.finished]
+        self.assertEqual(len(finita), 1)
+        self.assertTrue(finita[0]['finished'])
+        self.assertEqual(finita[0]['team'], self.team)
+        self.assertEqual(finita[0]['manager'], self.user)
+        self.assertContains(resp, "Albo d'Oro")
+
+    def test_albo_esclude_lega_privata_altrui(self):
+        self.client.login(username='u', password='x')
+        resp = self.client.get(reverse('stats'))
+        leagues = [a['league'] for a in resp.context['albo_doro']]
+        self.assertNotIn(self.privata_altrui, leagues)
+
+
+class LeagueDeathsTimelineTest(ViewsBaseTestCase):
+    """La pagina /decessi/ è una timeline completa: decessi + sostituzioni + filtri."""
+
+    def test_timeline_mostra_decesso_e_sostituzione(self):
+        self.person.is_dead = True
+        self.person.save()
+        Death.objects.create(
+            person=self.person, death_date=date(2021, 5, 1), death_age=86, is_confirmed=True,
+        )
+        entrante = WikipediaPerson.objects.create(
+            wikidata_id='Q92000', name_it='Rimpiazzo Test', is_dead=False,
+        )
+        nuovo = TeamMember.objects.create(team=self.private_team, person=entrante)
+        uscente = self.private_team.members.get(person=self.person)
+        uscente.replaced_by = nuovo
+        uscente.save()
+        self.client.login(username='member', password='x')
+        resp = self.client.get(reverse('league_deaths', args=['lega-privata']))
+        self.assertContains(resp, 'Silvio Berlusconi')      # evento decesso
+        self.assertContains(resp, 'Sostituzione in')          # evento sostituzione
+        self.assertContains(resp, 'Rimpiazzo Test')
+        # Le chip di filtro sono presenti
+        self.assertContains(resp, 'data-fm-timeline-filter="substitution"')
+        self.assertContains(resp, 'Cronologia')
