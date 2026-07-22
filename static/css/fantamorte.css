@@ -1402,6 +1402,7 @@ a.list-group-item,
   gap: 0.3rem;
 }
 .fm-histogram-track {
+  display: block;
   position: relative;
   width: 100%;
   height: 4.5rem;

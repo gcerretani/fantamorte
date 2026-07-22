@@ -18,5 +18,10 @@ def bar_chart(rows):
     """
     max_value = max((r['value'] for r in rows), default=0) or 1
     for r in rows:
-        r['pct'] = round(100 * r['value'] / max_value, 1)
+        # Stringa già formattata (non un float): il template la inietta in un
+        # `style="width: {{ pct }}%"`. Con LANGUAGE_CODE='it-it' Django
+        # localizza i float in {{ }} con la virgola come separatore
+        # decimale ("100,0"), CSS non valido che i browser scartano in
+        # silenzio — la barra risulta invisibile o piena a caso.
+        r['pct'] = f'{100 * r["value"] / max_value:.1f}'
     return rows
