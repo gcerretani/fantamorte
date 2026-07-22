@@ -15,6 +15,11 @@
          href="{% url 'league_rankings' league.slug %}">Classifica</a>
     </li>
     <li class="nav-item">
+      <a class="nav-link{% if url_name == 'league_stats' %} active{% endif %}"
+         {% if url_name == 'league_stats' %}aria-current="page"{% endif %}
+         href="{% url 'league_stats' league.slug %}">Statistiche</a>
+    </li>
+    <li class="nav-item">
       <a class="nav-link{% if url_name == 'league_deaths' %} active{% endif %}"
          {% if url_name == 'league_deaths' %}aria-current="page"{% endif %}
          href="{% url 'league_deaths' league.slug %}">Cronologia</a>

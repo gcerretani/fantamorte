@@ -42,6 +42,9 @@
               {% else %}
                 <span class="badge text-bg-secondary">manuale</span>
               {% endif %}
+              {% if b.bonus_type.league_id %}
+                <span class="badge text-bg-info" title="Bonus personalizzato di questa lega">{{ b.bonus_type.league.name }}</span>
+              {% endif %}
             </div>
             <span class="fw-bold">+{{ b.points_awarded }}</span>
           </li>
@@ -61,10 +64,10 @@
   </div>
 
   <div class="col-md-4">
-    <h5>Squadre coinvolte</h5>
-    {% if teams_affected %}
-      <ul class="list-group">
-        {% for ta in teams_affected %}
+    <span class="fm-label">Squadre che guadagnano punti</span>
+    {% if teams_scoring %}
+      <ul class="list-group mb-3">
+        {% for ta in teams_scoring %}
           <li class="list-group-item d-flex justify-content-between">
             <a href="{% url 'team_detail' ta.team.pk %}">{{ ta.team.name }}</a>
             <span class="badge text-bg-secondary">+{{ ta.points }}</span>
@@ -72,7 +75,19 @@
         {% endfor %}
       </ul>
     {% else %}
-      <p class="text-body-secondary">Nessuna squadra coinvolta.</p>
+      <p class="text-body-secondary">Nessuna squadra guadagna punti da questo decesso.</p>
+    {% endif %}
+
+    {% if teams_not_scoring %}
+      <span class="fm-label">Fuori periodo &middot; nessun punto</span>
+      <ul class="list-group">
+        {% for ta in teams_not_scoring %}
+          <li class="list-group-item d-flex justify-content-between">
+            <a href="{% url 'team_detail' ta.team.pk %}">{{ ta.team.name }}</a>
+            <span class="badge text-bg-secondary">0</span>
+          </li>
+        {% endfor %}
+      </ul>
     {% endif %}
   </div>
 </div>

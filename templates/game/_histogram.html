@@ -1,0 +1,19 @@
+{% comment %}
+Istogramma a barre verticali (età, distribuzioni a fasce). Contesto richiesto:
+  chart_bins: lista di dict {label, value, pct} (pct 0-100 da game.charts.bar_chart,
+              `value` è il conteggio mostrato sopra la barra).
+Uso: {% include 'game/_histogram.html' with chart_bins=distribuzione_eta %}
+{% endcomment %}
+{% if chart_bins %}
+<div class="fm-histogram">
+  {% for bin in chart_bins %}
+    <div class="fm-histogram-bar">
+      <span class="fm-histogram-count">{{ bin.value }}</span>
+      <span class="fm-histogram-track">
+        <span class="fm-histogram-fill" style="height: {{ bin.pct }}%;"></span>
+      </span>
+      <span class="fm-histogram-label">{{ bin.label }}</span>
+    </div>
+  {% endfor %}
+</div>
+{% endif %}

@@ -1,0 +1,21 @@
+{% comment %}
+Grafico a barre orizzontali riusabile (CSS, non SVG/canvas: nessuna
+dipendenza esterna, theme-aware sui token --fm-*). Contesto richiesto:
+  chart_bars: lista di dict {label, value, display, pct, highlight?}
+              (pct 0-100 già calcolato da game.charts.bar_chart; display è
+              il testo mostrato a fianco della barra, es. "80 punti").
+Uso: {% include 'game/_bar_chart.html' with chart_bars=punti_per_squadra %}
+{% endcomment %}
+{% if chart_bars %}
+<ul class="fm-chart">
+  {% for bar in chart_bars %}
+    <li class="fm-chart-row{% if bar.highlight %} fm-chart-row-highlight{% endif %}">
+      <span class="fm-chart-label">{{ bar.label }}</span>
+      <span class="fm-chart-track">
+        <span class="fm-chart-fill" style="width: {{ bar.pct }}%;"></span>
+      </span>
+      <span class="fm-chart-value">{{ bar.display }}</span>
+    </li>
+  {% endfor %}
+</ul>
+{% endif %}
