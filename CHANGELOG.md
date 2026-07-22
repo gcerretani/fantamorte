@@ -4,6 +4,17 @@ Tutte le modifiche rilevanti di questo progetto sono documentate qui.
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 il versionamento segue [SemVer](https://semver.org/lang/it/).
 
+## [0.3.4] - 2026-07-22
+
+- Fix: grafici della pagina Statistiche di lega invisibili (barre piatte).
+  Con `LANGUAGE_CODE='it-it'` i float interpolati nei template usano la
+  virgola come separatore decimale (`100,0`), producendo CSS non valido in
+  `style="width: ...%"` che i browser scartano in silenzio
+  (`_bar_chart.html`/`_histogram.html`)
+- Fix: etichette squadra duplicate/ambigue nei grafici — ora usano lo
+  username del manager invece del nome squadra (spesso il default
+  "Squadra di ..." troncato)
+
 ## [0.3.3] - 2026-07-22
 
 - Fix: `team_detail` mostra ora anche i bonus dinamici (originale/primo/ultimo
