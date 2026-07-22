@@ -4,6 +4,22 @@ Tutte le modifiche rilevanti di questo progetto sono documentate qui.
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 il versionamento segue [SemVer](https://semver.org/lang/it/).
 
+## [0.3.3] - 2026-07-22
+
+- Fix: `team_detail` mostra ora anche i bonus dinamici (originale/primo/ultimo
+  morto) nel breakdown punti, prima invisibili pur contando ai punti
+- Fix: bonus custom di più leghe (es. più edizioni "Covid-19") mostrano la
+  lega di appartenenza in `death_detail` invece di apparire duplicati senza
+  spiegazione
+- Fix: il calcolo punti rispetta la finestra `start_date`/`end_date` della
+  lega e `is_confirmed`; `death_detail` separa le squadre "guadagnano punti"
+  da quelle "fuori periodo" invece di mostrare punti che il punteggio reale
+  non assegna
+- Fix: refuso "legha" → "lega" nel plurale della leaderboard all-time
+- Nuova pagina Statistiche per singola lega (età media rosa, distribuzione
+  età, punti per squadra, bonus più frequenti), con grafici a barre CSS
+  self-hosted
+
 ## [0.3.2] - 2026-07-21
 
 - Fix: commento multi-riga in `_league_entry_list.html` renderizzato in
