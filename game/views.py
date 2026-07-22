@@ -25,7 +25,7 @@ from django.views.generic import TemplateView, DetailView, View
 
 from wikidata_api.client import WikidataClient
 
-from . import person_sync, scoring, timeline
+from . import charts, person_sync, scoring, timeline
 from .models import (
     MONTHS_IT, BonusType, Death, DeathBonus, League, LeagueBonus,
     LeagueMembership, Notification, PushSubscription, SiteSettings, Team,
@@ -201,6 +201,19 @@ class StatsView(LoginRequiredMixin, TemplateView):
             .annotate(n=Count('id'))
             .order_by('-n', 'bonus_type__name')[:8]
         )
+
+        # Grafici di sintesi (barre CSS, vedi game/charts.py): stessi dati già
+        # calcolati sopra, solo riformattati per _bar_chart.html.
+        ctx['all_time_chart'] = charts.bar_chart([
+            {'label': a['manager'].username, 'value': a['points'], 'display': f"{a['points']} punti"}
+            for a in ctx['all_time'][:10]
+        ])
+        if ctx['all_time_chart']:
+            ctx['all_time_chart'][0]['highlight'] = True
+        ctx['most_played_chart'] = charts.bar_chart([
+            {'label': e['person'].name_it, 'value': e['count'], 'display': e['count']}
+            for e in ctx['most_played']
+        ])
         return ctx
 
 
@@ -842,6 +855,134 @@ class LeagueDeathsView(LoginRequiredMixin, View):
         return redirect('league_deaths', slug=slug)
 
 
+class LeagueStatsView(LoginRequiredMixin, View):
+    """Statistiche della singola lega: età delle rose, punti per squadra,
+    distribuzione età dei personaggi giocati, bonus più frequenti.
+
+    Riusa `compute_league_rankings` (già cachato) per punti e composizione
+    squadre — nessun percorso di calcolo punteggio parallelo. In fase
+    segreta pre-campionato (`rosters_secret_now`) la pagina non calcola
+    nulla: mostrare età/composizione delle rose equivarrebbe a rivelarle,
+    anche a staff/admin di lega (stessa regola di `roster_hidden_for`).
+    """
+
+    AGE_BINS = [
+        (0, 29, '<30'), (30, 39, '30-39'), (40, 49, '40-49'), (50, 59, '50-59'),
+        (60, 69, '60-69'), (70, 79, '70-79'), (80, 89, '80-89'), (90, None, '90+'),
+    ]
+
+    def get(self, request, slug):
+        league = get_object_or_404(League, slug=slug)
+        if not league.can_user_view(request.user):
+            return redirect('league_list')
+        is_admin = league.is_admin(request.user)
+        if league.rosters_secret_now():
+            return render(request, 'game/league_stats.html', {
+                'league': league, 'is_admin': is_admin, 'rosters_secret': True,
+            })
+
+        rankings = scoring.compute_league_rankings(league)
+
+        # Età media della rosa attiva per squadra: i membri sono già
+        # prefetchati da compute_league_rankings, il filtro is_active() è
+        # python-side per non pagare una query aggiuntiva per squadra.
+        team_age_rows = []
+        for entry in rankings:
+            team = entry['team']
+            ages = [
+                age for m in team.members.all() if m.is_active()
+                for age in [m.person.get_current_age()] if age is not None
+            ]
+            if ages:
+                team_age_rows.append({
+                    'label': team.name,
+                    'value': round(sum(ages) / len(ages), 1),
+                })
+        team_age_rows.sort(key=lambda r: -r['value'])
+        if team_age_rows:
+            team_age_rows[0]['highlight'] = True
+            for r in team_age_rows:
+                r['display'] = f"{r['value']:g} anni"
+        charts.bar_chart(team_age_rows)
+
+        # Punti per squadra: già ordinati per punteggio decrescente da
+        # compute_league_rankings.
+        points_rows = [
+            {'label': entry['team'].name, 'value': entry['score'], 'display': f"{entry['score']} punti"}
+            for entry in rankings
+        ]
+        if points_rows and points_rows[0]['value'] > 0:
+            points_rows[0]['highlight'] = True
+        charts.bar_chart(points_rows)
+
+        # Decessi conteggiati dalla lega: stesso filtro di LeagueDeathsView.
+        deaths_qs = Death.objects.filter(
+            is_confirmed=True,
+            death_date__gte=league.start_date,
+            death_date__lte=league.end_date,
+            person__team_members__team__league=league,
+        ).distinct().select_related('person').defer('person__claims_cache')
+        deaths = list(deaths_qs)
+        ages_at_death = []
+        for death in deaths:
+            age = death.death_age or death.person.get_age_at_death()
+            if age is not None:
+                ages_at_death.append({'age': age, 'death': death})
+
+        # Distribuzione età dei personaggi giocati (rose attive, vivi o morti).
+        # `claims_cache` (blob JSON pesante) non serve qui: deferito come nelle
+        # altre query di scoring/liste (vedi CLAUDE.md).
+        persons = WikipediaPerson.objects.filter(
+            team_members__team__league=league, team_members__replaced_by__isnull=True,
+        ).distinct().defer('claims_cache')
+        bin_rows = [{'label': label, 'value': 0} for _, _, label in self.AGE_BINS]
+        players_count = 0
+        for person in persons:
+            players_count += 1
+            age = person.get_current_age()
+            if age is None:
+                continue
+            for i, (lo, hi, _) in enumerate(self.AGE_BINS):
+                if age >= lo and (hi is None or age <= hi):
+                    bin_rows[i]['value'] += 1
+                    break
+        charts.bar_chart(bin_rows)
+
+        # Bonus più frequenti tra i bonus effettivamente attivi in questa lega.
+        active_bonus_ids = LeagueBonus.objects.filter(
+            league=league, is_active=True,
+        ).values_list('bonus_type_id', flat=True)
+        bonus_rows = list(
+            DeathBonus.objects.filter(death__in=deaths, bonus_type_id__in=active_bonus_ids)
+            .values('bonus_type__name')
+            .annotate(n=Count('id'))
+            .order_by('-n', 'bonus_type__name')[:8]
+        )
+        bonus_chart_rows = [
+            {'label': b['bonus_type__name'], 'value': b['n'], 'display': b['n']}
+            for b in bonus_rows
+        ]
+        charts.bar_chart(bonus_chart_rows)
+
+        ctx = {
+            'league': league,
+            'is_admin': is_admin,
+            'rosters_secret': False,
+            'teams_count': len(rankings),
+            'players_count': players_count,
+            'deaths_count': len(deaths),
+            'team_age_rows': team_age_rows,
+            'points_rows': points_rows,
+            'age_bins': bin_rows,
+            'bonus_rows': bonus_chart_rows,
+        }
+        if ages_at_death:
+            ctx['avg_death_age'] = round(sum(a['age'] for a in ages_at_death) / len(ages_at_death))
+            ctx['youngest_death'] = min(ages_at_death, key=lambda a: a['age'])
+            ctx['oldest_death'] = max(ages_at_death, key=lambda a: a['age'])
+        return render(request, 'game/league_stats.html', ctx)
+
+
 # ---------------- Squadre ----------------
 
 class TeamDetailView(LoginRequiredMixin, DetailView):
@@ -904,7 +1045,13 @@ class DeathDetailView(LoginRequiredMixin, DetailView):
             if not b.bonus_type.league_id
             or b.bonus_type.league.can_user_view(self.request.user)
         ]
-        ctx['teams_affected'] = []
+        # Due sezioni: squadre la cui lega copre la data del decesso (e quindi
+        # guadagnano punti) e squadre che hanno la persona in rosa ma la cui
+        # lega non copre quella data (nessun punto — prima finivano comunque
+        # in un'unica lista senza distinzione, dando l'impressione che il
+        # decesso "contasse" ovunque).
+        teams_scoring = []
+        teams_not_scoring = []
         members = TeamMember.objects.filter(person=death.person).select_related(
             'team__manager', 'team__league',
         )
@@ -916,9 +1063,16 @@ class DeathDetailView(LoginRequiredMixin, DetailView):
                 continue
             if league and league.roster_hidden_for(self.request.user, member.team):
                 continue
-            pts = scoring.compute_team_points_for_death(member.team, death)
-            if pts:
-                ctx['teams_affected'].append({'team': member.team, 'points': pts})
+            in_window = league is None or (league.start_date <= death.death_date <= league.end_date)
+            if in_window and death.is_confirmed:
+                pts = scoring.compute_team_points_for_death(member.team, death)
+                if pts:
+                    teams_scoring.append({'team': member.team, 'points': pts})
+                    continue
+            teams_not_scoring.append({'team': member.team})
+        teams_scoring.sort(key=lambda t: -t['points'])
+        ctx['teams_scoring'] = teams_scoring
+        ctx['teams_not_scoring'] = teams_not_scoring
         return ctx
 
 

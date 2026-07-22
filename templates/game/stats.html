@@ -114,6 +114,9 @@
     {% else %}
       <p class="text-body-secondary">Nessun morituro ancora schierato.</p>
     {% endif %}
+    {% if most_played_chart %}
+      <div class="mt-2">{% include 'game/_bar_chart.html' with chart_bars=most_played_chart %}</div>
+    {% endif %}
   </div>
 
   <div class="col-lg-6 mb-4">
@@ -208,7 +211,7 @@
                 <span class="fw-semibold">{{ a.manager.username }}</span>
                 {% if a.manager == user %}<span class="badge text-bg-primary">tu</span>{% endif %}
                 <div class="small text-body-secondary">
-                  {{ a.leagues }} legh{{ a.leagues|pluralize:"a,e" }} &middot; {{ a.wins }} vittori{{ a.wins|pluralize:"a,e" }}
+                  {{ a.leagues }} leg{{ a.leagues|pluralize:"a,he" }} &middot; {{ a.wins }} vittori{{ a.wins|pluralize:"a,e" }}
                 </div>
               </div>
               <div class="fm-metric">
@@ -221,6 +224,9 @@
       </ul>
     {% else %}
       <p class="text-body-secondary">Nessuna lega con squadre al momento.</p>
+    {% endif %}
+    {% if all_time_chart %}
+      <div class="mt-2">{% include 'game/_bar_chart.html' with chart_bars=all_time_chart %}</div>
     {% endif %}
   </div>
 </div>

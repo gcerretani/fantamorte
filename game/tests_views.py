@@ -212,6 +212,51 @@ class DeathDetailBonusVisibilityTest(ViewsBaseTestCase):
         self.assertContains(resp, 'Bonus Di Sistema')
 
 
+class DeathDetailTeamsScoringTest(ViewsBaseTestCase):
+    """La sezione "Squadre coinvolte" di /morte/<pk>/ deve distinguere le
+    squadre la cui lega copre la data del decesso (guadagnano punti) da
+    quelle che hanno la persona in rosa ma il cui periodo non la copre
+    (bug: prima finivano comunque nell'unica lista, con punti "fantasma"
+    che il punteggio reale non assegna)."""
+
+    def setUp(self):
+        super().setUp()
+        self.death = Death.objects.create(
+            person=self.person, death_date=date(2023, 6, 12), death_age=86,
+            is_confirmed=True,
+        )
+        self.url = reverse('death_detail', args=[self.death.pk])
+
+    def test_squadra_in_periodo_guadagna_punti(self):
+        self.client.login(username='member', password='x')
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 200)
+        scoring_teams = {t['team'] for t in resp.context['teams_scoring']}
+        self.assertIn(self.private_team, scoring_teams)
+        self.assertEqual(resp.context['teams_not_scoring'], [])
+
+    def test_squadra_fuori_periodo_non_guadagna_punti(self):
+        lega_fuori = League.objects.create(
+            name='Lega Fuori Periodo', slug='lega-fuori-periodo', owner=self.outsider,
+            visibility=League.VISIBILITY_PUBLIC,
+            start_date=date(1990, 1, 1), end_date=date(1999, 12, 31),
+            registration_opens=date(1989, 1, 1), registration_closes=date(1999, 12, 31),
+        )
+        squadra_fuori = Team.objects.create(
+            name='Squadra Fuori', manager=self.outsider, league=lega_fuori,
+        )
+        TeamMember.objects.create(team=squadra_fuori, person=self.person)
+
+        self.client.login(username='outsider', password='x')
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 200)
+        scoring_teams = {t['team'] for t in resp.context['teams_scoring']}
+        not_scoring_teams = {t['team'] for t in resp.context['teams_not_scoring']}
+        self.assertNotIn(squadra_fuori, scoring_teams)
+        self.assertIn(squadra_fuori, not_scoring_teams)
+        self.assertContains(resp, 'Fuori periodo')
+
+
 class BulkSyncServerSideTest(ViewsBaseTestCase):
     """La sync giocatori applica solo dati Wikidata, mai input del client."""
 
@@ -1710,6 +1755,51 @@ class StatsPageTest(ViewsBaseTestCase):
         self.assertEqual(resp.context['deaths_count'], 0)
         self.assertEqual(resp.context['most_played'], [])
         self.assertEqual(resp.context['top_bonuses'], [])
+
+
+class LeagueStatsViewTest(ViewsBaseTestCase):
+    """Pagina statistiche di lega: accesso, contenuti di base, gate rose."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        super().setUp()
+        cache.clear()  # i rankings per-lega sono cachati tra i test
+        self.death = Death.objects.create(
+            person=self.person, death_date=date(2023, 6, 12), death_age=86,
+            is_confirmed=True,
+        )
+        self.url = reverse('league_stats', args=['lega-privata'])
+
+    def test_membro_vede_le_statistiche(self):
+        self.client.login(username='member', password='x')
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTemplateUsed(resp, 'game/league_stats.html')
+        self.assertEqual(resp.context['teams_count'], 1)
+        self.assertEqual(resp.context['deaths_count'], 1)
+        # La squadra unica prende i 50 punti base: deve comparire nel grafico.
+        self.assertEqual(
+            [r['label'] for r in resp.context['points_rows']], ['Squadra Privata'],
+        )
+
+    def test_estraneo_a_lega_privata_viene_reindirizzato(self):
+        self.client.login(username='outsider', password='x')
+        resp = self.client.get(self.url)
+        self.assertRedirects(resp, reverse('league_list'))
+
+    def test_rose_segrete_preseason_nasconde_le_statistiche(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        today = timezone.now().date()
+        self.private_league.secret_rosters_preseason = True
+        self.private_league.start_date = today + timedelta(days=30)
+        self.private_league.registration_closes = today + timedelta(days=30)
+        self.private_league.save()
+        self.client.login(username='member', password='x')
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Rose segrete')
+        self.assertNotIn('team_age_rows', resp.context)
 
 
 class CaptainSuccessionTest(ViewsBaseTestCase):

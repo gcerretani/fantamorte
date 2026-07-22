@@ -224,7 +224,17 @@ def _points_for_member_death(member, team, death, league, lb_map, first_pk=None,
 
 
 def compute_team_points_for_death(team, death):
+    """Punti che `team` guadagna da `death`, o 0 se il decesso non conta per
+    questa squadra: persona non in rosa, decesso non confermato, o fuori dalla
+    finestra `start_date`/`end_date` della lega (stesso filtro applicato da
+    `_confirmed_deaths_for_league` a classifiche e dettaglio squadra — senza
+    questa guardia la pagina decesso mostrerebbe punti che il punteggio reale
+    non assegna)."""
+    if not death.is_confirmed:
+        return 0
     league = _league_of(team)
+    if league is not None and not (league.start_date <= death.death_date <= league.end_date):
+        return 0
     member = _find_member(team, death.person_id)
     if member is None:
         return 0
@@ -233,6 +243,46 @@ def compute_team_points_for_death(team, death):
         member, team, death, league, _league_bonus_map(league),
         first_pk=first_pk, last_pk=last_pk,
     )
+
+
+def _bonus_lines_for_death(member, death, league, lb_map, first_pk, last_pk):
+    """Righe {name, points} dei bonus grezzi (pre-moltiplicatore) applicati a
+    (member, death) in questa lega: sia i `DeathBonus` persistiti attivi nella
+    lega, sia i bonus dinamici (originale/primo/ultimo morto) che non hanno una
+    riga DeathBonus propria. Pensata per il breakdown mostrato in team_detail:
+    senza queste righe i punti "in più" rispetto alla base risultano
+    ingiustificati in GUI (es. bonus originalità) o il bonus condiviso tra più
+    leghe (es. Covid-19) sembra assente pur contando."""
+    lines = []
+    for b in death.bonuses.all():
+        if b.bonus_type.detection_method in (BonusType.DETECTION_FIRST_DEATH, BonusType.DETECTION_LAST_DEATH):
+            # Righe DeathBonus legacy: ignorate dallo scoring (vedi
+            # _bonus_points_in_league), i bonus dinamici sotto le sostituiscono.
+            continue
+        if league is None:
+            # Fallback legacy (squadra senza lega): stessa priorità di
+            # _bonus_points_in_league quando lb_map è vuota.
+            bt = b.bonus_type
+            pts = bt.compute_points(age=death.death_age) if bt.points_formula else (
+                b.points_awarded if b.points_awarded is not None else bt.points
+            )
+            lines.append({'name': bt.name, 'points': pts})
+            continue
+        lb = lb_map.get(b.bonus_type_id)
+        if lb is None:
+            # Bonus non configurato in questa lega: non conta e non si mostra
+            # (coerente con _bonus_points_in_league).
+            continue
+        lines.append({'name': b.bonus_type.name, 'points': lb.compute_points(age=death.death_age)})
+    for lb in lb_map.values():
+        dm = lb.bonus_type.detection_method
+        if dm == BonusType.DETECTION_ORIGINAL and member.is_original:
+            lines.append({'name': lb.bonus_type.name, 'points': lb.compute_points(age=death.death_age)})
+        elif dm == BonusType.DETECTION_FIRST_DEATH and death.pk == first_pk:
+            lines.append({'name': lb.bonus_type.name, 'points': lb.compute_points(age=death.death_age)})
+        elif dm == BonusType.DETECTION_LAST_DEATH and last_pk is not None and death.pk == last_pk:
+            lines.append({'name': lb.bonus_type.name, 'points': lb.compute_points(age=death.death_age)})
+    return lines
 
 
 def compute_team_death_details(team):
@@ -257,6 +307,7 @@ def compute_team_death_details(team):
             'points': pts,
             'base': base,
             'bonuses': list(death.bonuses.all()),
+            'bonus_lines': _bonus_lines_for_death(member, death, league, lb_map, first_pk, last_pk),
             'is_captain': member.is_captain,
             'is_original': member.is_original,
             'is_first_death': death.pk == first_pk,

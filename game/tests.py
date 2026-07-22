@@ -329,6 +329,19 @@ class BonusOriginaleTest(ScoringBaseTestCase):
         pts = compute_team_points_for_death(self.team, self.death_fellini)
         self.assertEqual(pts, 150)
 
+    def test_bonus_lines_espone_il_bonus_originale(self):
+        # Il breakdown di team_detail deve spiegare i +25 (bug: prima il
+        # bonus originalità contribuiva ai punti ma non compariva da nessuna
+        # parte nella GUI, vedi CHANGELOG/segnalazione utente).
+        TeamMember.objects.create(
+            team=self.team, person=self.fellini,
+            is_captain=False, is_original=True,
+        )
+        details = compute_team_death_details(self.team)
+        detail = next(d for d in details if d['death'] == self.death_fellini)
+        self.assertEqual(detail['points'], 75)
+        self.assertEqual(detail['bonus_lines'], [{'name': 'Giocata Originale', 'points': 25}])
+
 
 class FiltriDateLeagaTest(ScoringBaseTestCase):
 
@@ -351,6 +364,27 @@ class FiltriDateLeagaTest(ScoringBaseTestCase):
         TeamMember.objects.create(team=squadra, person=self.fellini)
         score = compute_team_total_score(squadra)
         self.assertEqual(score, 50)  # solo Berlusconi (2023)
+
+    def test_compute_team_points_for_death_fuori_range_ritorna_zero(self):
+        # Stessa squadra/lega di sopra: Fellini (1993) è fuori dal periodo
+        # 2020-2025, quindi non deve generare punti anche se interrogato
+        # direttamente (usato da death_detail per "squadre coinvolte": senza
+        # questa guardia mostrerebbe punti che il punteggio reale non dà).
+        lega_moderna = League.objects.create(
+            name='Lega Moderna Bis',
+            slug='lega-moderna-bis',
+            owner=self.owner,
+            start_date=date(2020, 1, 1),
+            end_date=date(2025, 12, 31),
+            registration_opens=date(2019, 12, 1),
+            registration_closes=date(2020, 1, 31),
+            base_points=50,
+        )
+        squadra = Team.objects.create(
+            name='Squadra Moderna Bis', manager=self.owner, league=lega_moderna,
+        )
+        TeamMember.objects.create(team=squadra, person=self.fellini)
+        self.assertEqual(compute_team_points_for_death(squadra, self.death_fellini), 0)
 
     def test_morte_esattamente_a_start_date_conta(self):
         lega = League.objects.create(

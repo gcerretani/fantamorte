@@ -95,7 +95,7 @@
                 {% if d.is_captain %}<span class="badge text-bg-primary">C</span>{% endif %}
                 {% if d.jolly %}<span class="badge text-bg-info" title="Mese jolly">J</span>{% endif %}
                 <div class="small text-body-secondary">
-                  {{ d.death.death_date|date:"d/m/Y" }} &middot; base {{ d.base }}{% for b in d.bonuses %} &middot; {{ b.bonus_type.name }}{% endfor %}{% if d.multiplier != 1 %} &middot; &times;{{ d.multiplier }}{% endif %}
+                  {{ d.death.death_date|date:"d/m/Y" }} &middot; base {{ d.base }}{% for b in d.bonus_lines %} &middot; {{ b.name }} +{{ b.points }}{% endfor %}{% if d.multiplier != 1 %} &middot; &times;{{ d.multiplier }}{% endif %}
                 </div>
               </div>
               <div class="fm-metric">

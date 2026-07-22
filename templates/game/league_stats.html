@@ -1,0 +1,107 @@
+{% extends 'base.html' %}
+{% block title %}Statistiche {{ league.name }}{% endblock %}
+{% block content %}
+
+<header class="fm-page-header">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'league_list' %}">Leghe</a></li>
+      <li class="breadcrumb-item"><a href="{% url 'league_detail' league.slug %}">{{ league.name }}</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Statistiche</li>
+    </ol>
+  </nav>
+  <h2 class="mb-0">Statistiche</h2>
+</header>
+
+{% include 'game/_league_nav.html' %}
+
+{% if rosters_secret %}
+<div class="card">
+  <div class="card-body text-center py-5">
+    <p class="display-6 mb-2" aria-hidden="true">&#128274;</p>
+    <p class="fw-semibold mb-1">Rose segrete</p>
+    <p class="text-body-secondary mb-0">Le statistiche di lega restano nascoste fino all'inizio del gioco ({{ league.start_date|date:"d/m/Y" }}): mostrerebbero indirettamente le rose.</p>
+  </div>
+</div>
+{% else %}
+
+<div class="row g-2 row-cols-2 row-cols-md-3 mb-4">
+  <div class="col">
+    <div class="fm-stat">
+      <div class="fm-stat-value">{{ teams_count }}</div>
+      <div class="fm-stat-label">Squadre</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="fm-stat">
+      <div class="fm-stat-value">{{ players_count }}</div>
+      <div class="fm-stat-label">Morituri schierati</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="fm-stat">
+      <div class="fm-stat-value">{{ deaths_count }}</div>
+      <div class="fm-stat-label">Decessi conteggiati</div>
+    </div>
+  </div>
+  {% if avg_death_age %}
+  <div class="col">
+    <div class="fm-stat">
+      <div class="fm-stat-value">{{ avg_death_age }} anni</div>
+      <div class="fm-stat-label">Età media alla morte</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="fm-stat">
+      <div class="fm-stat-value">{{ youngest_death.age }} anni</div>
+      <div class="fm-stat-label">Più giovane: {{ youngest_death.death.person.name_it }}</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="fm-stat">
+      <div class="fm-stat-value">{{ oldest_death.age }} anni</div>
+      <div class="fm-stat-label">Più anziano: {{ oldest_death.death.person.name_it }}</div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<div class="row">
+  <div class="col-lg-6 mb-4">
+    <span class="fm-label mb-1">Punti per squadra</span>
+    <p class="text-body-secondary small mb-2">Classifica sintetica, evidenziata la prima.</p>
+    {% if points_rows %}
+      {% include 'game/_bar_chart.html' with chart_bars=points_rows %}
+    {% else %}
+      <p class="text-body-secondary">Ancora nessun punto in lega.</p>
+    {% endif %}
+  </div>
+
+  <div class="col-lg-6 mb-4">
+    <span class="fm-label mb-1">Età media della rosa</span>
+    <p class="text-body-secondary small mb-2">Età attuale (o all'eventuale decesso) dei membri attivi. Evidenziata la rosa più anziana.</p>
+    {% if team_age_rows %}
+      {% include 'game/_bar_chart.html' with chart_bars=team_age_rows %}
+    {% else %}
+      <p class="text-body-secondary">Dati di nascita non disponibili per le rose attuali.</p>
+    {% endif %}
+  </div>
+
+  <div class="col-lg-6 mb-4">
+    <span class="fm-label mb-1">Distribuzione età dei giocati</span>
+    <p class="text-body-secondary small mb-2">Personaggi nelle rose attive, vivi o morti.</p>
+    {% include 'game/_histogram.html' with chart_bins=age_bins %}
+  </div>
+
+  {% if bonus_rows %}
+  <div class="col-lg-6 mb-4">
+    <span class="fm-label mb-1">Bonus più frequenti</span>
+    <p class="text-body-secondary small mb-2">Tra i bonus attivi in questa lega, sui decessi conteggiati.</p>
+    {% include 'game/_bar_chart.html' with chart_bars=bonus_rows %}
+  </div>
+  {% endif %}
+</div>
+
+{% endif %}
+
+{% endblock %}
