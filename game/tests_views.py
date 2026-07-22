@@ -1777,9 +1777,11 @@ class LeagueStatsViewTest(ViewsBaseTestCase):
         self.assertTemplateUsed(resp, 'game/league_stats.html')
         self.assertEqual(resp.context['teams_count'], 1)
         self.assertEqual(resp.context['deaths_count'], 1)
-        # La squadra unica prende i 50 punti base: deve comparire nel grafico.
+        # La squadra unica prende i 50 punti base: deve comparire nel grafico,
+        # etichettata col manager (più corto e sempre distinguibile del nome
+        # squadra, spesso il default "Squadra di <manager>" non rinominato).
         self.assertEqual(
-            [r['label'] for r in resp.context['points_rows']], ['Squadra Privata'],
+            [r['label'] for r in resp.context['points_rows']], ['member'],
         )
 
     def test_estraneo_a_lega_privata_viene_reindirizzato(self):

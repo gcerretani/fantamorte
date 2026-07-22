@@ -895,7 +895,12 @@ class LeagueStatsView(LoginRequiredMixin, View):
             ]
             if ages:
                 team_age_rows.append({
-                    'label': team.name,
+                    # Il manager (unico per squadra/lega) è più corto e
+                    # sempre distinguibile del nome squadra, spesso il
+                    # default "Squadra di <manager>" non rinominato: sotto
+                    # troncamento due squadre diverse rischiano di apparire
+                    # identiche (vedi anche all_time_chart in StatsView).
+                    'label': team.manager.username,
                     'value': round(sum(ages) / len(ages), 1),
                 })
         team_age_rows.sort(key=lambda r: -r['value'])
@@ -908,7 +913,11 @@ class LeagueStatsView(LoginRequiredMixin, View):
         # Punti per squadra: già ordinati per punteggio decrescente da
         # compute_league_rankings.
         points_rows = [
-            {'label': entry['team'].name, 'value': entry['score'], 'display': f"{entry['score']} punti"}
+            {
+                'label': entry['team'].manager.username,
+                'value': entry['score'],
+                'display': f"{entry['score']} punti",
+            }
             for entry in rankings
         ]
         if points_rows and points_rows[0]['value'] > 0:
