@@ -124,9 +124,10 @@
                   &middot; <span class="text-success">Vivo/a</span>
                 {% endif %}
               </div>
-              {% if member.person.is_dead and member.died_before_season %}
-                {# Deceduto prima dell'inizio della lega: niente sostituzione, #}
-                {# va rimosso dalla rosa (bottone × qui a fianco). #}
+              {% if member.person.is_dead and member.died_before_season and not league.has_started %}
+                {# In composizione niente sostituzione: va rimosso dalla rosa #}
+                {# (bottone × qui a fianco). Dall'inizio della lega in poi     #}
+                {# anche questo caso passa dal ramo sostituzione qui sotto.    #}
                 <div class="small text-warning mt-1">Deceduto/a prima dell'inizio: rimuovilo/a e scegli un altro personaggio.</div>
               {% elif member.person.is_dead and team.league.is_finished %}
                 {% comment %}
