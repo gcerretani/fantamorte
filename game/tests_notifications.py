@@ -9,6 +9,7 @@ Copre:
 """
 import json
 from datetime import date, timedelta
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core import mail
@@ -401,3 +402,138 @@ class DeviceLabelTest(TestCase):
             ).device_label,
             'Dispositivo sconosciuto',
         )
+
+
+class LegaConclusaTest(NotificationFeedBase):
+    """A lega conclusa non si sostituisce più, e i messaggi non lo promettono.
+
+    Il caso limite è la conferma *tardiva*: la deadline decorre da
+    `confirmed_at`, quindi un decesso con data dentro la finestra ma confermato
+    oggi aprirebbe una finestra di sostituzione dopo la fine della lega.
+    """
+
+    def _finished_league(self, slug='lega-chiusa', end=date(2024, 12, 31)):
+        league = League.objects.create(
+            name='Lega Chiusa', slug=slug, owner=self.owner,
+            start_date=date(2024, 1, 1), end_date=end,
+            registration_opens=date(2023, 12, 1), registration_closes=date(2023, 12, 31),
+        )
+        LeagueMembership.objects.create(league=league, user=self.owner, role='owner')
+        LeagueMembership.objects.create(league=league, user=self.member, role='member')
+        team = Team.objects.create(name='Rosa Chiusa', manager=self.owner, league=league)
+        person = WikipediaPerson.objects.create(
+            wikidata_id='Q555', name_it='Defunto Tardivo',
+            birth_date=date(1935, 1, 1), is_dead=False,
+        )
+        team_member = TeamMember.objects.create(team=team, person=person)
+        return league, team, person, team_member
+
+    def _confirm_late(self, person):
+        """Decesso dentro la finestra della lega, confermato adesso."""
+        person.is_dead = True
+        person.save()
+        return Death.objects.create(
+            person=person, death_date=date(2024, 6, 1), death_age=89,
+            is_confirmed=True, confirmed_at=timezone.now(),
+        )
+
+    def test_can_be_substituted_falso_a_lega_conclusa(self):
+        _, _, person, team_member = self._finished_league()
+        self._confirm_late(person)
+        team_member.refresh_from_db()
+        # La deadline è aperta (decorre da confirmed_at = adesso)...
+        self.assertIsNotNone(team_member.get_substitution_deadline())
+        self.assertGreater(team_member.get_substitution_deadline(), timezone.now())
+        # ...ma la lega è finita: non si sostituisce.
+        self.assertFalse(team_member.can_be_substituted())
+        self.assertFalse(team_member.died_before_season())
+
+    def test_can_be_substituted_vero_con_la_stessa_deadline_a_lega_in_corso(self):
+        """Controprova: è la conclusione a decidere, non il tempo residuo."""
+        league, _, person, team_member = self._finished_league()
+        self._confirm_late(person)
+        # Prolungo la lega: il gate è dinamico, la finestra torna disponibile.
+        league.end_date = date(2030, 12, 31)
+        league.save()
+        team_member.refresh_from_db()
+        self.assertTrue(team_member.can_be_substituted())
+
+    def test_push_non_promette_sostituzione_a_lega_conclusa(self):
+        _, _, person, _ = self._finished_league()
+        PushSubscription.objects.create(
+            user=self.owner, endpoint='https://push.example/owner', p256dh='k', auth='a',
+        )
+        with patch('game.push.send_push', return_value=True) as mock_send:
+            self._confirm_late(person)
+        payloads = [call.args[1] for call in mock_send.call_args_list]
+        self.assertEqual(len(payloads), 1)
+        # L'owner ha la persona in rosa: titolo urgente, ma nessuna promessa.
+        self.assertTrue(payloads[0]['urgent'])
+        self.assertNotIn('sostituirlo', payloads[0]['body'])
+        self.assertNotIn('Lega Chiusa', payloads[0]['body'])
+
+    def test_push_nomina_la_lega_del_destinatario_se_in_corso(self):
+        """Il corpo non deve pescare una lega qualsiasi che contenga la data."""
+        # L'altra lega (2020→2030, dalla fixture) contiene la stessa data ma
+        # l'owner non ha la persona in rosa lì: non va nominata.
+        altra = League.objects.create(
+            name='Lega Altrui', slug='lega-altrui', owner=self.outsider,
+            start_date=date(2024, 1, 1), end_date=date(2030, 12, 31),
+            registration_opens=date(2023, 12, 1), registration_closes=date(2023, 12, 31),
+            substitution_deadline_days=5,
+        )
+        LeagueMembership.objects.create(league=altra, user=self.outsider, role='owner')
+        league, _, person, _ = self._finished_league()
+        league.end_date = date(2030, 12, 31)
+        league.substitution_deadline_days = 9
+        league.save()
+        PushSubscription.objects.create(
+            user=self.owner, endpoint='https://push.example/owner', p256dh='k', auth='a',
+        )
+        PushSubscription.objects.create(
+            user=self.member, endpoint='https://push.example/member', p256dh='k', auth='a',
+        )
+        with patch('game.push.send_push', return_value=True) as mock_send:
+            self._confirm_late(person)
+        bodies = {
+            call.args[0].user_id: call.args[1]['body']
+            for call in mock_send.call_args_list
+        }
+        # owner: persona in rosa nella sua lega → frase con LA SUA lega
+        self.assertIn('9 giorni per sostituirlo', bodies[self.owner.pk])
+        self.assertIn('Lega Chiusa', bodies[self.owner.pk])
+        self.assertNotIn('Lega Altrui', bodies[self.owner.pk])
+        # member: iscritto ma senza la persona in rosa → nessuna frase
+        self.assertNotIn('sostituirlo', bodies[self.member.pk])
+
+    @override_settings(
+        EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+        DEFAULT_FROM_EMAIL='noreply@example.com',
+    )
+    def test_email_non_promette_sostituzione_a_lega_conclusa(self):
+        _, _, person, _ = self._finished_league()
+        mail.outbox = []
+        self._confirm_late(person)
+        # L'email per la lega conclusa va all'owner, che ha la persona in rosa:
+        # senza il gate conterrebbe la promessa di sostituzione.
+        chiuse = [m.body for m in mail.outbox if 'Lega Chiusa' in m.body]
+        self.assertTrue(chiuse)
+        for corpo in chiuse:
+            self.assertNotIn('per sostituirlo', corpo)
+
+    @override_settings(
+        EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+        DEFAULT_FROM_EMAIL='noreply@example.com',
+    )
+    def test_email_promette_sostituzione_solo_a_chi_ce_lha_in_rosa(self):
+        """Controllo positivo: a lega in corso la frase c'è, ma solo all'owner."""
+        league, _, person, _ = self._finished_league()
+        league.end_date = date(2030, 12, 31)
+        league.save()
+        mail.outbox = []
+        self._confirm_late(person)
+        per_destinatario = {
+            m.to[0]: m.body for m in mail.outbox if 'Lega Chiusa' in m.body
+        }
+        self.assertIn('per sostituirlo', per_destinatario[self.owner.email])
+        self.assertNotIn('per sostituirlo', per_destinatario[self.member.email])

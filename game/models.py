@@ -253,15 +253,25 @@ class TeamMember(models.Model):
         return death.confirmed_at + timedelta(days=days)
 
     def can_be_substituted(self):
-        """True se il membro è morto in stagione, non già sostituito e la
-        deadline non è scaduta.
+        """True se il membro è morto in stagione, non già sostituito, la lega non
+        è conclusa e la deadline non è scaduta.
 
         I decessi *prima* dell'inizio della lega (fase di composizione) non si
         sostituiscono: il membro va rimosso (vedi ``died_before_season``).
+
+        A lega **conclusa** non si sostituisce più, anche se la deadline
+        risultasse ancora aperta: la deadline decorre da ``confirmed_at``, non
+        dalla data di morte, quindi un decesso confermato in ritardo aprirebbe
+        una finestra dopo `end_date` — una sostituzione che non sposta un punto
+        (lo scoring legge la riga del membro morto e i decessi fuori periodo non
+        contano) e cambierebbe solo la rosa storica. Il controllo è dinamico:
+        se un admin prolunga `end_date`, la finestra torna disponibile.
         """
         if not self.is_active() or not self.person.is_dead:
             return False
         if self.died_before_season():
+            return False
+        if self.team.league_id and self.team.league.is_finished():
             return False
         deadline = self.get_substitution_deadline()
         if deadline is None:
