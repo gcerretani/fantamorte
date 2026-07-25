@@ -1,4 +1,5 @@
 """Test di integrazione su view e permessi (leghe private, IDOR, CSRF)."""
+import json
 from datetime import date
 from unittest.mock import patch
 
@@ -7,8 +8,8 @@ from django.test import Client, TestCase
 from django.urls import reverse
 
 from .models import (
-    BonusType, Death, DeathBonus, League, LeagueMembership, Team, TeamMember,
-    WikipediaPerson,
+    BonusType, Death, DeathBonus, League, LeagueMembership, PushSubscription,
+    Team, TeamMember, WikipediaPerson,
 )
 
 User = get_user_model()
@@ -316,6 +317,148 @@ class PushCsrfTest(ViewsBaseTestCase):
             content_type='application/json',
         )
         self.assertEqual(resp.status_code, 403)
+
+
+class PushDevicesTest(ViewsBaseTestCase):
+    """Elenco dispositivi, marcatore "questo dispositivo" e revoca."""
+
+    UA_ANDROID = ('Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) '
+                  'Chrome/120.0.0.0 Mobile Safari/537.36')
+    UA_MAC = ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 '
+              '(KHTML, like Gecko) Version/17.0 Safari/605.1.15')
+
+    def setUp(self):
+        super().setUp()
+        self.sub_a = PushSubscription.objects.create(
+            user=self.member, endpoint='https://push.example/a',
+            p256dh='k1', auth='a1', user_agent=self.UA_ANDROID,
+        )
+        self.sub_b = PushSubscription.objects.create(
+            user=self.member, endpoint='https://push.example/b',
+            p256dh='k2', auth='a2', user_agent=self.UA_MAC,
+        )
+        self.other_sub = PushSubscription.objects.create(
+            user=self.outsider, endpoint='https://push.example/z',
+            p256dh='k3', auth='a3', user_agent=self.UA_MAC,
+        )
+
+    def test_elenco_solo_propri_dispositivi(self):
+        self.client.login(username='member', password='x')
+        data = self.client.get(reverse('push_devices')).json()
+        self.assertEqual(data['count'], 2)
+        self.assertEqual({d['id'] for d in data['devices']}, {self.sub_a.pk, self.sub_b.pk})
+        self.assertIn('Chrome su Android', data['html'])
+        self.assertIn('Safari su macOS', data['html'])
+
+    def test_is_current_solo_con_endpoint_corrispondente(self):
+        self.client.login(username='member', password='x')
+        url = reverse('push_devices')
+        senza = self.client.get(url).json()
+        self.assertFalse(any(d['is_current'] for d in senza['devices']))
+        self.assertNotIn('questo dispositivo', senza['html'])
+
+        con = self.client.get(url, {'endpoint': self.sub_a.endpoint}).json()
+        correnti = [d['id'] for d in con['devices'] if d['is_current']]
+        self.assertEqual(correnti, [self.sub_a.pk])
+        self.assertIn('questo dispositivo', con['html'])
+
+    def test_endpoint_di_altro_utente_non_marca_nulla(self):
+        """L'endpoint altrui non deve poter marcare (né rivelare) righe."""
+        self.client.login(username='member', password='x')
+        data = self.client.get(reverse('push_devices'), {'endpoint': self.other_sub.endpoint}).json()
+        self.assertFalse(any(d['is_current'] for d in data['devices']))
+
+    def test_revoca_proprio_dispositivo(self):
+        self.client.login(username='member', password='x')
+        resp = self.client.post(reverse('push_device_revoke', args=[self.sub_a.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['status'], 'ok')
+        self.assertFalse(PushSubscription.objects.filter(pk=self.sub_a.pk).exists())
+        self.assertTrue(PushSubscription.objects.filter(pk=self.sub_b.pk).exists())
+
+    def test_revoca_dispositivo_di_altro_utente_404(self):
+        self.client.login(username='member', password='x')
+        resp = self.client.post(reverse('push_device_revoke', args=[self.other_sub.pk]))
+        self.assertEqual(resp.status_code, 404)
+        self.assertTrue(PushSubscription.objects.filter(pk=self.other_sub.pk).exists())
+
+    def test_profilo_accorda_singolare_e_plurale(self):
+        """La regressione d'origine: "1 dispositivo riceve" / "2 dispositivi ricevono"."""
+        self.client.login(username='member', password='x')
+        html = self.client.get(reverse('profile')).content.decode()
+        self.assertIn('2 dispositivi ricevono le notifiche push.', html)
+        self.assertNotIn('dispositivo/i', html)
+
+        self.sub_b.delete()
+        html = self.client.get(reverse('profile')).content.decode()
+        self.assertIn('1 dispositivo riceve le notifiche push.', html)
+
+        self.sub_a.delete()
+        html = self.client.get(reverse('profile')).content.decode()
+        self.assertIn('Nessun dispositivo registrato', html)
+
+
+class PushRotateTest(ViewsBaseTestCase):
+    """Rotazione endpoint dal service worker: aggiorna, non duplica."""
+
+    def setUp(self):
+        super().setUp()
+        self.sub = PushSubscription.objects.create(
+            user=self.member, endpoint='https://push.example/vecchio',
+            p256dh='k1', auth='a1', user_agent='Mozilla/5.0 (Linux; Android 14) Chrome/120',
+        )
+
+    def _rotate(self, old_endpoint, endpoint='https://push.example/nuovo'):
+        return self.client.post(
+            reverse('push_rotate'),
+            data=json.dumps({
+                'old_endpoint': old_endpoint,
+                'subscription': {'endpoint': endpoint, 'keys': {'p256dh': 'k9', 'auth': 'a9'}},
+            }),
+            content_type='application/json',
+        )
+
+    def test_rotazione_aggiorna_la_riga_esistente(self):
+        # Nessun login: il SW può girare senza sessione, si autentica per
+        # capability sull'endpoint vecchio.
+        resp = self._rotate(self.sub.endpoint)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()['rotated'])
+        self.assertEqual(PushSubscription.objects.filter(user=self.member).count(), 1)
+        self.sub.refresh_from_db()
+        self.assertEqual(self.sub.endpoint, 'https://push.example/nuovo')
+        self.assertEqual(self.sub.p256dh, 'k9')
+        self.assertEqual(self.sub.user, self.member)
+        self.assertIsNone(self.sub.last_used_at)
+
+    def test_endpoint_vecchio_sconosciuto_404_e_non_crea_nulla(self):
+        resp = self._rotate('https://push.example/mai-visto')
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(PushSubscription.objects.count(), 1)
+
+    def test_payload_incompleto_400(self):
+        resp = self.client.post(
+            reverse('push_rotate'),
+            data=json.dumps({'old_endpoint': self.sub.endpoint}),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.sub.refresh_from_db()
+        self.assertEqual(self.sub.endpoint, 'https://push.example/vecchio')
+
+    def test_nuovo_endpoint_gia_registrato_non_duplica(self):
+        """Rotazione notificata due volte: resta una sola riga per endpoint."""
+        PushSubscription.objects.create(
+            user=self.member, endpoint='https://push.example/nuovo',
+            p256dh='k9', auth='a9', user_agent='',
+        )
+        resp = self._rotate(self.sub.endpoint)
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.json()['rotated'])
+        self.assertEqual(
+            list(PushSubscription.objects.values_list('endpoint', flat=True)),
+            ['https://push.example/nuovo'],
+        )
 
 
 class TeamEditValidazioneTest(ViewsBaseTestCase):

@@ -531,6 +531,63 @@
     }
   };
 
+  // Endpoint push di questo browser, o '' se non iscritto/non supportato.
+  async function currentPushEndpoint() {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return '';
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      return sub ? sub.endpoint : '';
+    } catch (err) {
+      return '';
+    }
+  }
+
+  // Ridisegna l'elenco dispositivi push nel profilo. Il markup arriva già
+  // renderizzato dal server (partial _push_devices.html): un solo renderer,
+  // così le stringhe non divergono tra server e client.
+  window.fmRefreshPushDevices = async function () {
+    const region = document.getElementById('fmDevicesRegion');
+    if (!region) return;
+    try {
+      const endpoint = await currentPushEndpoint();
+      const url = '/api/push/devices/' + (endpoint ? '?endpoint=' + encodeURIComponent(endpoint) : '');
+      const resp = await fetch(url);
+      const data = await resp.json();
+      if (typeof data.html === 'string') region.innerHTML = data.html;
+    } catch (err) { /* best-effort */ }
+  };
+
+  // Revoca di un dispositivo dall'elenco. Delegato: il blocco viene sostituito
+  // a ogni refresh, quindi non si possono bindare i bottoni una volta sola.
+  document.addEventListener('click', async function (e) {
+    const btn = e.target.closest ? e.target.closest('[data-fm-revoke-device]') : null;
+    if (!btn) return;
+    e.preventDefault();
+    btn.disabled = true;
+    if (btn.hasAttribute('data-fm-device-current')) {
+      // Dispositivo corrente: va disiscritto anche lato browser, altrimenti
+      // l'interruttore master resterebbe acceso su una riga appena revocata.
+      // fmDisablePush emette già il proprio toast.
+      await window.fmDisablePush();
+      if (window.fmSyncPushSwitch) await window.fmSyncPushSwitch();
+    } else {
+      let ok = false;
+      try {
+        const resp = await fetch('/api/push/devices/' + btn.getAttribute('data-fm-revoke-device') + '/revoca/', {
+          method: 'POST',
+          headers: { 'X-CSRFToken': getCookie('csrftoken') },
+        });
+        const data = await resp.json().catch(function () { return {}; });
+        ok = resp.ok && data.status === 'ok';
+      } catch (err) {
+        ok = false;
+      }
+      window.fmToast(ok ? 'Dispositivo revocato.' : 'Errore nella revoca.', ok ? 'info' : 'danger');
+    }
+    await window.fmRefreshPushDevices();
+  });
+
   // Autosave preferenze (tema + matrice categoria×canale). Ritorna true su ok.
   window.fmSavePreference = async function (payload) {
     try {
@@ -578,7 +635,8 @@
       });
       const data = await resp.json();
       if (data.success) {
-        window.fmToast(`Push inviata a ${data.sent}/${data.total} dispositivi.`, 'success');
+        const noun = data.total === 1 ? 'dispositivo' : 'dispositivi';
+        window.fmToast(`Push inviata a ${data.sent}/${data.total} ${noun}.`, 'success');
       } else {
         window.fmToast(data.error || 'Errore invio test.', 'warning');
       }

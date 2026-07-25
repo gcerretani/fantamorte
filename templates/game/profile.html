@@ -22,9 +22,15 @@
           Attiva le push su questo browser/dispositivo. Funziona anche con l'app installata.
           <a href="#" class="text-decoration-none" data-fm-push-test>Invia una notifica di test</a>
         </p>
-        <p class="text-body-secondary small mb-3" data-fm-devices-line>
-          {% if push_subscriptions %}{{ push_subscriptions|length }} dispositivo/i ricevono le notifiche push.{% endif %}
-        </p>
+        {% comment %}
+          Elenco dispositivi: reso dal partial, che è l'unico renderer. Il JS
+          ne rifà la fetch e sostituisce questo blocco (fmRefreshPushDevices).
+          NB: i commenti brevi con graffa-cancelletto valgono su una riga sola,
+          per più righe serve comment/endcomment come qui.
+        {% endcomment %}
+        <div class="mb-3" id="fmDevicesRegion">
+          {% include 'game/_push_devices.html' %}
+        </div>
         {% if not VAPID_PUBLIC_KEY %}
           <div class="alert alert-warning small">
             Il server non ha ancora una chiave VAPID configurata. L'amministratore deve generarla.
@@ -145,24 +151,13 @@
 {% block extra_js %}
 <script>
   (function () {
-    // Aggiorna la riga "N dispositivi ricevono le notifiche push".
-    async function refreshDevicesLine() {
-      const line = document.querySelector('[data-fm-devices-line]');
-      if (!line) return;
-      try {
-        const resp = await fetch('/api/push/devices/');
-        const data = await resp.json();
-        line.textContent = data.count > 0
-          ? data.count + ' dispositivo/i ricevono le notifiche push.'
-          : '';
-      } catch (e) { /* best-effort */ }
-    }
-
     // Master push per dispositivo: un solo interruttore, aggiornamento immediato.
+    // L'elenco dispositivi e la revoca vivono in fantamorte.js (il listener di
+    // revoca è delegato, quindi sopravvive alla sostituzione del blocco).
     const pushSwitch = document.querySelector('[data-fm-push-switch]');
     if (pushSwitch) {
       if (window.fmSyncPushSwitch) window.fmSyncPushSwitch();
-      refreshDevicesLine();
+      window.fmRefreshPushDevices();
       pushSwitch.addEventListener('change', async function () {
         pushSwitch.disabled = true;
         if (pushSwitch.checked) {
@@ -171,7 +166,7 @@
           await window.fmDisablePush();
         }
         if (window.fmSyncPushSwitch) await window.fmSyncPushSwitch();
-        await refreshDevicesLine();
+        await window.fmRefreshPushDevices();
         pushSwitch.disabled = false;
       });
     }
@@ -179,9 +174,12 @@
     // Link "Invia notifica di test".
     const testLink = document.querySelector('[data-fm-push-test]');
     if (testLink) {
-      testLink.addEventListener('click', function (e) {
+      testLink.addEventListener('click', async function (e) {
         e.preventDefault();
-        if (window.fmTestPush) window.fmTestPush();
+        if (!window.fmTestPush) return;
+        await window.fmTestPush();
+        // L'invio aggiorna last_used_at (e pota gli endpoint morti): rileggi.
+        await window.fmRefreshPushDevices();
       });
     }
 

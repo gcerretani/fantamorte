@@ -1,0 +1,38 @@
+{% comment %}
+  Elenco dispositivi push dell'utente. Unico renderer della riga di conteggio
+  e delle righe dispositivo: viene incluso da profile.html al primo paint e
+  restituito già renderizzato da /api/push/devices/ per gli aggiornamenti
+  live (chiave "html"). Non duplicare queste stringhe nel JS.
+{% endcomment %}
+{% with n=devices|length %}
+  {% if n %}
+    <p class="text-body-secondary small mb-2">
+      {{ n }} dispositiv{{ n|pluralize:"o,i" }} ricev{{ n|pluralize:"e,ono" }} le notifiche push.
+    </p>
+    <div class="list-group">
+      {% for d in devices %}
+        <div class="list-group-item d-flex align-items-center gap-2{% if d.is_current %} fm-rank-me{% endif %}">
+          <span class="fm-row-main">
+            {{ d.label }}
+            {% if d.is_current %}<span class="badge text-bg-info">questo dispositivo</span>{% endif %}
+            <span class="d-block text-body-secondary small">
+              Registrato il {{ d.created_at|date:'d/m/Y' }} &middot;
+              {% if d.last_used_at %}
+                ultima notifica il {{ d.last_used_at|date:'d/m/Y' }}
+              {% else %}
+                nessuna notifica ancora consegnata
+              {% endif %}
+            </span>
+          </span>
+          <button type="button" class="btn btn-outline-danger btn-sm"
+                  data-fm-revoke-device="{{ d.id }}"
+                  {% if d.is_current %}data-fm-device-current="1"{% endif %}>Revoca</button>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-body-secondary small mb-0">
+      Nessun dispositivo registrato per le notifiche push.
+    </p>
+  {% endif %}
+{% endwith %}

@@ -15,6 +15,10 @@ PUBLIC_PATHS = {
     '/favicon.ico',
     '/robots.txt',
     '/healthz/',
+    # La chiama il service worker quando il browser ruota l'endpoint push:
+    # può accadere senza tab aperte e senza sessione. Si autentica per
+    # capability sull'endpoint vecchio, vedi PushRotateView.
+    '/api/push/rotate/',
 }
 
 PUBLIC_PREFIXES = (

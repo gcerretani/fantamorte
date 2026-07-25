@@ -214,7 +214,7 @@ class NotificationAdmin(admin.ModelAdmin):
 
 @admin.register(PushSubscription)
 class PushSubscriptionAdmin(admin.ModelAdmin):
-    list_display = ('user', 'endpoint_short', 'user_agent', 'created_at', 'last_used_at')
+    list_display = ('user', 'device_label', 'endpoint_short', 'created_at', 'last_used_at')
     search_fields = ('user__username', 'endpoint')
     readonly_fields = ('created_at', 'last_used_at')
 

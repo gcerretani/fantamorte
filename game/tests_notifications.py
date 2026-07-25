@@ -18,8 +18,9 @@ from django.utils import timezone
 
 from . import notifications as notif
 from .models import (
-    Death, League, LeagueMembership, Notification, Team, TeamMember,
-    UserProfile, WikipediaPerson, default_notification_prefs,
+    Death, League, LeagueMembership, Notification, PushSubscription, Team,
+    TeamMember, UserProfile, WikipediaPerson, default_notification_prefs,
+    describe_user_agent,
 )
 
 User = get_user_model()
@@ -347,4 +348,56 @@ class PreseasonDeathRemovalTest(NotificationFeedBase):
         self.assertTrue(member.can_be_substituted())
         self.assertFalse(
             Notification.objects.filter(kind=Notification.KIND_PRESEASON_REMOVED).exists()
+        )
+
+
+class DeviceLabelTest(TestCase):
+    """Etichette dispositivo dagli User-Agent: contano i casi trappola.
+
+    Ogni browser dichiara "Safari", Edge e Opera dichiarano "Chrome": se
+    l'ordine dei pattern si rompe, l'utente vede il browser sbagliato.
+    """
+
+    CASI = [
+        ('Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) '
+         'Chrome/120.0.0.0 Mobile Safari/537.36', 'Chrome su Android'),
+        ('Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 '
+         '(KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1', 'Safari su iPhone'),
+        ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+         'Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0', 'Edge su Windows'),
+        ('Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+         'Firefox su Windows'),
+        ('Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 '
+         '(KHTML, like Gecko) CriOS/120.0.0.0 Mobile/15E148 Safari/604.1', 'Chrome su iPhone'),
+        ('Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 '
+         '(KHTML, like Gecko) FxiOS/121.0 Mobile/15E148 Safari/605.1.15', 'Firefox su iPhone'),
+        ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 '
+         '(KHTML, like Gecko) Version/17.0 Safari/605.1.15', 'Safari su macOS'),
+        ('Mozilla/5.0 (Linux; Android 13; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) '
+         'SamsungBrowser/23.0 Chrome/115.0.0.0 Mobile Safari/537.36', 'Samsung Internet su Android'),
+        ('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) '
+         'Chrome/120.0.0.0 Safari/537.36 OPR/106.0.0.0', 'Opera su Linux'),
+    ]
+
+    def test_etichette(self):
+        for ua, expected in self.CASI:
+            with self.subTest(ua=ua[:40]):
+                self.assertEqual(describe_user_agent(ua), expected)
+
+    def test_user_agent_vuoto_o_ignoto(self):
+        for ua in ('', '   ', None, 'curl/8.4.0'):
+            self.assertEqual(describe_user_agent(ua), 'Dispositivo sconosciuto')
+
+    def test_device_label_sul_modello(self):
+        user = User.objects.create_user('device-user', password='x')
+        sub = PushSubscription.objects.create(
+            user=user, endpoint='https://push.example/x', p256dh='k', auth='a',
+            user_agent=self.CASI[0][0],
+        )
+        self.assertEqual(sub.device_label, 'Chrome su Android')
+        self.assertEqual(
+            PushSubscription.objects.create(
+                user=user, endpoint='https://push.example/y', p256dh='k', auth='a',
+            ).device_label,
+            'Dispositivo sconosciuto',
         )

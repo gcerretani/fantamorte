@@ -59,4 +59,8 @@ urlpatterns = [
     path('api/push/unsubscribe/', views.PushUnsubscribeView.as_view(), name='push_unsubscribe'),
     path('api/push/test/', views.PushTestView.as_view(), name='push_test'),
     path('api/push/devices/', views.PushDevicesView.as_view(), name='push_devices'),
+    path('api/push/devices/<int:pk>/revoca/', views.PushDeviceRevokeView.as_view(), name='push_device_revoke'),
+    # Pubblica e csrf_exempt: la chiama il service worker, che non può leggere
+    # il cookie CSRF. Si autentica per capability (old_endpoint), vedi la view.
+    path('api/push/rotate/', views.PushRotateView.as_view(), name='push_rotate'),
 ]
