@@ -1379,7 +1379,10 @@ class SubstituteMemberView(LoginRequiredMixin, View):
         if not member.is_active():
             messages.error(request, 'Questo membro è già stato sostituito.')
             return redirect('team_edit', pk=pk)
-        if member.died_before_season():
+        # In composizione non si sostituisce nessuno: si toglie dalla rosa e si
+        # sceglie un altro. Dall'inizio in poi anche un decesso pre-stagione
+        # passa dal flusso normale (vedi TeamMember.can_be_substituted).
+        if team.league_id and not team.league.has_started():
             messages.error(
                 request,
                 f'{member.person.name_it} è deceduto/a prima dell\'inizio della lega: '
@@ -1423,7 +1426,10 @@ class SubstituteMemberView(LoginRequiredMixin, View):
         member = get_object_or_404(TeamMember, pk=member_pk, team=team)
         if team.manager != request.user and not request.user.is_staff:
             return redirect('team_edit', pk=pk)
-        if member.died_before_season():
+        # In composizione non si sostituisce nessuno: si toglie dalla rosa e si
+        # sceglie un altro. Dall'inizio in poi anche un decesso pre-stagione
+        # passa dal flusso normale (vedi TeamMember.can_be_substituted).
+        if team.league_id and not team.league.has_started():
             messages.error(
                 request,
                 f'{member.person.name_it} è deceduto/a prima dell\'inizio della lega: '
