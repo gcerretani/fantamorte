@@ -128,6 +128,15 @@
                 {# Deceduto prima dell'inizio della lega: niente sostituzione, #}
                 {# va rimosso dalla rosa (bottone × qui a fianco). #}
                 <div class="small text-warning mt-1">Deceduto/a prima dell'inizio: rimuovilo/a e scegli un altro personaggio.</div>
+              {% elif member.person.is_dead and team.league.is_finished %}
+                {% comment %}
+                  Lega conclusa: niente countdown né badge "scaduto". La
+                  deadline decorre da confirmed_at, quindi una conferma
+                  tardiva la mostrerebbe ancora aperta, ma la sostituzione
+                  non è più possibile (can_be_substituted) e non sposterebbe
+                  un punto: il problema non è il tempo.
+                {% endcomment %}
+                <div class="small text-body-secondary mt-1">Lega conclusa: nessuna sostituzione.</div>
               {% elif member.person.is_dead %}
                 {% with deadline=member.get_substitution_deadline %}
                   {% if deadline %}
@@ -179,7 +188,9 @@
 
     {% if dead_members %}
     <div class="alert alert-warning mt-3">
-      <strong>Attenzione:</strong> {{ dead_members|length }} membro/i deceduto/i senza sostituto.
+      {% with n=dead_members|length %}
+      <strong>Attenzione:</strong> {{ n }} membr{{ n|pluralize:"o,i" }} decedut{{ n|pluralize:"o,i" }} senza sostituto.
+      {% endwith %}
     </div>
     {% endif %}
     </div>{# /fmRosterRegion #}

@@ -102,15 +102,26 @@ def leagues_for_death(death):
     ))
 
 
+def affected_manager_leagues(person, leagues):
+    """`{manager_id: League}` per chi ha `person` in una squadra attiva in `leagues`.
+
+    Serve a dire a ogni destinatario *la sua* lega: prendere una lega qualsiasi
+    tra quelle che contengono la data del decesso significa nominarne una di cui
+    l'utente magari non fa nemmeno parte. Se un manager è coinvolto in più leghe
+    per lo stesso decesso se ne cita una (le notifiche sono per-decesso, non
+    per-lega).
+    """
+    if not leagues:
+        return {}
+    teams = Team.objects.filter(
+        members__person=person, members__replaced_by=None, league__in=leagues,
+    ).select_related('league')
+    return {t.manager_id: t.league for t in teams}
+
+
 def affected_manager_ids(person, leagues):
     """Id dei manager che hanno `person` in una squadra attiva in `leagues`."""
-    if not leagues:
-        return set()
-    return set(
-        Team.objects.filter(
-            members__person=person, members__replaced_by=None, league__in=leagues,
-        ).values_list('manager_id', flat=True)
-    )
+    return set(affected_manager_leagues(person, leagues))
 
 
 def death_member_user_ids(leagues):

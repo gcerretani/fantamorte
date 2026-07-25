@@ -134,6 +134,19 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
   `can_manage_league` (owner o staff) ai template. Lì il Django admin non
   è equivalente (delete con pulizia dei DeathBonus protetti, transfer
   coerente su owner+membership, validazione P/Q dei bonus custom).
+- **`TeamMember.can_be_substituted()`** governa la sostituzione in stagione.
+  Attenzione a due asimmetrie non ovvie: la deadline decorre da
+  `Death.confirmed_at`, **non** dalla data di morte (una conferma tardiva apre
+  la finestra oggi, anche per un decesso di mesi prima), e a **lega conclusa**
+  (`League.is_finished()`) non si sostituisce più — quella finestra cadrebbe
+  fuori dal periodo di gioco e la sostituzione non sposterebbe un punto,
+  cambierebbe solo la rosa storica. Il gate è dinamico: prolungare `end_date`
+  la riapre. Ne dipendono il bottone in `team_edit`/`team_detail`, il
+  countdown, le scadenze nel feed ICS e la frase «hai N giorni per
+  sostituirlo» in push ed email — che si mostra **solo** a chi ha davvero la
+  persona in rosa e solo per la *sua* lega
+  (`notifications.affected_manager_leagues`, `push._substitution_hint`): un
+  tempo si pescava una lega qualsiasi tra quelle che contenevano la data.
 - **`TeamMember.is_original`** flag che abilita il bonus "giocata originale".
   Calcolato a inizio stagione dal command `mark_originals`. Il campo
   `replaced_by` crea una catena per tracciare le sostituzioni (solo
@@ -635,7 +648,10 @@ Altri file di test:
   per canale (creazione righe alla conferma decesso, gating push/email via
   `wants`, reminder/iscrizione/blocco/lifecycle, endpoint feed e autosave);
   `DeviceLabelTest` copre `describe_user_agent` sui casi trappola degli UA
-  (Edge/Opera dichiarano Chrome, ogni browser dichiara Safari)
+  (Edge/Opera dichiarano Chrome, ogni browser dichiara Safari);
+  `LegaConclusaTest` copre il decesso confermato in ritardo (deadline aperta ma
+  lega finita): niente sostituzione, e push/email che nominano la finestra solo
+  a chi ha la persona in rosa e solo per la sua lega
 - `game/tests_middleware.py`: `LoginRequiredEverywhereMiddleware` (path
   pubblici vs protetti)
 - `game/tests_views.py`: permessi/integrazione delle view (in arrivo,
@@ -643,7 +659,9 @@ Altri file di test:
   marcatore "questo dispositivo", revoca (404 sul pk di un altro utente) e
   l'accordo singolare/plurale della riga di conteggio; `PushRotateTest` copre
   la rotazione endpoint (aggiorna in place, mai duplica, 404 se
-  `old_endpoint` è ignoto)
+  `old_endpoint` è ignoto); `SostituzioneLegaConclusaTest` copre il rifiuto
+  della sostituzione a lega conclusa (GET/POST, rosa senza countdown, ICS
+  senza scadenze) e la controprova a lega prolungata
 - `wikidata_api/tests.py`: client Wikidata con chiamate HTTP mockate
 
 **Aree ancora poco coperte**: view (integrazione, in corso in
