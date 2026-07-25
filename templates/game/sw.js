@@ -104,6 +104,51 @@ self.addEventListener('push', function (event) {
   ]));
 });
 
+// Il browser può ruotare l'endpoint push senza che l'utente faccia nulla: se
+// non si aggiorna la riga corrispondente, quella vecchia resta in DB (e il
+// profilo mostra dispositivi fantasma) finché un invio non incassa un 410.
+// La rotazione può avvenire senza tab aperte, quindi la fetch parte da qui;
+// non essendoci DOM non si può leggere il cookie CSRF, per questo l'endpoint
+// /api/push/rotate/ si autentica sull'endpoint vecchio (vedi PushRotateView).
+const VAPID_PUBLIC_KEY = '{{ vapid_public_key }}';
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = self.atob(base64);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
+self.addEventListener('pushsubscriptionchange', function (event) {
+  const oldEndpoint = event.oldSubscription && event.oldSubscription.endpoint;
+  // Senza l'endpoint vecchio non c'è nulla da correlare: la riga stantia
+  // verrà rimossa dal primo invio che riceve 404/410.
+  if (!oldEndpoint) return;
+  event.waitUntil((async function () {
+    let sub = event.newSubscription || null;
+    if (!sub) {
+      if (!VAPID_PUBLIC_KEY) return;
+      try {
+        sub = await self.registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        });
+      } catch (e) {
+        return;
+      }
+    }
+    try {
+      await fetch('/api/push/rotate/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ old_endpoint: oldEndpoint, subscription: sub.toJSON() }),
+      });
+    } catch (e) { /* best-effort: riprova alla prossima rotazione */ }
+  })());
+});
+
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
   const url = (event.notification.data && event.notification.data.url) || '/';

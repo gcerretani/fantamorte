@@ -1,4 +1,5 @@
 import calendar
+import re
 from datetime import timedelta
 from django.db import models
 from django.contrib.auth.models import User
@@ -597,6 +598,47 @@ class LeagueBonus(models.Model):
         return self.bonus_type.points
 
 
+# Coppie (regex, etichetta) per riconoscere browser e OS da uno User-Agent.
+# L'ordine conta: gli UA sono pieni di token esca (ogni browser dichiara
+# "Safari", Edge e Opera dichiarano "Chrome"), quindi il caso più specifico
+# deve essere testato prima.
+_UA_BROWSERS = (
+    (r'Edg[A-Z]?/', 'Edge'),
+    (r'OPR/|Opera', 'Opera'),
+    (r'SamsungBrowser', 'Samsung Internet'),
+    (r'Firefox/|FxiOS/', 'Firefox'),
+    (r'CriOS/|Chrome/|Chromium/', 'Chrome'),
+    (r'Safari/', 'Safari'),
+)
+
+_UA_SYSTEMS = (
+    (r'Android', 'Android'),
+    (r'iPhone', 'iPhone'),
+    (r'iPad', 'iPad'),
+    (r'Windows', 'Windows'),
+    (r'Mac OS X|Macintosh', 'macOS'),
+    (r'CrOS', 'ChromeOS'),
+    (r'Linux', 'Linux'),
+)
+
+
+def describe_user_agent(ua: str) -> str:
+    """Etichetta leggibile per un dispositivo, es. 'Chrome su Android'.
+
+    Serve solo a far riconoscere all'utente i propri dispositivi nell'elenco
+    delle notifiche push: niente libreria esterna, niente pretese di
+    esattezza sui client esotici.
+    """
+    ua = (ua or '').strip()
+    if not ua:
+        return 'Dispositivo sconosciuto'
+    browser = next((label for pattern, label in _UA_BROWSERS if re.search(pattern, ua)), '')
+    system = next((label for pattern, label in _UA_SYSTEMS if re.search(pattern, ua)), '')
+    if browser and system:
+        return f'{browser} su {system}'
+    return browser or system or 'Dispositivo sconosciuto'
+
+
 class PushSubscription(models.Model):
     """Endpoint Web Push (VAPID) registrato dal browser di un utente."""
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='push_subscriptions')
@@ -613,6 +655,11 @@ class PushSubscription(models.Model):
 
     def __str__(self):
         return f'{self.user.username} ({self.endpoint[:50]}…)'
+
+    @property
+    def device_label(self):
+        """Etichetta mostrata nell'elenco dispositivi del profilo."""
+        return describe_user_agent(self.user_agent)
 
     def to_dict(self):
         return {

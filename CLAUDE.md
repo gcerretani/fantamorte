@@ -188,7 +188,14 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
   navigazione. È la **sorgente di verità**: ogni evento crea prima una riga qui,
   poi push/email sono canali sopra (vedi `game/notifications.py`).
 - **`PushSubscription`** registra endpoint VAPID per-utente con
-  `last_used_at` e `auth`/`p256dh` keys.
+  `last_used_at` e `auth`/`p256dh` keys. Il `user_agent` salvato al subscribe
+  diventa un'etichetta leggibile (`device_label` → `describe_user_agent()` in
+  `models.py`: «Chrome su Android», «Safari su iPhone»…), usata dall'elenco
+  dispositivi nel profilo e dal Django admin. Le righe muoiono in due modi:
+  il push service risponde 404/410 a un invio (`send_push` cancella) oppure
+  l'utente revoca il dispositivo dal profilo. Non c'è scadenza a tempo: la
+  rotazione dell'endpoint (evento `pushsubscriptionchange`) è gestita dal SW
+  aggiornando la riga esistente, così non si accumulano dispositivi fantasma.
 - **`SubstitutionReminder`** traccia i reminder di scadenza sostituzione già
   inviati (unique per `team_member` + `threshold_days`), per evitare invii
   duplicati. Usato da `send_substitution_reminders` per le soglie T-3 e T-1
@@ -201,6 +208,8 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
   - `/accounts/*` (login, signup, password reset, social)
   - `/static/*`, `/media/*`
   - `/manifest.webmanifest`, `/sw.js`, `/offline/`, `/favicon.ico`, `/robots.txt`
+  - `/api/push/rotate/` (la chiama il service worker, che non può avere
+    sessione né cookie CSRF: si autentica per capability, vedi "PWA + Push")
 - `django-allauth` gestisce login + signup + reset + provider social.
   Le viste hanno il prefisso `account_` (`account_login`, `account_logout`,
   `account_signup`, `account_reset_password`). **Non** usare i nomi vecchi
@@ -238,6 +247,19 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
   `{% static %}`: in produzione risolvono ai nomi con hash del
   ManifestStaticFilesStorage (i path non hashati sarebbero a rischio stale,
   nginx li serve con cache 30 giorni).
+- **Rotazione endpoint**: il SW gestisce `pushsubscriptionchange` (il browser
+  può rigenerare la subscription da solo) e chiama `POST /api/push/rotate/`
+  con `{old_endpoint, subscription}`; la view aggiorna **in place** la riga
+  esistente. Senza questo, la riga vecchia resterebbe in DB fino al primo
+  410 e il profilo mostrerebbe dispositivi fantasma. Un SW non ha DOM e non
+  può leggere il cookie CSRF, quindi la rotta è `csrf_exempt` + pubblica e si
+  autentica **per capability**: si accetta solo un `old_endpoint` già
+  presente in tabella (una URL push è un segreto non indovinabile, e la riga
+  trovata dice già di chi è) e non si creano mai righe nuove. Non esentare
+  invece `/api/push/subscribe/`, che è autenticata a sessione: sarebbe un
+  buco CSRF che permette di registrare l'endpoint di un attaccante per la
+  vittima. Il SW ha bisogno della chiave VAPID per re-iscriversi:
+  `ServiceWorkerView` la passa nel context (`vapid_public_key`).
 - **Static in produzione**: `STATIC_ROOT` è un named volume condiviso con
   nginx che **oscura** a ogni deploy il collectstatic fatto in build:
   per questo `entrypoint.sh` riesegue `collectstatic --noinput` a ogni
@@ -277,10 +299,23 @@ channel)`) e helper badge (`unread_count`, `mark_all_read`).
   dal context processor) → pagina `/notifiche/` (segna lette al load). Il badge
   si aggiorna senza reload su `visibilitychange` (`fmUpdateNotifBadge`).
 - **Preferenze UI (profilo)**: interruttore push **per-dispositivo** (subscribe/
-  unsubscribe, stato sincronizzato da `fmSyncPushSwitch`, riga dispositivi via
-  `/api/push/devices/`, niente refresh) + **matrice** categoria×canale con
-  **autosave** (`fmSavePreference` → `/api/profilo/preferenze/`). Nessun pulsante
-  "Salva".
+  unsubscribe, stato sincronizzato da `fmSyncPushSwitch`) + **elenco dispositivi**
+  con revoca per riga + **matrice** categoria×canale con **autosave**
+  (`fmSavePreference` → `/api/profilo/preferenze/`). Nessun pulsante "Salva".
+- **Elenco dispositivi**: il partial `templates/game/_push_devices.html` è
+  l'**unico renderer** (etichetta, data di registrazione, ultima notifica
+  consegnata, badge "questo dispositivo", bottone Revoca). Lo include
+  `ProfileView` al primo paint e lo restituisce già renderizzato
+  `/api/push/devices/` nella chiave `html`, che `fmRefreshPushDevices`
+  inietta in `#fmDevicesRegion` senza reload. Non riscrivere quelle stringhe
+  nel JS: la riga di conteggio era duplicata server+client e il plurale era
+  divergente («dispositivo/i»). Il marcatore "questo dispositivo" arriva dal
+  `?endpoint=` che il client passa (il server confronta solo dentro le
+  subscription di quell'utente, non espone endpoint altrui). Il bottone
+  Revoca ha un listener **delegato** in `fantamorte.js` perché il blocco
+  viene sostituito a ogni refresh; se la riga è quella corrente passa da
+  `fmDisablePush` (serve anche il `sub.unsubscribe()` lato browser, altrimenti
+  l'interruttore master resta acceso).
 - **Pronto per app native**: il feed persistente + gli endpoint
   `/api/notifications/*` sono la superficie API-first che un futuro client
   nativo (o PWA in store) consuma. Aggiungere FCM (Android) / APNs (iOS) sarà un
@@ -407,7 +442,10 @@ Note di efficienza (importanti se tocchi il client):
 /regolamento/                   manuale generico del portale (nessun punteggio: quelli sono per-lega)
 /healthz/                       healthcheck (pubblico, verifica anche il DB)
 
-/api/push/{subscribe,unsubscribe,test,devices}/    (devices = lista live per la UI)
+/api/push/{subscribe,unsubscribe,test,devices}/    (devices = elenco live: JSON + frammento HTML)
+/api/push/devices/<pk>/revoca/  POST: revoca un dispositivo dell'utente (404 se non è suo)
+/api/push/rotate/               POST dal service worker su pushsubscriptionchange
+                                (pubblico + csrf_exempt, autenticato per capability)
 
 /manifest.webmanifest, /sw.js, /offline/    PWA
 /accounts/...                   allauth (login, signup, password reset, social)
@@ -595,11 +633,17 @@ Altri file di test:
   `--no-autoconfirm`, `--force`, `--dry-run`)
 - `game/tests_notifications.py`: feed notifiche in-app + matrice preferenze
   per canale (creazione righe alla conferma decesso, gating push/email via
-  `wants`, reminder/iscrizione/blocco/lifecycle, endpoint feed e autosave)
+  `wants`, reminder/iscrizione/blocco/lifecycle, endpoint feed e autosave);
+  `DeviceLabelTest` copre `describe_user_agent` sui casi trappola degli UA
+  (Edge/Opera dichiarano Chrome, ogni browser dichiara Safari)
 - `game/tests_middleware.py`: `LoginRequiredEverywhereMiddleware` (path
   pubblici vs protetti)
 - `game/tests_views.py`: permessi/integrazione delle view (in arrivo,
-  copertura ancora parziale)
+  copertura ancora parziale). `PushDevicesTest` copre elenco dispositivi,
+  marcatore "questo dispositivo", revoca (404 sul pk di un altro utente) e
+  l'accordo singolare/plurale della riga di conteggio; `PushRotateTest` copre
+  la rotazione endpoint (aggiorna in place, mai duplica, 404 se
+  `old_endpoint` è ignoto)
 - `wikidata_api/tests.py`: client Wikidata con chiamate HTTP mockate
 
 **Aree ancora poco coperte**: view (integrazione, in corso in

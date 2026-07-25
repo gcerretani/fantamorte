@@ -14,6 +14,7 @@ from django.core.cache import cache
 from django.db.models import Count, Prefetch, Q
 from django.http import Http404, HttpResponse, JsonResponse, HttpResponseForbidden
 from django.shortcuts import render, redirect, get_object_or_404
+from django.template.loader import render_to_string
 from django.templatetags.static import static
 from django.urls import reverse
 from django.utils import timezone
@@ -1699,7 +1700,10 @@ class ProfileView(LoginRequiredMixin, View):
     def get(self, request):
         from .notifications import NOTIFICATION_CATEGORIES
         profile, _ = UserProfile.objects.get_or_create(user=request.user)
-        subs = request.user.push_subscriptions.all()
+        # Primo paint dell'elenco dispositivi: senza `is_current`, che il
+        # server non può sapere. Al load il JS rifà la fetch con l'endpoint
+        # del browser e il badge "questo dispositivo" appare.
+        devices = push_device_rows(request.user)
         teams = request.user.teams.select_related('league').order_by('-league__start_date')
         # Righe della matrice preferenze (categoria × canale) con stato corrente.
         pref_rows = [
@@ -1714,7 +1718,7 @@ class ProfileView(LoginRequiredMixin, View):
         ]
         return render(request, self.template_name, {
             'profile': profile,
-            'push_subscriptions': subs,
+            'devices': devices,
             'teams': teams,
             'pref_rows': pref_rows,
         })
@@ -1818,6 +1822,8 @@ class ServiceWorkerView(View):
             content_type='application/javascript',
             context={
                 'cache_version': getattr(settings, 'SW_CACHE_VERSION', '1'),
+                # Serve al SW per re-iscriversi da solo su pushsubscriptionchange.
+                'vapid_public_key': getattr(settings, 'VAPID_PUBLIC_KEY', ''),
             },
         )
 
@@ -1841,6 +1847,25 @@ class HealthCheckView(View):
 
 
 # --- Push subscriptions API ---
+
+def push_device_rows(user, current_endpoint=''):
+    """Righe dispositivo per il partial `game/_push_devices.html` e per il JSON.
+
+    `current_endpoint` è l'endpoint del browser che sta guardando la pagina:
+    il confronto avviene solo dentro le subscription dell'utente, così il
+    server non espone mai gli endpoint degli altri dispositivi.
+    """
+    return [
+        {
+            'id': s.pk,
+            'label': s.device_label,
+            'created_at': s.created_at,
+            'last_used_at': s.last_used_at,
+            'is_current': bool(current_endpoint) and s.endpoint == current_endpoint,
+        }
+        for s in user.push_subscriptions.order_by('-created_at')
+    ]
+
 
 class PushSubscribeView(LoginRequiredMixin, View):
     """Salva l'endpoint Web Push del browser corrente."""
@@ -1888,8 +1913,11 @@ class PushTestView(LoginRequiredMixin, View):
 
     def post(self, request):
         from .push import send_push
-        subs = request.user.push_subscriptions.all()
-        if not subs.exists():
+        # Il totale si legge PRIMA del loop: send_push cancella le iscrizioni
+        # che il push service dichiara morte (404/410), quindi un count()
+        # valutato dopo riporterebbe meno dispositivi di quanti tentati.
+        subs = list(request.user.push_subscriptions.all())
+        if not subs:
             return JsonResponse({'error': 'Nessuna iscrizione attiva'}, status=400)
         sent = 0
         for sub in subs:
@@ -1902,23 +1930,92 @@ class PushTestView(LoginRequiredMixin, View):
             })
             if ok:
                 sent += 1
-        return JsonResponse({'success': True, 'sent': sent, 'total': subs.count()})
+        return JsonResponse({'success': True, 'sent': sent, 'total': len(subs)})
 
 
 class PushDevicesView(LoginRequiredMixin, View):
-    """Elenco dispositivi push dell'utente, per aggiornare la UI senza refresh."""
+    """Elenco dispositivi push dell'utente, per aggiornare la UI senza refresh.
+
+    Ritorna sia il frammento HTML già renderizzato (`html`, consumato dal
+    profilo: un solo renderer, così le stringhe non divergono tra server e
+    client) sia la lista strutturata (`devices`), che resta il contratto per
+    un futuro client nativo.
+    """
 
     def get(self, request):
-        subs = request.user.push_subscriptions.order_by('-created_at')
-        devices = [
-            {
-                'id': s.pk,
-                'user_agent': s.user_agent or '',
-                'created_at': s.created_at.strftime('%d/%m/%Y'),
-            }
-            for s in subs
-        ]
-        return JsonResponse({'count': len(devices), 'devices': devices})
+        rows = push_device_rows(request.user, request.GET.get('endpoint', '').strip())
+        return JsonResponse({
+            'count': len(rows),
+            'devices': [
+                {
+                    'id': r['id'],
+                    'label': r['label'],
+                    'created_at': r['created_at'].isoformat(),
+                    'last_used_at': r['last_used_at'].isoformat() if r['last_used_at'] else None,
+                    'is_current': r['is_current'],
+                }
+                for r in rows
+            ],
+            'html': render_to_string('game/_push_devices.html', {'devices': rows}),
+        })
+
+
+class PushDeviceRevokeView(LoginRequiredMixin, View):
+    """Revoca un dispositivo push dell'utente dall'elenco nel profilo."""
+
+    def post(self, request, pk):
+        # Lo scoping su user rende il pk di un altro utente un 404 secco.
+        sub = get_object_or_404(PushSubscription, pk=pk, user=request.user)
+        sub.delete()
+        return JsonResponse({'status': 'ok'})
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class PushRotateView(View):
+    """Aggiorna una subscription dopo `pushsubscriptionchange` (endpoint ruotato).
+
+    Il service worker non ha DOM, quindi non può leggere il cookie CSRF: la
+    richiesta si autentica **per capability**, accettando solo un
+    `old_endpoint` che esiste già in tabella. Un endpoint push è una URL
+    segreta e non indovinabile, quindi funge da token: la riga trovata dice
+    di quale utente si tratta e viene aggiornata in place, senza mai crearne
+    di nuove. È anche il motivo per cui questa rotta sta in `PUBLIC_PATHS`:
+    esentare da CSRF `/api/push/subscribe/`, che è autenticata a sessione,
+    permetterebbe invece di registrare l'endpoint di un attaccante per la
+    vittima.
+    """
+
+    def post(self, request):
+        try:
+            data = json.loads(request.body.decode('utf-8'))
+        except (ValueError, UnicodeDecodeError):
+            return JsonResponse({'status': 'error', 'error': 'JSON non valido'}, status=400)
+
+        old_endpoint = (data.get('old_endpoint') or '').strip()
+        new = data.get('subscription') or {}
+        endpoint = (new.get('endpoint') or '').strip()
+        keys = new.get('keys') or {}
+        p256dh = (keys.get('p256dh') or '').strip()
+        auth = (keys.get('auth') or '').strip()
+        if not old_endpoint or not endpoint or not p256dh or not auth:
+            return JsonResponse({'status': 'error', 'error': 'Rotazione incompleta'}, status=400)
+
+        sub = PushSubscription.objects.filter(endpoint=old_endpoint).first()
+        if sub is None:
+            return JsonResponse({'status': 'error', 'error': 'Endpoint sconosciuto'}, status=404)
+
+        # Se il nuovo endpoint è già registrato (rotazione notificata due
+        # volte, o due SW che si sovrappongono) si tiene la riga esistente.
+        if endpoint != old_endpoint and PushSubscription.objects.filter(endpoint=endpoint).exists():
+            sub.delete()
+            return JsonResponse({'status': 'ok', 'rotated': False})
+
+        sub.endpoint = endpoint
+        sub.p256dh = p256dh
+        sub.auth = auth
+        sub.last_used_at = None
+        sub.save(update_fields=['endpoint', 'p256dh', 'auth', 'last_used_at'])
+        return JsonResponse({'status': 'ok', 'rotated': True})
 
 
 # --- Feed notifiche in-app ---
