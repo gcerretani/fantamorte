@@ -392,7 +392,8 @@ In `wikidata_api/client.py`. Nessun modello Django — è utility pura.
   persone che il DB crede vive, e il periodo di gioco lo applica lo scoring.
   Filtrare per anno della lega costava una query per anno e creava due punti
   ciechi (decessi dell'anno precedente all'avvio, e leghe non ancora iniziate,
-  i cui anni stanno nel futuro)
+  i cui anni stanno nel futuro). Stessa logica per la selezione dei candidati:
+  nessun filtro sullo stato della lega, vedi `check_deaths`
 - `detect_bonuses(qid, claims_cache, bonus_types)`: verifica proprietà Wikidata per i bonus
 - `detect_age_bonus(age, bonus_type)`: valuta formula età con whitelist
 
@@ -621,9 +622,12 @@ Note di efficienza (importanti se tocchi il client):
   **non** dal Django admin (quello è un fallback per superuser).
 - Le management commands lavorano per **lega**, non per stagione. Usano
   l'argomento `--league <slug>` o, in mancanza, prendono le leghe in corso —
-  tranne `check_deaths`, che copre anche quelle **da iniziare** (`end_date >=
-  oggi`): un decesso in fase di composizione va scoperto finché la rosa è
-  ancora modificabile.
+  tranne `check_deaths`, che **non filtra affatto per lega**: controlla chi è
+  membro attivo di una rosa qualsiasi. Filtrare per stato della lega lasciava
+  scoperti sia i decessi in fase di composizione (lega non ancora iniziata,
+  quando basterebbe togliere la persona dalla rosa) sia quelli registrati su
+  Wikidata *dopo* la fine della lega ma avvenuti durante il periodo di gioco —
+  che valgono punti, quindi la classifica finale restava sbagliata.
 - Il middleware login-required è la **prima** linea di difesa. Non aggiungere
   endpoint pubblici senza inserirli in `PUBLIC_PATHS` o `PUBLIC_PREFIXES`
   in `game/middleware.py`.
@@ -663,8 +667,10 @@ e preferenze tema:
 Altri file di test:
 - `game/tests_commands.py`: management command `check_deaths` (auto-conferma,
   `--no-autoconfirm`, `--force`, `--dry-run`); `CheckDeathsSelezioneLegheTest`
-  copre la selezione delle leghe (incluse quelle da iniziare, escluse le
-  concluse) e la query unica senza filtro sull'anno
+  copre la selezione dei candidati (rose di leghe da iniziare, in corso e
+  concluse; `--league` che restringe), la query unica senza filtro sull'anno e
+  il decesso in stagione registrato su Wikidata dopo la fine della lega, che
+  entra comunque in classifica
 - `game/tests_notifications.py`: feed notifiche in-app + matrice preferenze
   per canale (creazione righe alla conferma decesso, gating push/email via
   `wants`, reminder/iscrizione/blocco/lifecycle, endpoint feed e autosave);
@@ -717,7 +723,7 @@ python manage.py generate_vapid_keys
 python manage.py runserver
 
 # Cron / job periodici (per ogni lega in corso)
-python manage.py check_deaths              # rileva morti via Wikidata (leghe non concluse, incluse quelle da iniziare)
+python manage.py check_deaths              # rileva morti via Wikidata (tutte le rose, a prescindere dallo stato della lega)
 python manage.py check_deaths --dry-run    # senza scrivere
 python manage.py check_deaths --force      # ignora data_frozen e last_checked sulle persone
 python manage.py check_deaths --no-autoconfirm   # crea i decessi non confermati
