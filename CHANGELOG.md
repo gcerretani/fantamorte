@@ -4,6 +4,24 @@ Tutte le modifiche rilevanti di questo progetto sono documentate qui.
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 il versionamento segue [SemVer](https://semver.org/lang/it/).
 
+## [0.3.5] - 2026-07-26
+
+- Profilo: elenco dei dispositivi con le notifiche push attive (etichetta
+  leggibile, data di registrazione, ultima notifica consegnata, badge "questo
+  dispositivo"), con revoca per singolo dispositivo
+- Fix: conteggio dispositivi push mai concorde al plurale ("1 dispositivo/i")
+  e duplicato tra rendering server/client, ora un solo partial condiviso
+- Fix: dispositivi push "fantasma" — quando il browser ruota l'endpoint da
+  solo la vecchia riga restava in DB per sempre; ora viene aggiornata sul
+  posto (`pushsubscriptionchange` + `/api/push/rotate/`)
+- Leghe concluse: niente più sostituzioni né finestre di sostituzione
+  promesse a vuoto
+- Decessi pre-stagione: il posto perso nella rosa è sempre recuperabile
+- `check_deaths`: query senza filtro sull'anno, comprese le leghe non ancora
+  iniziate; controlla le rose di ogni lega, non solo quelle aperte
+- Client Wikidata: rispetta il rate limit 429 di WDQS, query SPARQL in POST,
+  batch a blocchi invece di un'unica richiesta
+
 ## [0.3.4] - 2026-07-22
 
 - Fix: grafici della pagina Statistiche di lega invisibili (barre piatte).
