@@ -303,11 +303,12 @@ class CheckDeathsSelezioneLegheTest(TestCase):
         self.owner = User.objects.create_user('manager', password='x')
         self.today = timezone.now().date()
 
-    def _league_with_person(self, slug, start_offset, qid):
+    def _league_with_person(self, slug, start_offset, qid, duration=365):
+        """Lega che inizia fra `start_offset` giorni (negativo = già iniziata)."""
         start = self.today + timedelta(days=start_offset)
         league = League.objects.create(
             name=slug, slug=slug, owner=self.owner,
-            start_date=start, end_date=start + timedelta(days=365),
+            start_date=start, end_date=start + timedelta(days=duration),
             registration_opens=start - timedelta(days=60),
             registration_closes=start,
         )
@@ -316,39 +317,58 @@ class CheckDeathsSelezioneLegheTest(TestCase):
             wikidata_id=qid, name_it=f'Persona {qid}', is_dead=False,
         )
         TeamMember.objects.create(team=team, person=person)
-        return league, person
+        return league, team, person
 
     @patch('game.management.commands.check_deaths.WikidataClient')
-    def test_include_le_leghe_da_iniziare(self, mock_class):
-        """Il decesso in fase di composizione va scoperto finché si può rimediare."""
-        _, futura = self._league_with_person('lega-futura', 30, 'Q1')
-        _, in_corso = self._league_with_person('lega-in-corso', -30, 'Q2')
+    def test_controlla_le_rose_di_ogni_lega(self, mock_class):
+        """Da iniziare, in corso e conclusa: lo stato della lega non filtra nulla."""
+        _, _, futura = self._league_with_person('lega-futura', 30, 'Q1')
+        _, _, in_corso = self._league_with_person('lega-in-corso', -30, 'Q2')
+        _, _, conclusa = self._league_with_person('lega-conclusa', -400, 'Q3', duration=100)
         instance = mock_class.return_value
         instance.check_deaths_batch.return_value = []
         # --force per scavalcare la rotazione a fette, che qui prenderebbe una
         # persona sola e renderebbe il test dipendente dall'ordinamento.
         call_command('check_deaths', force=True)
         checked = set(instance.check_deaths_batch.call_args[0][0])
-        self.assertEqual(checked, {futura.wikidata_id, in_corso.wikidata_id})
+        self.assertEqual(
+            checked,
+            {futura.wikidata_id, in_corso.wikidata_id, conclusa.wikidata_id},
+        )
 
     @patch('game.management.commands.check_deaths.WikidataClient')
-    def test_esclude_le_leghe_concluse(self, mock_class):
-        conclusa = League.objects.create(
-            name='Lega Conclusa', slug='lega-conclusa', owner=self.owner,
-            start_date=self.today - timedelta(days=400),
-            end_date=self.today - timedelta(days=10),
-            registration_opens=self.today - timedelta(days=430),
-            registration_closes=self.today - timedelta(days=400),
-        )
-        team = Team.objects.create(name='Vecchia', manager=self.owner, league=conclusa)
-        person = WikipediaPerson.objects.create(
-            wikidata_id='Q9', name_it='Persona Q9', is_dead=False,
-        )
-        TeamMember.objects.create(team=team, person=person)
+    def test_league_restringe_a_una_lega(self, mock_class):
+        _, _, futura = self._league_with_person('lega-futura', 30, 'Q1')
+        self._league_with_person('lega-in-corso', -30, 'Q2')
         instance = mock_class.return_value
         instance.check_deaths_batch.return_value = []
-        call_command('check_deaths')
-        instance.check_deaths_batch.assert_not_called()
+        call_command('check_deaths', league='lega-futura', force=True)
+        checked = set(instance.check_deaths_batch.call_args[0][0])
+        self.assertEqual(checked, {futura.wikidata_id})
+
+    @patch('game.management.commands.check_deaths.WikidataClient')
+    def test_decesso_registrato_dopo_la_fine_della_lega(self, mock_class):
+        """Il caso dei personaggi meno noti: morto in stagione, su Wikidata dopo.
+
+        La lega è finita ma il decesso cade nel periodo di gioco, quindi vale
+        punti: se il cron smettesse di controllare, la classifica finale
+        resterebbe sbagliata per sempre.
+        """
+        from game import scoring
+        league, team, person = self._league_with_person(
+            'lega-conclusa', -400, 'Q4', duration=100,
+        )
+        morte = league.start_date + timedelta(days=50)  # dentro il periodo
+        instance = mock_class.return_value
+        instance.check_deaths_batch.return_value = [person.wikidata_id]
+        instance.get_entity.return_value = _entity_payload(morte)
+        instance.detect_bonuses.return_value = []
+        call_command('check_deaths', force=True)
+        person.refresh_from_db()
+        self.assertTrue(person.is_dead)
+        self.assertTrue(Death.objects.filter(person=person, is_confirmed=True).exists())
+        # E i punti entrano nella classifica finale della lega conclusa.
+        self.assertEqual(scoring.compute_team_total_score(team), league.base_points)
 
     @patch('game.management.commands.check_deaths.WikidataClient')
     def test_una_sola_query_senza_anno(self, mock_class):
@@ -377,7 +397,7 @@ class CheckDeathsSelezioneLegheTest(TestCase):
     @patch('game.management.commands.check_deaths.WikidataClient')
     def test_decesso_dell_anno_precedente_all_inizio(self, mock_class):
         """Il punto cieco di prima: morto a dicembre, lega che parte a gennaio."""
-        league, person = self._league_with_person('lega-gennaio', 30, 'Q5')
+        league, _, person = self._league_with_person('lega-gennaio', 30, 'Q5')
         instance = mock_class.return_value
         instance.check_deaths_batch.return_value = [person.wikidata_id]
         instance.get_entity.return_value = _entity_payload(league.start_date - timedelta(days=40))
