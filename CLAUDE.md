@@ -393,7 +393,11 @@ In `wikidata_api/client.py`. Nessun modello Django — è utility pura.
   Filtrare per anno della lega costava una query per anno e creava due punti
   ciechi (decessi dell'anno precedente all'avvio, e leghe non ancora iniziate,
   i cui anni stanno nel futuro). Stessa logica per la selezione dei candidati:
-  nessun filtro sullo stato della lega, vedi `check_deaths`
+  nessun filtro sullo stato della lega, vedi `check_deaths`. Il metodo spezza
+  da solo lotti oltre `DEATH_CHECK_CHUNK_SIZE` (200 QID) in più richieste: con
+  `--force` (niente rotazione a fette) il pool può superare quella soglia su
+  un'istanza con molte leghe storiche, e una singola query enorme è più lenta
+  e più a rischio di timeout lato WDQS
 - `detect_bonuses(qid, claims_cache, bonus_types)`: verifica proprietà Wikidata per i bonus
 - `detect_age_bonus(age, bonus_type)`: valuta formula età con whitelist
 
@@ -406,12 +410,17 @@ interattive).
 
 Note di efficienza (importanti se tocchi il client):
 - La `requests.Session` è **condivisa a livello di modulo** (riuso
-  connessioni/TLS) con retry automatico su errori di connessione e
-  502/503/504. Nei test usa `_reset_session_for_tests()`.
+  connessioni/TLS) con retry automatico su errori di connessione e su
+  429/500/502/503/504 (il 429 è il throttling di WDQS: `Retry-After` viene
+  rispettato invece di far fallire la richiesta). Nei test usa
+  `_reset_session_for_tests()`.
 - Il rate limit (`_throttle`) si applica solo **tra richieste consecutive**,
   mai prima della prima: le viste interattive non pagano lo sleep.
 - Timeout per-istanza (`client.timeout`, `client.sparql_timeout`, default
   15/30 s): `PersonSearchView` li abbassa a 5/8 s per fallire in fretta.
+- Le query SPARQL vanno in **POST** (`_sparql`): in GET la query sta nella
+  query string e sbatterebbe contro il tetto di lunghezza dell'URI (~8 KB sui
+  server Wikimedia) con un `VALUES` di qualche centinaio di QID.
 - `get_entity` risolve occupazione+cittadinanza con **una** `wbgetentities`.
 - I check gerarchici dei bonus (ASK con property path) sono **cachati 7
   giorni** nella cache Django (`wd_bonus:*`).
