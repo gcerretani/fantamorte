@@ -36,8 +36,13 @@ def _shared_session():
             s.headers.update({'User-Agent': ua, 'Accept': 'application/json'})
             retry = Retry(
                 total=1, connect=1, read=0,
-                status_forcelist=(502, 503, 504),
-                allowed_methods=frozenset(['GET']),
+                # 429 = throttling di WDQS, che indica quanto aspettare in
+                # `Retry-After`: senza, la richiesta fallirebbe e il run del
+                # cron salterebbe la rilevazione per quel giro.
+                status_forcelist=(429, 500, 502, 503, 504),
+                # POST incluso perché le SPARQL si mandano in POST (query
+                # lunghe): è pur sempre una lettura, ripeterla è sicuro.
+                allowed_methods=frozenset(['GET', 'POST']),
                 backoff_factor=0.5,
                 respect_retry_after_header=True,
             )
@@ -89,10 +94,17 @@ class WikidataClient:
         return resp.json()
 
     def _sparql(self, query, timeout=None):
+        """Esegue una SPARQL in POST.
+
+        In GET la query viaggia nella query string e si sbatte contro il tetto
+        di lunghezza dell'URI (~8 KB sui server Wikimedia): con un `VALUES` da
+        qualche centinaio di QID ci si arriva. In POST il limite non c'è.
+        """
         _throttle(self.delay)
-        resp = self.session.get(
+        resp = self.session.post(
             self.SPARQL_URL,
-            params={'query': query, 'format': 'json'},
+            params={'format': 'json'},
+            data={'query': query},
             timeout=timeout or self.sparql_timeout,
         )
         resp.raise_for_status()
@@ -329,19 +341,28 @@ class WikidataClient:
                 pass
         return None, year
 
+    # Dimensione massima del blocco `VALUES` per richiesta. Il POST toglie il
+    # tetto di lunghezza dell'URI, ma una query con migliaia di QID nel
+    # `VALUES` resta comunque più lenta e più a rischio di timeout lato WDQS:
+    # con --force (niente rotazione a fette) il pool può superare facilmente
+    # questa soglia su un'istanza con molte leghe storiche.
+    DEATH_CHECK_CHUNK_SIZE = 200
+
     def check_deaths_batch(self, wikidata_ids):
         """QID, tra quelli passati, che su Wikidata hanno una data di morte."""
         if not wikidata_ids:
             return []
-        values = ' '.join(f'wd:{qid}' for qid in wikidata_ids)
-        query = sparql_templates.DEATH_CHECK_QUERY.format(values=values)
-        data = self._sparql(query)
         dead = []
-        for binding in data.get('results', {}).get('bindings', []):
-            uri = binding.get('item', {}).get('value', '')
-            qid = uri.split('/')[-1]
-            if qid:
-                dead.append(qid)
+        for i in range(0, len(wikidata_ids), self.DEATH_CHECK_CHUNK_SIZE):
+            chunk = wikidata_ids[i:i + self.DEATH_CHECK_CHUNK_SIZE]
+            values = ' '.join(f'wd:{qid}' for qid in chunk)
+            query = sparql_templates.DEATH_CHECK_QUERY.format(values=values)
+            data = self._sparql(query)
+            for binding in data.get('results', {}).get('bindings', []):
+                uri = binding.get('item', {}).get('value', '')
+                qid = uri.split('/')[-1]
+                if qid:
+                    dead.append(qid)
         return dead
 
     def detect_bonuses(self, wikidata_id, claims_cache, bonus_types):

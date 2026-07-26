@@ -344,9 +344,77 @@ class SharedSessionAndTimeoutTest(TestCase):
         client.sparql_timeout = 8
         fake_resp = MagicMock()
         fake_resp.json.return_value = {}
-        with patch.object(client.session, 'get', return_value=fake_resp) as mock_get:
+        with patch.object(client.session, 'post', return_value=fake_resp) as mock_post:
             client._sparql('ASK { }')
-        self.assertEqual(mock_get.call_args.kwargs['timeout'], 8)
+        self.assertEqual(mock_post.call_args.kwargs['timeout'], 8)
+
+    def test_sparql_usa_post_con_query_nel_body(self):
+        """La query viaggia nel body, non nell'URL: niente tetto di lunghezza URI."""
+        client = WikidataClient()
+        client.delay = 0
+        fake_resp = MagicMock()
+        fake_resp.json.return_value = {}
+        with patch.object(client.session, 'post', return_value=fake_resp) as mock_post:
+            client._sparql('ASK { wd:Q42 wdt:P570 ?d }')
+        self.assertEqual(mock_post.call_args.args[0], client.SPARQL_URL)
+        self.assertEqual(mock_post.call_args.kwargs['data'], {'query': 'ASK { wd:Q42 wdt:P570 ?d }'})
+        self.assertNotIn('query', mock_post.call_args.kwargs.get('params', {}))
+
+    def test_retry_include_429_e_post(self):
+        """WDQS risponde 429 al throttling con Retry-After: va rispettato, non
+        fatto fallire subito. Deve valere anche per POST, non solo GET."""
+        adapter = client_module._shared_session().get_adapter('https://query.wikidata.org/sparql')
+        self.assertIn(429, adapter.max_retries.status_forcelist)
+        self.assertIn('POST', adapter.max_retries.allowed_methods)
+
+
+class CheckDeathsBatchChunkingTest(TestCase):
+    """check_deaths_batch spezza lotti grandi in più richieste."""
+
+    def setUp(self):
+        client_module._reset_session_for_tests()
+
+    def tearDown(self):
+        client_module._reset_session_for_tests()
+
+    def test_lotto_piccolo_una_sola_chiamata(self):
+        client = WikidataClient()
+        client.delay = 0
+        with patch.object(client, '_sparql', return_value={'results': {'bindings': []}}) as mock_sparql:
+            client.check_deaths_batch(['Q1', 'Q2', 'Q3'])
+        self.assertEqual(mock_sparql.call_count, 1)
+
+    def test_lotto_grande_si_spezza_in_blocchi(self):
+        client = WikidataClient()
+        client.delay = 0
+        chunk_size = client.DEATH_CHECK_CHUNK_SIZE
+        ids = [f'Q{i}' for i in range(chunk_size + 1)]
+        with patch.object(client, '_sparql', return_value={'results': {'bindings': []}}) as mock_sparql:
+            client.check_deaths_batch(ids)
+        self.assertEqual(mock_sparql.call_count, 2)
+        first_query = mock_sparql.call_args_list[0].args[0]
+        second_query = mock_sparql.call_args_list[1].args[0]
+        self.assertEqual(first_query.count('wd:Q'), chunk_size)
+        self.assertEqual(second_query.count('wd:Q'), 1)
+
+    def test_risultati_di_piu_blocchi_si_uniscono(self):
+        client = WikidataClient()
+        client.delay = 0
+        chunk_size = client.DEATH_CHECK_CHUNK_SIZE
+        ids = [f'Q{i}' for i in range(chunk_size + 1)]
+        # Un morto per blocco: le due risposte vanno unite, non solo l'ultima.
+        responses = [
+            {'results': {'bindings': [
+                {'item': {'value': 'http://www.wikidata.org/entity/Q0'}}
+            ]}},
+            {'results': {'bindings': [
+                {'item': {'value': f'http://www.wikidata.org/entity/{ids[-1]}'}}
+            ]}},
+        ]
+        with patch.object(client, '_sparql', side_effect=responses) as mock_sparql:
+            dead = client.check_deaths_batch(ids)
+        self.assertEqual(mock_sparql.call_count, 2)
+        self.assertEqual(set(dead), {'Q0', ids[-1]})
 
 
 class MulLabelFallbackTest(TestCase):
