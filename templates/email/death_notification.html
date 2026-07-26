@@ -12,7 +12,13 @@
     <strong>{{ person.name_it }}</strong>, il {{ death.death_date|date:"d/m/Y" }}{% if death.death_age %} ({{ death.death_age }} anni){% endif %}.</p>
   {% endif %}
   {% if league %}
-    <p>Lega: <strong>{{ league.name }}</strong>.{% if league.substitution_deadline_days %}<br>Hai <strong>{{ league.substitution_deadline_days }}</strong> giorni per sostituirlo se era in squadra.{% endif %}</p>
+    {% comment %}
+      La finestra di sostituzione si nomina solo a chi ha davvero la persona
+      in rosa (affected) e solo se la lega è ancora in corso: la deadline
+      decorre da confirmed_at, quindi una conferma tardiva la mostrerebbe
+      aperta anche dopo la fine della lega, dove non si sostituisce più.
+    {% endcomment %}
+    <p>Lega: <strong>{{ league.name }}</strong>.{% if affected and not league.is_finished and league.substitution_deadline_days %}<br>Hai <strong>{{ league.substitution_deadline_days }}</strong> giorni per sostituirlo/a.{% endif %}</p>
   {% endif %}
   <p style="margin: 24px 0;">
     <a href="{{ death_url }}" style="background:#212529; color:#fff; padding:10px 18px; text-decoration:none; border-radius:6px; display:inline-block;">Vedi dettagli</a>

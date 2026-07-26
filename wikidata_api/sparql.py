@@ -3,11 +3,18 @@
 Solo le query effettivamente referenziate dal client appartengono qui.
 """
 
+# «Di questi, a chi è comparsa una data di morte?». Nessun filtro sull'anno:
+# i candidati sono già solo persone che il DB crede vive, quindi ogni riga di
+# risposta è un decesso nuovo. Un tempo si filtrava per anno della lega, il che
+# costava una query per anno e creava due punti ciechi: i decessi dell'anno
+# precedente all'inizio (pre-stagione) e quelli delle leghe non ancora
+# iniziate, i cui anni sono nel futuro. Il periodo di gioco resta dove va
+# filtrato davvero, cioè nello scoring.
+# DISTINCT perché una persona può avere più claim P570 (precisioni diverse).
 DEATH_CHECK_QUERY = """
-SELECT ?item WHERE {{
+SELECT DISTINCT ?item WHERE {{
   VALUES ?item {{ {values} }}
   ?item wdt:P570 ?deathDate .
-  FILTER(YEAR(?deathDate) = {year})
 }}
 """
 

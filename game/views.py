@@ -1379,7 +1379,10 @@ class SubstituteMemberView(LoginRequiredMixin, View):
         if not member.is_active():
             messages.error(request, 'Questo membro è già stato sostituito.')
             return redirect('team_edit', pk=pk)
-        if member.died_before_season():
+        # In composizione non si sostituisce nessuno: si toglie dalla rosa e si
+        # sceglie un altro. Dall'inizio in poi anche un decesso pre-stagione
+        # passa dal flusso normale (vedi TeamMember.can_be_substituted).
+        if team.league_id and not team.league.has_started():
             messages.error(
                 request,
                 f'{member.person.name_it} è deceduto/a prima dell\'inizio della lega: '
@@ -1387,11 +1390,7 @@ class SubstituteMemberView(LoginRequiredMixin, View):
             )
             return redirect('team_edit', pk=pk)
         if not member.can_be_substituted():
-            days = team.league.substitution_deadline_days if team.league_id else 7
-            messages.error(
-                request,
-                f'I tempi per la sostituzione sono scaduti ({days} giorni).'
-            )
+            messages.error(request, self._blocked_reason(team))
             return redirect('team_edit', pk=pk)
         return render(request, self.template_name, {
             'team': team,
@@ -1401,6 +1400,18 @@ class SubstituteMemberView(LoginRequiredMixin, View):
             'captain_policy': team.league.captain_succession if team.league_id else League.CAPTAIN_SUCCESSION_SUBSTITUTE,
             'captain_candidates': self._captain_candidates(team, member) if member.is_captain else [],
         })
+
+    @staticmethod
+    def _blocked_reason(team):
+        """Perché la sostituzione non è possibile: lega conclusa o tempi scaduti.
+
+        Sono due cose diverse e vanno dette diversamente: a lega conclusa non è
+        una questione di tempo, la sostituzione non ha più senso in assoluto.
+        """
+        if team.league_id and team.league.is_finished():
+            return 'La lega è conclusa: i membri deceduti non si sostituiscono più.'
+        days = team.league.substitution_deadline_days if team.league_id else 7
+        return f'I tempi per la sostituzione sono scaduti ({days} giorni).'
 
     @staticmethod
     def _captain_candidates(team, member):
@@ -1415,7 +1426,10 @@ class SubstituteMemberView(LoginRequiredMixin, View):
         member = get_object_or_404(TeamMember, pk=member_pk, team=team)
         if team.manager != request.user and not request.user.is_staff:
             return redirect('team_edit', pk=pk)
-        if member.died_before_season():
+        # In composizione non si sostituisce nessuno: si toglie dalla rosa e si
+        # sceglie un altro. Dall'inizio in poi anche un decesso pre-stagione
+        # passa dal flusso normale (vedi TeamMember.can_be_substituted).
+        if team.league_id and not team.league.has_started():
             messages.error(
                 request,
                 f'{member.person.name_it} è deceduto/a prima dell\'inizio della lega: '
@@ -1423,7 +1437,7 @@ class SubstituteMemberView(LoginRequiredMixin, View):
             )
             return redirect('team_edit', pk=pk)
         if not member.can_be_substituted():
-            messages.error(request, 'I tempi per la sostituzione sono scaduti.')
+            messages.error(request, self._blocked_reason(team))
             return redirect('team_edit', pk=pk)
 
         wikidata_id = request.POST.get('wikidata_id', '').strip()
@@ -2365,9 +2379,11 @@ class LeagueCalendarView(LoginRequiredMixin, View):
 
         # Scadenze di sostituzione per membri morti non ancora sostituiti.
         # In fase segreta pre-campionato questi eventi rivelerebbero le coppie
-        # persona/manager delle rose altrui: si omettono del tutto.
+        # persona/manager delle rose altrui: si omettono del tutto. A lega
+        # conclusa non si sostituisce più (can_be_substituted), quindi una
+        # scadenza in calendario sarebbe un appuntamento non onorabile.
         member_qs = TeamMember.objects.none()
-        if not league.rosters_secret_now():
+        if not league.rosters_secret_now() and not league.is_finished():
             member_qs = TeamMember.objects.filter(
                 team__league=league,
                 replaced_by__isnull=True,

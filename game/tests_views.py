@@ -1,11 +1,12 @@
 """Test di integrazione su view e permessi (leghe private, IDOR, CSRF)."""
 import json
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from .models import (
     BonusType, Death, DeathBonus, League, LeagueMembership, PushSubscription,
@@ -2284,3 +2285,130 @@ class LeagueDeathsTimelineTest(ViewsBaseTestCase):
         # Le chip di filtro sono presenti
         self.assertContains(resp, 'data-fm-timeline-filter="substitution"')
         self.assertContains(resp, 'Cronologia')
+
+
+class SostituzioneLegaConclusaTest(ViewsBaseTestCase):
+    """A lega conclusa la sostituzione è chiusa, con messaggio dedicato.
+
+    Caso limite: decesso con data dentro la finestra ma confermato ora, che
+    aprirebbe una deadline (decorre da `confirmed_at`) dopo la fine della lega.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.private_league.start_date = date(2024, 1, 1)
+        self.private_league.end_date = date(2024, 12, 31)
+        self.private_league.save()
+        self.person.is_dead = True
+        self.person.save()
+        Death.objects.create(
+            person=self.person, death_date=date(2024, 6, 1),
+            is_confirmed=True, confirmed_at=timezone.now(),
+        )
+        self.team_member = TeamMember.objects.get(
+            team=self.private_team, person=self.person,
+        )
+
+    def _url(self):
+        return reverse('substitute_member', args=[self.private_team.pk, self.team_member.pk])
+
+    def test_get_reindirizza_con_messaggio_lega_conclusa(self):
+        self.client.login(username='member', password='x')
+        resp = self.client.get(self._url(), follow=True)
+        self.assertRedirects(resp, reverse('team_edit', args=[self.private_team.pk]))
+        testi = [m.message for m in resp.context['messages']]
+        self.assertTrue(any('lega è conclusa' in t for t in testi), testi)
+        # Non è una questione di tempo: non deve dire "tempi scaduti".
+        self.assertFalse(any('scaduti' in t for t in testi), testi)
+
+    def test_post_non_sostituisce(self):
+        self.client.login(username='member', password='x')
+        prima = TeamMember.objects.filter(team=self.private_team).count()
+        resp = self.client.post(self._url(), {'wikidata_id': 'Q42'})
+        self.assertRedirects(resp, reverse('team_edit', args=[self.private_team.pk]))
+        self.assertEqual(TeamMember.objects.filter(team=self.private_team).count(), prima)
+        self.team_member.refresh_from_db()
+        self.assertIsNone(self.team_member.replaced_by)
+
+    def test_rosa_non_mostra_countdown_ne_bottone(self):
+        self.client.login(username='member', password='x')
+        html = self.client.get(reverse('team_edit', args=[self.private_team.pk])).content.decode()
+        self.assertIn('Lega conclusa: nessuna sostituzione', html)
+        self.assertNotIn('data-fm-countdown', html)
+        self.assertNotIn('Sostituisci', html)
+
+    def test_a_lega_in_corso_la_sostituzione_resta_possibile(self):
+        """Controprova: prolungando la lega il flusso torna disponibile."""
+        self.private_league.end_date = date(2030, 12, 31)
+        self.private_league.save()
+        self.client.login(username='member', password='x')
+        resp = self.client.get(self._url())
+        self.assertEqual(resp.status_code, 200)
+        self.assertTemplateUsed(resp, 'game/substitute_member.html')
+
+    def test_ics_non_espone_scadenze_di_lega_conclusa(self):
+        self.client.login(username='member', password='x')
+        body = self.client.get(reverse('league_calendar', args=['lega-privata'])).content.decode()
+        self.assertNotIn('Scadenza sostituzione', body)
+
+
+class SostituzioneDecessoPreStagioneTest(ViewsBaseTestCase):
+    """Il posto perso prima dell'inizio è recuperabile: si toglie in
+    composizione, si sostituisce a lega avviata."""
+
+    def setUp(self):
+        super().setUp()
+        self.person.is_dead = True
+        self.person.save()
+        self.team_member = TeamMember.objects.get(
+            team=self.private_team, person=self.person,
+        )
+
+    def _setup_league(self, start_in_days):
+        today = timezone.now().date()
+        start = today + timedelta(days=start_in_days)
+        self.private_league.registration_opens = today - timedelta(days=60)
+        self.private_league.registration_closes = start
+        self.private_league.start_date = start
+        self.private_league.end_date = start + timedelta(days=365)
+        self.private_league.save()
+        Death.objects.update_or_create(
+            person=self.person,
+            defaults={'death_date': start - timedelta(days=1), 'is_confirmed': True,
+                      'confirmed_at': timezone.now()},
+        )
+        self.team_member.refresh_from_db()
+
+    def _url(self):
+        return reverse('substitute_member', args=[self.private_team.pk, self.team_member.pk])
+
+    def test_prima_dell_inizio_rimanda_alla_rimozione(self):
+        self._setup_league(start_in_days=30)
+        self.client.login(username='member', password='x')
+        resp = self.client.get(self._url(), follow=True)
+        self.assertRedirects(resp, reverse('team_edit', args=[self.private_team.pk]))
+        testi = [m.message for m in resp.context['messages']]
+        self.assertTrue(any('rimuovilo/a dalla rosa' in t for t in testi), testi)
+        # Il membro è ancora lì: il posto si recupera, non sparisce.
+        self.assertTrue(TeamMember.objects.filter(pk=self.team_member.pk).exists())
+
+    def test_a_lega_avviata_la_sostituzione_e_permessa(self):
+        self._setup_league(start_in_days=-10)
+        self.client.login(username='member', password='x')
+        resp = self.client.get(self._url())
+        self.assertEqual(resp.status_code, 200)
+        self.assertTemplateUsed(resp, 'game/substitute_member.html')
+
+    def test_rosa_mostra_il_bottone_solo_a_lega_avviata(self):
+        self.client.login(username='member', password='x')
+        url = reverse('team_edit', args=[self.private_team.pk])
+
+        self._setup_league(start_in_days=30)
+        html = self.client.get(url).content.decode()
+        self.assertIn('rimuovilo/a e scegli un altro personaggio', html)
+        self.assertNotIn('Sostituisci', html)
+
+        self._setup_league(start_in_days=-10)
+        html = self.client.get(url).content.decode()
+        self.assertNotIn('rimuovilo/a e scegli un altro personaggio', html)
+        self.assertIn('Sostituisci', html)

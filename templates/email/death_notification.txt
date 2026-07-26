@@ -2,7 +2,7 @@ Ciao {{ user.username }},
 
 {% if affected %}{{ person.name_it }} faceva parte della tua squadra ed è deceduto/a il {{ death.death_date|date:"d/m/Y" }}{% if death.death_age %} all'età di {{ death.death_age }} anni{% endif %}.{% else %}Un personaggio è deceduto in una lega a cui partecipi: {{ person.name_it }} il {{ death.death_date|date:"d/m/Y" }}{% if death.death_age %} ({{ death.death_age }} anni){% endif %}.{% endif %}
 {% if league %}Lega: {{ league.name }}.
-{% if league.substitution_deadline_days %}Hai {{ league.substitution_deadline_days }} giorni per sostituirlo se era in squadra.{% endif %}{% endif %}
+{% if affected and not league.is_finished and league.substitution_deadline_days %}Hai {{ league.substitution_deadline_days }} giorni per sostituirlo/a.{% endif %}{% endif %}
 
 Dettagli: {{ death_url }}
 

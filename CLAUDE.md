@@ -134,6 +134,30 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
   `can_manage_league` (owner o staff) ai template. Lì il Django admin non
   è equivalente (delete con pulizia dei DeathBonus protetti, transfer
   coerente su owner+membership, validazione P/Q dei bonus custom).
+- **`TeamMember.can_be_substituted()`** governa la sostituzione. Il discrimine
+  è **quando siamo**, non quando è avvenuta la morte: prima di `start_date`
+  (composizione) non si sostituisce nessuno — il deceduto si toglie dalla rosa
+  e se ne sceglie un altro (`died_before_season`, bottone × in `team_edit`) —
+  e dall'avvio in poi anche un decesso pre-stagione è sostituibile. Il membro
+  non viene **mai** cancellato d'ufficio: `notifications.notify_preseason_dead_members`
+  avvisa e basta (un tempo cancellava, e chi non poteva più intervenire —
+  iscrizioni chiuse, o conferma arrivata a lega avviata — restava con la rosa
+  mutilata e nessun rimedio; nessun minimo di rosa esiste, quindi si giocava
+  in inferiorità per sempre).
+  Attenzione a due asimmetrie non ovvie: la deadline decorre dal più tardo tra
+  `Death.confirmed_at` e l'inizio della lega, **non** dalla data di morte (una
+  conferma tardiva apre la finestra oggi, anche per un decesso di mesi prima;
+  e un decesso pre-stagione confermato in anticipo non nasce già scaduto), e a
+  **lega conclusa** (`League.is_finished()`) non si sostituisce più — quella
+  finestra cadrebbe fuori dal periodo di gioco e la sostituzione non
+  sposterebbe un punto, cambierebbe solo la rosa storica. Il gate è dinamico:
+  prolungare `end_date` la riapre. Ne dipendono il bottone in
+  `team_edit`/`team_detail`, il
+  countdown, le scadenze nel feed ICS e la frase «hai N giorni per
+  sostituirlo» in push ed email — che si mostra **solo** a chi ha davvero la
+  persona in rosa e solo per la *sua* lega
+  (`notifications.affected_manager_leagues`, `push._substitution_hint`): un
+  tempo si pescava una lega qualsiasi tra quelle che contenevano la data.
 - **`TeamMember.is_original`** flag che abilita il bonus "giocata originale".
   Calcolato a inizio stagione dal command `mark_originals`. Il campo
   `replaced_by` crea una catena per tracciare le sostituzioni (solo
@@ -363,7 +387,17 @@ In `wikidata_api/client.py`. Nessun modello Django — è utility pura.
   Fallback label/descrizione: `it → mul → en → QID` — la lingua speciale `mul`
   è la label "default per tutte le lingue" di Wikidata, certe entità hanno solo quella
 - `get_summary(wiki_title)`: intro da Wikipedia italiana (cacheata 30 giorni)
-- `check_deaths_batch(qids, year)`: query SPARQL batch per morti in un dato anno
+- `check_deaths_batch(qids)`: **una** query SPARQL per lotto — «di questi, a chi
+  è comparsa una `P570`?». Nessun filtro sull'anno: i candidati sono già solo
+  persone che il DB crede vive, e il periodo di gioco lo applica lo scoring.
+  Filtrare per anno della lega costava una query per anno e creava due punti
+  ciechi (decessi dell'anno precedente all'avvio, e leghe non ancora iniziate,
+  i cui anni stanno nel futuro). Stessa logica per la selezione dei candidati:
+  nessun filtro sullo stato della lega, vedi `check_deaths`. Il metodo spezza
+  da solo lotti oltre `DEATH_CHECK_CHUNK_SIZE` (200 QID) in più richieste: con
+  `--force` (niente rotazione a fette) il pool può superare quella soglia su
+  un'istanza con molte leghe storiche, e una singola query enorme è più lenta
+  e più a rischio di timeout lato WDQS
 - `detect_bonuses(qid, claims_cache, bonus_types)`: verifica proprietà Wikidata per i bonus
 - `detect_age_bonus(age, bonus_type)`: valuta formula età con whitelist
 
@@ -376,12 +410,17 @@ interattive).
 
 Note di efficienza (importanti se tocchi il client):
 - La `requests.Session` è **condivisa a livello di modulo** (riuso
-  connessioni/TLS) con retry automatico su errori di connessione e
-  502/503/504. Nei test usa `_reset_session_for_tests()`.
+  connessioni/TLS) con retry automatico su errori di connessione e su
+  429/500/502/503/504 (il 429 è il throttling di WDQS: `Retry-After` viene
+  rispettato invece di far fallire la richiesta). Nei test usa
+  `_reset_session_for_tests()`.
 - Il rate limit (`_throttle`) si applica solo **tra richieste consecutive**,
   mai prima della prima: le viste interattive non pagano lo sleep.
 - Timeout per-istanza (`client.timeout`, `client.sparql_timeout`, default
   15/30 s): `PersonSearchView` li abbassa a 5/8 s per fallire in fretta.
+- Le query SPARQL vanno in **POST** (`_sparql`): in GET la query sta nella
+  query string e sbatterebbe contro il tetto di lunghezza dell'URI (~8 KB sui
+  server Wikimedia) con un `VALUES` di qualche centinaio di QID.
 - `get_entity` risolve occupazione+cittadinanza con **una** `wbgetentities`.
 - I check gerarchici dei bonus (ASK con property path) sono **cachati 7
   giorni** nella cache Django (`wd_bonus:*`).
@@ -591,7 +630,13 @@ Note di efficienza (importanti se tocchi il client):
 - I bonus della lega si modificano dal pannello admin `/leghe/<slug>/admin/`,
   **non** dal Django admin (quello è un fallback per superuser).
 - Le management commands lavorano per **lega**, non per stagione. Usano
-  l'argomento `--league <slug>` o, in mancanza, prendono le leghe in corso.
+  l'argomento `--league <slug>` o, in mancanza, prendono le leghe in corso —
+  tranne `check_deaths`, che **non filtra affatto per lega**: controlla chi è
+  membro attivo di una rosa qualsiasi. Filtrare per stato della lega lasciava
+  scoperti sia i decessi in fase di composizione (lega non ancora iniziata,
+  quando basterebbe togliere la persona dalla rosa) sia quelli registrati su
+  Wikidata *dopo* la fine della lega ma avvenuti durante il periodo di gioco —
+  che valgono punti, quindi la classifica finale restava sbagliata.
 - Il middleware login-required è la **prima** linea di difesa. Non aggiungere
   endpoint pubblici senza inserirli in `PUBLIC_PATHS` o `PUBLIC_PREFIXES`
   in `game/middleware.py`.
@@ -630,12 +675,23 @@ e preferenze tema:
 
 Altri file di test:
 - `game/tests_commands.py`: management command `check_deaths` (auto-conferma,
-  `--no-autoconfirm`, `--force`, `--dry-run`)
+  `--no-autoconfirm`, `--force`, `--dry-run`); `CheckDeathsSelezioneLegheTest`
+  copre la selezione dei candidati (rose di leghe da iniziare, in corso e
+  concluse; `--league` che restringe), la query unica senza filtro sull'anno e
+  il decesso in stagione registrato su Wikidata dopo la fine della lega, che
+  entra comunque in classifica
 - `game/tests_notifications.py`: feed notifiche in-app + matrice preferenze
   per canale (creazione righe alla conferma decesso, gating push/email via
   `wants`, reminder/iscrizione/blocco/lifecycle, endpoint feed e autosave);
   `DeviceLabelTest` copre `describe_user_agent` sui casi trappola degli UA
-  (Edge/Opera dichiarano Chrome, ogni browser dichiara Safari)
+  (Edge/Opera dichiarano Chrome, ogni browser dichiara Safari);
+  `LegaConclusaTest` copre il decesso confermato in ritardo (deadline aperta ma
+  lega finita): niente sostituzione, e push/email che nominano la finestra solo
+  a chi ha la persona in rosa e solo per la sua lega; `PreseasonDeathTest` usa
+  **date relative a oggi** (qui conta se la lega è iniziata, non l'anno nella
+  fixture) e copre il decesso pre-stagione: membro mai cancellato, «toglilo
+  dalla rosa» in composizione, sostituibile a lega avviata, deadline che
+  decorre dall'avvio
 - `game/tests_middleware.py`: `LoginRequiredEverywhereMiddleware` (path
   pubblici vs protetti)
 - `game/tests_views.py`: permessi/integrazione delle view (in arrivo,
@@ -643,7 +699,12 @@ Altri file di test:
   marcatore "questo dispositivo", revoca (404 sul pk di un altro utente) e
   l'accordo singolare/plurale della riga di conteggio; `PushRotateTest` copre
   la rotazione endpoint (aggiorna in place, mai duplica, 404 se
-  `old_endpoint` è ignoto)
+  `old_endpoint` è ignoto); `SostituzioneLegaConclusaTest` copre il rifiuto
+  della sostituzione a lega conclusa (GET/POST, rosa senza countdown, ICS
+  senza scadenze) e la controprova a lega prolungata;
+  `SostituzioneDecessoPreStagioneTest` copre il decesso pre-stagione dal lato
+  view (rimando alla rimozione prima dell'avvio, sostituzione permessa dopo,
+  bottone nella rosa solo a lega avviata)
 - `wikidata_api/tests.py`: client Wikidata con chiamate HTTP mockate
 
 **Aree ancora poco coperte**: view (integrazione, in corso in
@@ -671,7 +732,7 @@ python manage.py generate_vapid_keys
 python manage.py runserver
 
 # Cron / job periodici (per ogni lega in corso)
-python manage.py check_deaths              # rileva morti via Wikidata (auto-conferma se data valida)
+python manage.py check_deaths              # rileva morti via Wikidata (tutte le rose, a prescindere dallo stato della lega)
 python manage.py check_deaths --dry-run    # senza scrivere
 python manage.py check_deaths --force      # ignora data_frozen e last_checked sulle persone
 python manage.py check_deaths --no-autoconfirm   # crea i decessi non confermati

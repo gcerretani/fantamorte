@@ -61,7 +61,7 @@ def broadcast_death_notification(death: Death) -> int:
     Ritorna il numero totale di notifiche consegnate.
     """
     from .notifications import (
-        affected_manager_ids, death_member_user_ids, leagues_for_death, wants,
+        affected_manager_leagues, death_member_user_ids, leagues_for_death, wants,
     )
 
     person = death.person
@@ -81,7 +81,7 @@ def broadcast_death_notification(death: Death) -> int:
     if not user_ids:
         return 0
 
-    affected_ids = affected_manager_ids(person, leagues)
+    affected_leagues = affected_manager_leagues(person, leagues)
     subs = PushSubscription.objects.filter(user_id__in=user_ids).select_related('user')
 
     sent = 0
@@ -90,9 +90,15 @@ def broadcast_death_notification(death: Death) -> int:
         if not wants(sub.user, 'death', 'push'):
             continue
         payload = dict(payload_base)
-        if sub.user_id in affected_ids:
+        league = affected_leagues.get(sub.user_id)
+        if league is not None:
             payload['title'] = f'☠ {person.name_it} era nella tua squadra!'
             payload['urgent'] = True
+            # La finestra di sostituzione si nomina solo a chi può davvero
+            # agire, e solo per la SUA lega.
+            hint = _substitution_hint(league)
+            if hint:
+                payload['body'] = f'{payload["body"]} {hint}'
         if send_push(sub, payload):
             sent += 1
     logger.info('Push decesso %s: %d notifiche inviate', person.name_it, sent)
@@ -133,13 +139,25 @@ def send_substitution_reminder_push(team_member, days_left: int) -> bool:
 
 
 def _build_body(death: Death) -> str:
+    """Corpo comune a tutti i destinatari: nessun riferimento a lega o rosa."""
     dd = death.death_date
     date_str = dd.strftime('%d/%m/%Y') if hasattr(dd, 'strftime') else str(dd)
     parts = [f'È deceduto/a il {date_str}.']
     if death.death_age:
         parts.append(f'Età: {death.death_age} anni.')
-    leagues = League.objects.filter(start_date__lte=dd, end_date__gte=dd) if hasattr(dd, 'year') else []
-    league = leagues.first() if leagues else None
-    if league:
-        parts.append(f'Hai {league.substitution_deadline_days} giorni per sostituirlo (lega {league.name}).')
     return ' '.join(parts)
+
+
+def _substitution_hint(league: League) -> str:
+    """Frase sulla sostituzione per chi ha la persona in rosa in `league`.
+
+    Vuota se non c'è nulla da fare: lega conclusa (la deadline decorre da
+    `confirmed_at`, quindi una conferma tardiva la mostrerebbe ancora aperta —
+    vedi `TeamMember.can_be_substituted`) o sostituzioni disattivate.
+    """
+    if league is None or league.is_finished():
+        return ''
+    days = league.substitution_deadline_days or 0
+    if days <= 0:
+        return ''
+    return f'Hai {days} giorn{"o" if days == 1 else "i"} per sostituirlo (lega {league.name}).'

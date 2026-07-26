@@ -296,6 +296,118 @@ class CheckDeathsRotationTest(TestCase):
         self.assertEqual(len(checked_ids), 1)
 
 
+class CheckDeathsSelezioneLegheTest(TestCase):
+    """Quali leghe entrano nel controllo, e con quale query."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user('manager', password='x')
+        self.today = timezone.now().date()
+
+    def _league_with_person(self, slug, start_offset, qid, duration=365):
+        """Lega che inizia fra `start_offset` giorni (negativo = già iniziata)."""
+        start = self.today + timedelta(days=start_offset)
+        league = League.objects.create(
+            name=slug, slug=slug, owner=self.owner,
+            start_date=start, end_date=start + timedelta(days=duration),
+            registration_opens=start - timedelta(days=60),
+            registration_closes=start,
+        )
+        team = Team.objects.create(name=f'Squadra {slug}', manager=self.owner, league=league)
+        person = WikipediaPerson.objects.create(
+            wikidata_id=qid, name_it=f'Persona {qid}', is_dead=False,
+        )
+        TeamMember.objects.create(team=team, person=person)
+        return league, team, person
+
+    @patch('game.management.commands.check_deaths.WikidataClient')
+    def test_controlla_le_rose_di_ogni_lega(self, mock_class):
+        """Da iniziare, in corso e conclusa: lo stato della lega non filtra nulla."""
+        _, _, futura = self._league_with_person('lega-futura', 30, 'Q1')
+        _, _, in_corso = self._league_with_person('lega-in-corso', -30, 'Q2')
+        _, _, conclusa = self._league_with_person('lega-conclusa', -400, 'Q3', duration=100)
+        instance = mock_class.return_value
+        instance.check_deaths_batch.return_value = []
+        # --force per scavalcare la rotazione a fette, che qui prenderebbe una
+        # persona sola e renderebbe il test dipendente dall'ordinamento.
+        call_command('check_deaths', force=True)
+        checked = set(instance.check_deaths_batch.call_args[0][0])
+        self.assertEqual(
+            checked,
+            {futura.wikidata_id, in_corso.wikidata_id, conclusa.wikidata_id},
+        )
+
+    @patch('game.management.commands.check_deaths.WikidataClient')
+    def test_league_restringe_a_una_lega(self, mock_class):
+        _, _, futura = self._league_with_person('lega-futura', 30, 'Q1')
+        self._league_with_person('lega-in-corso', -30, 'Q2')
+        instance = mock_class.return_value
+        instance.check_deaths_batch.return_value = []
+        call_command('check_deaths', league='lega-futura', force=True)
+        checked = set(instance.check_deaths_batch.call_args[0][0])
+        self.assertEqual(checked, {futura.wikidata_id})
+
+    @patch('game.management.commands.check_deaths.WikidataClient')
+    def test_decesso_registrato_dopo_la_fine_della_lega(self, mock_class):
+        """Il caso dei personaggi meno noti: morto in stagione, su Wikidata dopo.
+
+        La lega è finita ma il decesso cade nel periodo di gioco, quindi vale
+        punti: se il cron smettesse di controllare, la classifica finale
+        resterebbe sbagliata per sempre.
+        """
+        from game import scoring
+        league, team, person = self._league_with_person(
+            'lega-conclusa', -400, 'Q4', duration=100,
+        )
+        morte = league.start_date + timedelta(days=50)  # dentro il periodo
+        instance = mock_class.return_value
+        instance.check_deaths_batch.return_value = [person.wikidata_id]
+        instance.get_entity.return_value = _entity_payload(morte)
+        instance.detect_bonuses.return_value = []
+        call_command('check_deaths', force=True)
+        person.refresh_from_db()
+        self.assertTrue(person.is_dead)
+        self.assertTrue(Death.objects.filter(person=person, is_confirmed=True).exists())
+        # E i punti entrano nella classifica finale della lega conclusa.
+        self.assertEqual(scoring.compute_team_total_score(team), league.base_points)
+
+    @patch('game.management.commands.check_deaths.WikidataClient')
+    def test_una_sola_query_senza_anno(self, mock_class):
+        """Una lega a cavallo di due anni non moltiplica le richieste."""
+        start = date(self.today.year - 1, 7, 1)
+        league = League.objects.create(
+            name='Lega Biennale', slug='lega-biennale', owner=self.owner,
+            start_date=start, end_date=start + timedelta(days=700),
+            registration_opens=start - timedelta(days=60),
+            registration_closes=start,
+        )
+        team = Team.objects.create(name='Squadra', manager=self.owner, league=league)
+        person = WikipediaPerson.objects.create(
+            wikidata_id='Q7', name_it='Persona Q7', is_dead=False,
+        )
+        TeamMember.objects.create(team=team, person=person)
+        instance = mock_class.return_value
+        instance.check_deaths_batch.return_value = []
+        call_command('check_deaths')
+        self.assertEqual(instance.check_deaths_batch.call_count, 1)
+        # Nessun anno tra gli argomenti: la finestra la applica lo scoring.
+        args, kwargs = instance.check_deaths_batch.call_args
+        self.assertEqual(len(args), 1)
+        self.assertEqual(kwargs, {})
+
+    @patch('game.management.commands.check_deaths.WikidataClient')
+    def test_decesso_dell_anno_precedente_all_inizio(self, mock_class):
+        """Il punto cieco di prima: morto a dicembre, lega che parte a gennaio."""
+        league, _, person = self._league_with_person('lega-gennaio', 30, 'Q5')
+        instance = mock_class.return_value
+        instance.check_deaths_batch.return_value = [person.wikidata_id]
+        instance.get_entity.return_value = _entity_payload(league.start_date - timedelta(days=40))
+        instance.detect_bonuses.return_value = []
+        call_command('check_deaths')
+        person.refresh_from_db()
+        self.assertTrue(person.is_dead)
+        self.assertTrue(Death.objects.filter(person=person, is_confirmed=True).exists())
+
+
 class BonusTypeComputePointsTest(TestCase):
     """Test di `BonusType.compute_points`, la whitelist di eval usata per le formule."""
 

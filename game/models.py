@@ -1,6 +1,6 @@
 import calendar
 import re
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
@@ -237,31 +237,54 @@ class TeamMember(models.Model):
     def get_substitution_deadline(self):
         """Restituisce la deadline (datetime) entro cui questo membro può essere sostituito.
 
-        Si basa sulla data di conferma del decesso e sulla configurazione della lega.
+        Il conto parte dal più tardo tra la conferma del decesso e l'inizio
+        della lega: un decesso *pre-stagione* confermato settimane prima
+        dell'avvio avrebbe altrimenti una finestra già scaduta il giorno in cui
+        il diritto di sostituire nasce. Per le morti in stagione è ininfluente
+        (la conferma è sempre successiva all'inizio).
         """
         if not self.person.is_dead:
             return None
         death = getattr(self.person, 'death', None)
         if not death or not death.is_confirmed or not death.confirmed_at:
             return None
+        start = death.confirmed_at
         if self.team.league_id:
             days = self.team.league.substitution_deadline_days or 0
+            # USE_TZ=True: confirmed_at è aware, quindi lo è anche il confronto.
+            start = max(start, timezone.make_aware(
+                datetime.combine(self.team.league.start_date, time.min)
+            ))
         else:
             days = 7
         if days <= 0:
             return None
-        return death.confirmed_at + timedelta(days=days)
+        return start + timedelta(days=days)
 
     def can_be_substituted(self):
-        """True se il membro è morto in stagione, non già sostituito e la
-        deadline non è scaduta.
+        """True se il membro è morto, non già sostituito, la lega è in corso e
+        la deadline non è scaduta.
 
-        I decessi *prima* dell'inizio della lega (fase di composizione) non si
-        sostituiscono: il membro va rimosso (vedi ``died_before_season``).
+        Il discrimine è **quando siamo**, non quando è avvenuta la morte. Prima
+        dell'inizio (fase di composizione) non si sostituisce nessuno: il
+        deceduto si toglie dalla rosa e se ne sceglie un altro (vedi
+        ``died_before_season``). Dall'inizio in poi anche un decesso
+        pre-stagione è sostituibile, con la finestra che decorre dall'avvio
+        (vedi ``get_substitution_deadline``): altrimenti chi scopre la morte a
+        iscrizioni già chiuse resterebbe con la rosa mutilata e nessun rimedio.
+
+        A lega **conclusa** non si sostituisce più, anche se la deadline
+        risultasse ancora aperta: quella finestra cadrebbe fuori dal periodo di
+        gioco e la sostituzione non sposterebbe un punto (lo scoring legge la
+        riga del membro morto e i decessi fuori periodo non contano),
+        cambierebbe solo la rosa storica. Il controllo è dinamico: se un admin
+        prolunga `end_date`, la finestra torna disponibile.
         """
         if not self.is_active() or not self.person.is_dead:
             return False
-        if self.died_before_season():
+        if self.team.league_id and not self.team.league.has_started():
+            return False
+        if self.team.league_id and self.team.league.is_finished():
             return False
         deadline = self.get_substitution_deadline()
         if deadline is None:

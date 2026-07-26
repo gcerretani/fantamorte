@@ -1,8 +1,19 @@
-"""Controlla Wikidata per decessi dei morituri di tutte le leghe in corso.
+"""Controlla su Wikidata i decessi dei morituri presenti in una qualsiasi rosa.
 
-Una lega è "in corso" quando `start_date <= oggi <= end_date`. Per ogni
-anno coperto da almeno una lega in corso, vengono controllate le
-persone che fanno parte di quelle leghe (TeamMember attivi, non sostituiti).
+Nessun filtro sullo stato delle leghe: «questa persona è morta?» è una domanda
+che non dipende dal calendario, e il periodo di gioco lo applica lo scoring,
+che decide in quale lega quel decesso conta. Filtrare per lega lasciava due
+buchi. Le leghe **da iniziare** non venivano guardate, e un decesso in fase di
+composizione — quando basterebbe togliere la persona dalla rosa, senza
+consumare una sostituzione — restava invisibile. Le leghe **concluse** uscivano
+dalla selezione il giorno dopo la fine, e un decesso avvenuto *durante* il
+periodo di gioco ma registrato su Wikidata più tardi (capita con i personaggi
+meno noti) non veniva mai rilevato: quel decesso vale punti, quindi la
+classifica finale restava sbagliata per sempre.
+
+Una sola query SPARQL per fetta di giocatori — «di questi, a chi è comparsa
+una data di morte?» — anche senza filtro sull'anno, per lo stesso motivo.
+Con `--league <slug>` ci si restringe ai giocatori di quella lega.
 """
 import math
 
@@ -15,12 +26,12 @@ from wikidata_api.client import WikidataClient
 
 
 class Command(BaseCommand):
-    help = 'Controlla Wikidata per decessi dei morituri nelle leghe in corso'
+    help = 'Controlla Wikidata per decessi dei morituri presenti nelle rose'
 
     def add_arguments(self, parser):
         parser.add_argument('--dry-run', action='store_true', help='Non salvare nulla')
-        parser.add_argument('--league', type=str, help='Slug di una lega specifica')
-        parser.add_argument('--year', type=int, help='Forza un singolo anno per la query SPARQL')
+        parser.add_argument('--league', type=str,
+                            help='Restringi ai giocatori di una lega (default: tutte)')
         parser.add_argument('--force', action='store_true', help='Ignora la rotazione (batch) e data_frozen: controlla tutti subito')
         parser.add_argument('--limit', type=int, help='Forza la dimensione della fetta di giocatori per questo run (override della rotazione automatica)')
         parser.add_argument(
@@ -32,37 +43,24 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         dry_run = options['dry_run']
         slug = options.get('league')
-        forced_year = options.get('year')
         autoconfirm = not options['no_autoconfirm']
-
-        leagues = League.objects.all()
-        if slug:
-            leagues = leagues.filter(slug=slug)
-        else:
-            today = timezone.now().date()
-            leagues = leagues.filter(start_date__lte=today, end_date__gte=today)
-
-        leagues = list(leagues)
-        if not leagues:
-            self.stdout.write(self.style.WARNING('Nessuna lega in corso.'))
-            return
-
-        self.stdout.write(f'Leghe da controllare: {[l.name for l in leagues]}')
-
-        # Anni da controllare via SPARQL: l'unione degli anni coperti dalle leghe
-        if forced_year:
-            years = [forced_year]
-        else:
-            years = sorted({y for l in leagues for y in range(l.start_date.year, l.end_date.year + 1)})
 
         client = WikidataClient()
 
-        # Persone candidate: membri attivi di queste leghe, non già morti
+        # Candidati: membri attivi di una rosa qualsiasi, che il DB crede vivi.
+        # Nessun filtro sullo stato della lega (vedi docstring): ogni riga che
+        # la query restituisce è un decesso nuovo.
         active_persons = WikipediaPerson.objects.filter(
-            team_members__team__league__in=leagues,
             team_members__replaced_by__isnull=True,
             is_dead=False,
         ).distinct()
+        if slug:
+            league = League.objects.filter(slug=slug).first()
+            if league is None:
+                self.stdout.write(self.style.ERROR(f'Lega "{slug}" inesistente.'))
+                return
+            self.stdout.write(f'Lega: {league.name}')
+            active_persons = active_persons.filter(team_members__team__league=league)
 
         force = options.get('force')
         if not force:
@@ -97,13 +95,11 @@ class Command(BaseCommand):
         if not wikidata_ids:
             return
 
-        # Unione dei decessi rilevati per ogni anno
         dead_ids = set()
-        for year in years:
-            try:
-                dead_ids.update(client.check_deaths_batch(wikidata_ids, year))
-            except Exception as e:
-                self.stdout.write(self.style.ERROR(f'Errore SPARQL ({year}): {e}'))
+        try:
+            dead_ids.update(client.check_deaths_batch(wikidata_ids))
+        except Exception as e:
+            self.stdout.write(self.style.ERROR(f'Errore SPARQL: {e}'))
 
         self.stdout.write(f'Decessi rilevati: {len(dead_ids)}')
 
