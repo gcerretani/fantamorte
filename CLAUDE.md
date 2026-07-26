@@ -387,7 +387,12 @@ In `wikidata_api/client.py`. Nessun modello Django — è utility pura.
   Fallback label/descrizione: `it → mul → en → QID` — la lingua speciale `mul`
   è la label "default per tutte le lingue" di Wikidata, certe entità hanno solo quella
 - `get_summary(wiki_title)`: intro da Wikipedia italiana (cacheata 30 giorni)
-- `check_deaths_batch(qids, year)`: query SPARQL batch per morti in un dato anno
+- `check_deaths_batch(qids)`: **una** query SPARQL per lotto — «di questi, a chi
+  è comparsa una `P570`?». Nessun filtro sull'anno: i candidati sono già solo
+  persone che il DB crede vive, e il periodo di gioco lo applica lo scoring.
+  Filtrare per anno della lega costava una query per anno e creava due punti
+  ciechi (decessi dell'anno precedente all'avvio, e leghe non ancora iniziate,
+  i cui anni stanno nel futuro)
 - `detect_bonuses(qid, claims_cache, bonus_types)`: verifica proprietà Wikidata per i bonus
 - `detect_age_bonus(age, bonus_type)`: valuta formula età con whitelist
 
@@ -615,7 +620,10 @@ Note di efficienza (importanti se tocchi il client):
 - I bonus della lega si modificano dal pannello admin `/leghe/<slug>/admin/`,
   **non** dal Django admin (quello è un fallback per superuser).
 - Le management commands lavorano per **lega**, non per stagione. Usano
-  l'argomento `--league <slug>` o, in mancanza, prendono le leghe in corso.
+  l'argomento `--league <slug>` o, in mancanza, prendono le leghe in corso —
+  tranne `check_deaths`, che copre anche quelle **da iniziare** (`end_date >=
+  oggi`): un decesso in fase di composizione va scoperto finché la rosa è
+  ancora modificabile.
 - Il middleware login-required è la **prima** linea di difesa. Non aggiungere
   endpoint pubblici senza inserirli in `PUBLIC_PATHS` o `PUBLIC_PREFIXES`
   in `game/middleware.py`.
@@ -654,7 +662,9 @@ e preferenze tema:
 
 Altri file di test:
 - `game/tests_commands.py`: management command `check_deaths` (auto-conferma,
-  `--no-autoconfirm`, `--force`, `--dry-run`)
+  `--no-autoconfirm`, `--force`, `--dry-run`); `CheckDeathsSelezioneLegheTest`
+  copre la selezione delle leghe (incluse quelle da iniziare, escluse le
+  concluse) e la query unica senza filtro sull'anno
 - `game/tests_notifications.py`: feed notifiche in-app + matrice preferenze
   per canale (creazione righe alla conferma decesso, gating push/email via
   `wants`, reminder/iscrizione/blocco/lifecycle, endpoint feed e autosave);
@@ -707,7 +717,7 @@ python manage.py generate_vapid_keys
 python manage.py runserver
 
 # Cron / job periodici (per ogni lega in corso)
-python manage.py check_deaths              # rileva morti via Wikidata (auto-conferma se data valida)
+python manage.py check_deaths              # rileva morti via Wikidata (leghe non concluse, incluse quelle da iniziare)
 python manage.py check_deaths --dry-run    # senza scrivere
 python manage.py check_deaths --force      # ignora data_frozen e last_checked sulle persone
 python manage.py check_deaths --no-autoconfirm   # crea i decessi non confermati

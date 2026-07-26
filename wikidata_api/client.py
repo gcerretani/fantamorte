@@ -329,11 +329,12 @@ class WikidataClient:
                 pass
         return None, year
 
-    def check_deaths_batch(self, wikidata_ids, year):
+    def check_deaths_batch(self, wikidata_ids):
+        """QID, tra quelli passati, che su Wikidata hanno una data di morte."""
         if not wikidata_ids:
             return []
         values = ' '.join(f'wd:{qid}' for qid in wikidata_ids)
-        query = sparql_templates.DEATH_CHECK_QUERY.format(values=values, year=year)
+        query = sparql_templates.DEATH_CHECK_QUERY.format(values=values)
         data = self._sparql(query)
         dead = []
         for binding in data.get('results', {}).get('bindings', []):
