@@ -4,6 +4,21 @@ Tutte le modifiche rilevanti di questo progetto sono documentate qui.
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 il versionamento segue [SemVer](https://semver.org/lang/it/).
 
+## [0.3.6] - 2026-08-01
+
+- Persona e decesso unificati in un'unica pagina navigabile (`/persona/<pk>/`,
+  sezione `#decesso`): niente più metà informazioni sparse tra due viste
+  diverse (foto/bio da una parte, bonus/punti dall'altra) e link che
+  portavano sempre alla pagina sbagliata. `/morte/<pk>/` resta un redirect
+  302 per i link già inviati via email/push e quelli salvati in DB
+- La pagina ricorda da quale lega sei arrivato (`?league=<slug>`, breadcrumb
+  e contesto del modal coerenti), senza rivelare l'esistenza di leghe
+  private con slug non validi
+- Ogni riga squadra linka a squadra e lega, con bottone Sostituisci diretto
+  per il manager quando la finestra è aperta
+- Persona viva con contesto lega: mostra i bonus "se morisse oggi", non più
+  solo nel modal
+
 ## [0.3.5] - 2026-07-26
 
 - Profilo: elenco dei dispositivi con le notifiche push attive (etichetta
