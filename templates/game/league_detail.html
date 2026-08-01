@@ -100,7 +100,7 @@
             <li class="list-group-item d-flex align-items-center gap-2">
               <span class="fm-dot" aria-hidden="true"><svg class="fm-ico"><use href="#fmIcoSkull"/></svg></span>
               <div class="fm-row-main">
-                <a href="{% url 'person_detail' event.death.person.pk %}" class="text-decoration-none fw-semibold" data-fm-person-pk="{{ event.death.person.pk }}">{{ event.death.person.name_it }}</a>
+                <a href="{% url 'person_detail' event.death.person.pk %}?league={{ league.slug }}#decesso" class="text-decoration-none fw-semibold" data-fm-person-pk="{{ event.death.person.pk }}">{{ event.death.person.name_it }}</a>
                 {% if event.death.death_age %}<span class="small text-body-secondary">{{ event.death.death_age }} anni</span>{% endif %}
                 {% if event.scorers %}
                   <div class="d-flex flex-wrap gap-1 mt-1">
@@ -119,9 +119,9 @@
               <div class="fm-row-main">
                 <span class="small">
                   Sostituzione in <a href="{% url 'team_detail' event.team.pk %}" class="text-decoration-none fw-semibold">{{ event.team.name }}</a>:
-                  <a href="#" class="text-decoration-none" data-fm-person-pk="{{ event.member_out.person.pk }}">{{ event.member_out.person.name_it }}</a>
+                  <a href="{% url 'person_detail' event.member_out.person.pk %}?league={{ league.slug }}" class="text-decoration-none" data-fm-person-pk="{{ event.member_out.person.pk }}">{{ event.member_out.person.name_it }}</a>
                   &rarr;
-                  <a href="#" class="text-decoration-none" data-fm-person-pk="{{ event.member_in.person.pk }}">{{ event.member_in.person.name_it }}</a>
+                  <a href="{% url 'person_detail' event.member_in.person.pk %}?league={{ league.slug }}" class="text-decoration-none" data-fm-person-pk="{{ event.member_in.person.pk }}">{{ event.member_in.person.name_it }}</a>
                 </span>
               </div>
             </li>

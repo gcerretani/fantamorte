@@ -59,7 +59,7 @@
           <div>
             {% if member.is_captain %}<span class="badge text-bg-primary me-1">C</span>{% endif %}
             {% if member.is_original %}<span class="badge text-bg-info me-1" title="Giocata originale">★</span>{% endif %}
-            <a href="{% url 'person_detail' member.person.pk %}" class="text-decoration-none" data-fm-person-pk="{{ member.person.pk }}">
+            <a href="{% url 'person_detail' member.person.pk %}{% if team.league %}?league={{ team.league.slug }}{% endif %}" class="text-decoration-none" data-fm-person-pk="{{ member.person.pk }}">
               {{ member.person.name_it }}
             </a>
             {% if member.person.birth_date %}
@@ -91,7 +91,7 @@
           <li class="list-group-item py-3">
             <div class="d-flex align-items-center gap-2">
               <div class="fm-row-main">
-                <a href="{% url 'death_detail' d.death.pk %}" class="fw-semibold text-decoration-none">{{ d.death.person.name_it }}</a>
+                <a href="{% url 'person_detail' d.death.person.pk %}{% if team.league %}?league={{ team.league.slug }}{% endif %}#decesso" class="fw-semibold text-decoration-none">{{ d.death.person.name_it }}</a>
                 {% if d.is_captain %}<span class="badge text-bg-primary">C</span>{% endif %}
                 {% if d.jolly %}<span class="badge text-bg-info" title="Mese jolly">J</span>{% endif %}
                 <div class="small text-body-secondary">

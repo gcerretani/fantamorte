@@ -729,7 +729,12 @@
       const links = [];
       if (p.wikipedia_url_it) links.push(`<a href="${escapeHtml(p.wikipedia_url_it)}" target="_blank" class="btn btn-outline-secondary btn-sm">Wikipedia &rarr;</a>`);
       links.push(`<a href="${escapeHtml(p.wikidata_url)}" target="_blank" class="btn btn-outline-secondary btn-sm">Wikidata &rarr;</a>`);
-      links.push(`<a href="/persona/${p.id}/" class="btn btn-link btn-sm">Pagina completa</a>`);
+      // Stessa destinazione dei link in pagina: la lega di contesto (per il
+      // breadcrumb) e l'ancora al decesso quando è quello che interessa.
+      const fullPage = `/persona/${p.id}/` +
+        (leagueSlug ? `?league=${encodeURIComponent(leagueSlug)}` : '') +
+        (p.is_dead ? '#decesso' : '');
+      links.push(`<a href="${escapeHtml(fullPage)}" class="btn btn-link btn-sm">Pagina completa</a>`);
       body.innerHTML = `
         <div class="row">
           <div class="col-md-4">${img}</div>
@@ -768,6 +773,10 @@
   document.addEventListener('click', function (e) {
     const t = e.target.closest('[data-fm-person-pk]');
     if (!t) return;
+    // Questi link hanno un href vero verso la pagina persona: con un
+    // modificatore (nuova scheda/finestra) lascia fare al browser invece di
+    // aprire il modal.
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
     const leagueEl = t.closest('[data-fm-league]');
     window.fmShowPerson(t.dataset.fmPersonPk, leagueEl ? leagueEl.dataset.fmLeague : '');

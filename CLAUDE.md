@@ -462,8 +462,15 @@ Note di efficienza (importanti se tocchi il client):
 /squadra/<pk>/sostituisci/<member_pk>/    flusso sostituzione
 /squadra/<pk>/what-if/          simulatore punti (capitano/jolly + bonus automatici di lega)
 
-/persona/<pk>/                  pagina dettaglio (con bio Wikipedia)
-/morte/<pk>/                    dettaglio decesso con bonus e squadre coinvolte
+/persona/<pk>/                  pagina UNICA della persona: anagrafica, bio Wikipedia,
+                                sezione #decesso (bonus + squadre a punti / fuori periodo),
+                                rose che la schierano. Con ?league=<slug> ricorda la lega
+                                di provenienza (breadcrumb) e, se viva, mostra i bonus
+                                "se morisse oggi"
+/morte/<pk>/                    redirect 302 a /persona/<pk>/#decesso (il decesso è un
+                                OneToOne con la persona: nessuna pagina propria). La rotta
+                                resta perché i link già spediti (email, push) e quelli
+                                salvati in DB (Notification.url) puntano ancora qui
 /api/persona/<pk>/              JSON per il modal (solo dati in DB + summary_stale; con
                                 ?league=<slug> aggiunge i bonus automatici "se morisse oggi")
 /api/persona/<pk>/summary/      refresh sincrono del summary Wikipedia (lazy dal modal)

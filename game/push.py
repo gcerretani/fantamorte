@@ -69,7 +69,7 @@ def broadcast_death_notification(death: Death) -> int:
         'type': 'death',
         'title': f'☠ {person.name_it}',
         'body': _build_body(death),
-        'url': reverse('death_detail', args=[death.pk]),
+        'url': reverse('person_detail', args=[death.person_id]) + '#decesso',
         'tag': f'death-{death.pk}',
         'death_id': death.pk,
     }

@@ -167,7 +167,7 @@ def create_death_notifications(death):
     if not user_ids:
         return 0
 
-    url = reverse('death_detail', args=[death.pk])
+    url = reverse('person_detail', args=[death.person_id]) + '#decesso'
     body = _death_body(death)
     created = 0
     for uid in user_ids:
