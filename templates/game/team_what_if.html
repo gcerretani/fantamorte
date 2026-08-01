@@ -44,7 +44,7 @@
     <li class="list-group-item py-3{% if r.points_now == 0 %} text-body-secondary{% endif %}">
       <div class="d-flex align-items-center gap-2">
         <div class="fm-row-main">
-          <a href="#" data-fm-person-pk="{{ r.person.pk }}">{{ r.person.name_it }}</a>
+          <a href="{% url 'person_detail' r.person.pk %}{% if team.league %}?league={{ team.league.slug }}{% endif %}" data-fm-person-pk="{{ r.person.pk }}">{{ r.person.name_it }}</a>
           {% if r.member.is_captain %}<span class="badge text-bg-primary">C</span>{% endif %}
           {% if r.member.is_original %}<span class="badge text-bg-info" title="Giocata originale">★</span>{% endif %}
           {% if r.is_jolly_month %}<span class="badge text-bg-info">jolly</span>{% endif %}

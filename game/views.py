@@ -1037,53 +1037,21 @@ class TeamDetailView(LoginRequiredMixin, DetailView):
         return ctx
 
 
-class DeathDetailView(LoginRequiredMixin, DetailView):
-    model = Death
-    template_name = 'game/death_detail.html'
-    context_object_name = 'death'
+class DeathDetailView(LoginRequiredMixin, View):
+    """Vecchia URL del dettaglio decesso: ora è la stessa pagina della persona.
 
-    def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)
-        death = self.object
-        # Pagina globale senza gate di lega: i bonus custom appartengono a una
-        # lega (bonus_type.league). Nome e punti di un bonus di lega privata non
-        # devono trapelare a chi non può vederla — stesso criterio di
-        # teams_affected qui sotto. I bonus di sistema (league_id None) sono
-        # sempre visibili.
-        ctx['bonuses'] = [
-            b for b in death.bonuses.select_related('bonus_type', 'bonus_type__league')
-            if not b.bonus_type.league_id
-            or b.bonus_type.league.can_user_view(self.request.user)
-        ]
-        # Due sezioni: squadre la cui lega copre la data del decesso (e quindi
-        # guadagnano punti) e squadre che hanno la persona in rosa ma la cui
-        # lega non copre quella data (nessun punto — prima finivano comunque
-        # in un'unica lista senza distinzione, dando l'impressione che il
-        # decesso "contasse" ovunque).
-        teams_scoring = []
-        teams_not_scoring = []
-        members = TeamMember.objects.filter(person=death.person).select_related(
-            'team__manager', 'team__league',
+    Il decesso è un OneToOne con la persona, quindi due pagine per lo stesso
+    soggetto significavano solo metà informazioni per parte. La rotta resta
+    perché i link già spediti (email, push) e quelli **salvati in DB**
+    (`Notification.url` è denormalizzato) puntano qui: 302 e non 301, un
+    permanent redirect resterebbe nella cache dei browser per sempre.
+    """
+
+    def get(self, request, pk):
+        death = get_object_or_404(Death, pk=pk)
+        return redirect(
+            reverse('person_detail', args=[death.person_id]) + '#decesso'
         )
-        for member in members:
-            league = member.team.league
-            # Le squadre di leghe private restano visibili solo ai membri;
-            # in fase segreta pre-campionato anche le appartenenze alle rose.
-            if league and not league.can_user_view(self.request.user):
-                continue
-            if league and league.roster_hidden_for(self.request.user, member.team):
-                continue
-            in_window = league is None or (league.start_date <= death.death_date <= league.end_date)
-            if in_window and death.is_confirmed:
-                pts = scoring.compute_team_points_for_death(member.team, death)
-                if pts:
-                    teams_scoring.append({'team': member.team, 'points': pts})
-                    continue
-            teams_not_scoring.append({'team': member.team})
-        teams_scoring.sort(key=lambda t: -t['points'])
-        ctx['teams_scoring'] = teams_scoring
-        ctx['teams_not_scoring'] = teams_not_scoring
-        return ctx
 
 
 WIKIPEDIA_LANGS = [
@@ -1506,28 +1474,112 @@ class SubstituteMemberView(LoginRequiredMixin, View):
 
 
 class PersonDetailView(LoginRequiredMixin, DetailView):
-    """Pagina di dettaglio di una persona della rosa."""
-    model = WikipediaPerson
+    """Pagina unica di una persona: anagrafica, biografia, decesso, rose.
+
+    È anche la destinazione di `/morte/<pk>/` (vedi DeathDetailView): il
+    decesso non ha una pagina propria perché è un OneToOne con la persona, e
+    tenerle separate significava mostrare metà informazioni per parte.
+
+    Con `?league=<slug>` la pagina si ricorda da quale lega sei arrivato
+    (breadcrumb, contesto del modal) e, per una persona viva, mostra i bonus
+    che scatterebbero se morisse oggi in quella lega.
+    """
+    queryset = WikipediaPerson.objects.select_related('death')
     template_name = 'game/person_detail.html'
     context_object_name = 'person'
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         person = self.object
+        user = self.request.user
         # _refresh_person_summary è già no-op se il summary è fresco: la
         # guardia su summary_it lo lascerebbe stale per sempre oltre i 30 gg.
         if person.wikipedia_url_it:
             _refresh_person_summary(person)
+
+        # Il reverse one-to-one solleva un'eccezione che eredita da
+        # AttributeError, quindi getattr con default è la via pulita.
+        death = getattr(person, 'death', None)
+        ctx['death'] = death
+
+        # Lega di provenienza: solo se l'utente può vederla. Slug ignoto e
+        # slug di lega non visibile si comportano allo stesso modo (nessun
+        # segnale sull'esistenza di una lega privata).
+        league_slug = self.request.GET.get('league', '').strip()
+        league_ctx = None
+        if league_slug:
+            candidate = League.objects.filter(slug=league_slug).first()
+            if candidate and candidate.can_user_view(user):
+                league_ctx = candidate
+        ctx['league'] = league_ctx
+
+        if death:
+            # I bonus custom appartengono a una lega (bonus_type.league): nome e
+            # punti di un bonus di lega privata non devono trapelare a chi non
+            # può vederla. Quelli di sistema (league_id None) sono sempre
+            # visibili. Stesso criterio delle rose qui sotto.
+            ctx['bonuses'] = [
+                b for b in death.bonuses.select_related('bonus_type', 'bonus_type__league')
+                if not b.bonus_type.league_id
+                or b.bonus_type.league.can_user_view(user)
+            ]
+        elif league_ctx:
+            # Persona viva: cosa scatterebbe "se morisse oggi" in questa lega
+            # (gli stessi bonus potenziali del modal).
+            ctx['potential_bonuses'] = _potential_league_bonuses(person, league_ctx)
+            ctx['base_points'] = league_ctx.base_points
+
+        rows = []
         members = TeamMember.objects.filter(person=person).select_related(
             'team__manager', 'team__league',
         )
-        # Le squadre di leghe private restano visibili solo ai membri;
-        # in fase segreta pre-campionato anche le appartenenze alle rose.
-        ctx['team_members'] = [
-            m for m in members
-            if (not m.team.league_id or m.team.league.can_user_view(self.request.user))
-            and not (m.team.league_id and m.team.league.roster_hidden_for(self.request.user, m.team))
-        ]
+        for member in members:
+            league = member.team.league
+            # Le squadre di leghe private restano visibili solo ai membri;
+            # in fase segreta pre-campionato anche le appartenenze alle rose.
+            if league and not league.can_user_view(user):
+                continue
+            if league and league.roster_hidden_for(user, member.team):
+                continue
+            # La persona è la stessa per tutte le righe e ha già il decesso in
+            # cache (select_related sopra): riusarla evita che
+            # can_be_substituted() rifaccia due query per riga.
+            member.person = person
+            rows.append({
+                'member': member,
+                'team': member.team,
+                'league': league,
+                'points': 0,
+                # Scorciatoia per il manager: la sostituzione si avvia da qui
+                # senza passare dalla pagina squadra.
+                'can_substitute': (
+                    member.team.manager_id == user.pk and member.can_be_substituted()
+                ),
+            })
+        ctx['team_members'] = rows
+
+        if death:
+            # Due sezioni: squadre la cui lega copre la data del decesso (e
+            # quindi guadagnano punti) e squadre che hanno la persona in rosa ma
+            # la cui lega non copre quella data (nessun punto — in un'unica
+            # lista darebbero l'impressione che il decesso "contasse" ovunque).
+            teams_scoring = []
+            teams_not_scoring = []
+            for row in rows:
+                league = row['league']
+                in_window = league is None or (
+                    league.start_date <= death.death_date <= league.end_date
+                )
+                if in_window and death.is_confirmed:
+                    pts = scoring.compute_team_points_for_death(row['team'], death)
+                    if pts:
+                        row['points'] = pts
+                        teams_scoring.append(row)
+                        continue
+                teams_not_scoring.append(row)
+            teams_scoring.sort(key=lambda r: -r['points'])
+            ctx['teams_scoring'] = teams_scoring
+            ctx['teams_not_scoring'] = teams_not_scoring
         return ctx
 
 

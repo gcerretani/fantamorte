@@ -107,7 +107,7 @@
         <li class="list-group-item py-3{% if member.person.is_dead %} fm-row-dead{% endif %}">
           <div class="d-flex align-items-center gap-2">
             <div class="fm-row-main">
-              <a href="#" class="text-decoration-none fw-semibold" data-fm-person-pk="{{ member.person.pk }}">
+              <a href="{% url 'person_detail' member.person.pk %}{% if team.league %}?league={{ team.league.slug }}{% endif %}" class="text-decoration-none fw-semibold" data-fm-person-pk="{{ member.person.pk }}">
                 {{ member.person.name_it }}
               </a>
               {% if member.is_captain %}

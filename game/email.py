@@ -103,13 +103,20 @@ def broadcast_death_email(death: Death) -> int:
         else:
             subject = f'☠ {person.name_it} è deceduto/a'
 
+        # L'email è per-coppia (utente, lega): il link porta la lega con sé,
+        # così la pagina persona apre col breadcrumb di quella lega.
+        person_path = reverse('person_detail', args=[death.person_id])
+        if league is not None:
+            person_path += f'?league={league.slug}'
+        person_path += '#decesso'
+
         context = {
             'user': user,
             'league': league,
             'person': person,
             'death': death,
             'affected': affected,
-            'death_url': _abs_url(reverse('death_detail', args=[death.pk])),
+            'death_url': _abs_url(person_path),
             'profile_url': _abs_url(reverse('profile')),
             'site_url': _site_base_url(),
         }

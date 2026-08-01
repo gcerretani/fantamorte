@@ -35,7 +35,7 @@
   {% for person in persons %}
     <li class="list-group-item py-3 d-flex align-items-center gap-2" id="row-{{ person.pk }}">
       <div class="fm-row-main">
-        <a href="#" data-fm-person-pk="{{ person.pk }}">{{ person.name_it }}</a>
+        <a href="{% url 'person_detail' person.pk %}?league={{ league.slug }}" data-fm-person-pk="{{ person.pk }}">{{ person.name_it }}</a>
         <span id="status-{{ person.pk }}">
           {% if person.is_dead %}
             <span class="badge text-bg-danger">Morto</span>

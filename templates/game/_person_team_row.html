@@ -1,0 +1,29 @@
+{# Riga "squadra che schiera questa persona": renderer unico delle tre liste #}
+{# di person_detail (a punti / fuori periodo / selezionata da). Il contesto #}
+{# arriva da PersonDetailView come dict `row` (member, team, league, points, #}
+{# can_substitute); `show_points` a True aggiunge la metrica punti a destra. #}
+{# Niente fm-row-dead: è la tinta "persona morta" e qui lo sono tutte le righe. #}
+<li class="list-group-item d-flex align-items-center gap-2">
+  <div class="fm-row-main">
+    <a href="{% url 'team_detail' row.team.pk %}" class="fw-semibold text-decoration-none">{{ row.team.name }}</a>
+    {% if row.member.is_captain %}<span class="badge text-bg-primary" title="Capitano">C</span>{% endif %}
+    {% if row.member.is_original %}<span class="badge text-bg-info" title="Giocata originale">&#9733;</span>{% endif %}
+    {% if row.member.replaced_by %}<span class="badge text-bg-secondary">sostituito/a</span>{% endif %}
+    <div class="small text-body-secondary">
+      {% if row.league %}
+        <a href="{% url 'league_detail' row.league.slug %}" class="text-decoration-none">{{ row.league.name }}</a>
+        &middot;
+      {% endif %}
+      {{ row.team.manager.username }}
+    </div>
+  </div>
+  {% if row.can_substitute %}
+    <a href="{% url 'substitute_member' row.team.pk row.member.pk %}" class="btn btn-primary btn-sm">Sostituisci</a>
+  {% endif %}
+  {% if show_points %}
+    <div class="fm-metric">
+      <span class="fm-metric-value">{{ row.points }}</span>
+      <span class="fm-metric-unit">punti</span>
+    </div>
+  {% endif %}
+</li>

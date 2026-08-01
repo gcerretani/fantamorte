@@ -163,8 +163,8 @@ Riferimenti architetturali: [`CLAUDE.md`](../CLAUDE.md).
 ### Dark mode
 - [ ] Nessun flash del tema sbagliato al caricamento (`data-theme` applicato
       inline prima del render) su: home, lista leghe, dettaglio lega,
-      classifica, dettaglio squadra, edit squadra, dettaglio persona,
-      dettaglio decesso, profilo, pannello admin lega.
+      classifica, dettaglio squadra, edit squadra, pagina persona
+      (con e senza sezione decesso), profilo, pannello admin lega.
 - [ ] Contrasto leggibile in dark mode su tabelle, badge, modal, form.
 
 ---

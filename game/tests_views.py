@@ -167,8 +167,8 @@ class LeagueAdminPermessiTest(ViewsBaseTestCase):
         self.assertEqual(self.private_league.registration_closes, date(2031, 6, 1))
 
 
-class DeathDetailBonusVisibilityTest(ViewsBaseTestCase):
-    """La pagina globale /morte/<pk>/ non deve esporre i bonus custom di
+class PaginaPersonaBonusVisibilityTest(ViewsBaseTestCase):
+    """La pagina globale della persona non deve esporre i bonus custom di
     leghe private a chi non ne è membro."""
 
     def setUp(self):
@@ -193,7 +193,7 @@ class DeathDetailBonusVisibilityTest(ViewsBaseTestCase):
         DeathBonus.objects.create(
             death=self.death, bonus_type=self.system_bonus, points_awarded=10,
         )
-        self.url = reverse('death_detail', args=[self.death.pk])
+        self.url = reverse('person_detail', args=[self.person.pk])
 
     def test_outsider_non_vede_bonus_custom_di_lega_privata(self):
         self.client.login(username='outsider', password='x')
@@ -214,8 +214,8 @@ class DeathDetailBonusVisibilityTest(ViewsBaseTestCase):
         self.assertContains(resp, 'Bonus Di Sistema')
 
 
-class DeathDetailTeamsScoringTest(ViewsBaseTestCase):
-    """La sezione "Squadre coinvolte" di /morte/<pk>/ deve distinguere le
+class PaginaPersonaTeamsScoringTest(ViewsBaseTestCase):
+    """La sezione decesso della pagina persona deve distinguere le
     squadre la cui lega copre la data del decesso (guadagnano punti) da
     quelle che hanno la persona in rosa ma il cui periodo non la copre
     (bug: prima finivano comunque nell'unica lista, con punti "fantasma"
@@ -227,7 +227,7 @@ class DeathDetailTeamsScoringTest(ViewsBaseTestCase):
             person=self.person, death_date=date(2023, 6, 12), death_age=86,
             is_confirmed=True,
         )
-        self.url = reverse('death_detail', args=[self.death.pk])
+        self.url = reverse('person_detail', args=[self.person.pk])
 
     def test_squadra_in_periodo_guadagna_punti(self):
         self.client.login(username='member', password='x')
@@ -257,6 +257,119 @@ class DeathDetailTeamsScoringTest(ViewsBaseTestCase):
         self.assertNotIn(squadra_fuori, scoring_teams)
         self.assertIn(squadra_fuori, not_scoring_teams)
         self.assertContains(resp, 'Fuori periodo')
+
+
+class PaginaPersonaUnificataTest(ViewsBaseTestCase):
+    """`/persona/<pk>/` è la pagina unica: anagrafica + decesso + rose.
+
+    `/morte/<pk>/` sopravvive solo come redirect, perché i link già spediti
+    (email, push) e quelli salvati in `Notification.url` puntano ancora lì.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.person.is_dead = True
+        self.person.death_date = date(2023, 6, 12)
+        self.person.save()
+        self.death = Death.objects.create(
+            person=self.person, death_date=date(2023, 6, 12), death_age=86,
+            is_confirmed=True, confirmed_at=timezone.now(),
+        )
+        self.url = reverse('person_detail', args=[self.person.pk])
+
+    def test_vecchia_url_del_decesso_redirige_alla_persona(self):
+        self.client.login(username='member', password='x')
+        resp = self.client.get(reverse('death_detail', args=[self.death.pk]))
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp['Location'], f'{self.url}#decesso')
+
+    def test_pagina_unica_mostra_decesso_bonus_e_punti(self):
+        BonusType.objects.create(
+            name='Bonus Visibile', league=None, points=10,
+            detection_method=BonusType.DETECTION_MANUAL,
+        )
+        DeathBonus.objects.create(
+            death=self.death,
+            bonus_type=BonusType.objects.get(name='Bonus Visibile'),
+            points_awarded=10,
+        )
+        self.client.login(username='member', password='x')
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 200)
+        # Anagrafica e decesso nella stessa pagina, non più su due URL.
+        self.assertContains(resp, 'Silvio Berlusconi')
+        self.assertContains(resp, 'id="decesso"')
+        self.assertContains(resp, 'Bonus Visibile')
+        self.assertContains(resp, 'Squadre che guadagnano punti')
+        self.assertContains(resp, 'Squadra Privata')
+
+    def test_scorciatoia_sostituzione_per_il_manager(self):
+        self.client.login(username='member', password='x')
+        resp = self.client.get(self.url)
+        member = TeamMember.objects.get(team=self.private_team, person=self.person)
+        self.assertTrue(member.can_be_substituted())
+        self.assertContains(
+            resp, reverse('substitute_member', args=[self.private_team.pk, member.pk]))
+
+    def test_scorciatoia_sostituzione_non_offerta_ad_altri(self):
+        # L'owner della lega non è il manager di quella squadra: nessun bottone.
+        self.client.login(username='owner', password='x')
+        resp = self.client.get(self.url)
+        self.assertNotContains(
+            resp, reverse('substitute_member', args=[self.private_team.pk,
+                                                     self.private_team.members.first().pk]))
+
+    def test_contesto_lega_nel_breadcrumb(self):
+        self.client.login(username='member', password='x')
+        resp = self.client.get(self.url, {'league': 'lega-privata'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context['league'], self.private_league)
+        self.assertContains(resp, reverse('league_detail', args=['lega-privata']))
+
+    def test_slug_lega_ignoto_ignorato(self):
+        self.client.login(username='member', password='x')
+        resp = self.client.get(self.url, {'league': 'non-esiste'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(resp.context['league'])
+
+    def test_slug_di_lega_non_visibile_ignorato(self):
+        """Slug ignoto e slug di lega privata si comportano allo stesso modo:
+        nessun segnale sull'esistenza della lega a chi non ne è membro."""
+        self.client.login(username='outsider', password='x')
+        resp = self.client.get(self.url, {'league': 'lega-privata'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(resp.context['league'])
+        self.assertNotContains(resp, 'Lega Privata')
+
+
+class PaginaPersonaVivaTest(ViewsBaseTestCase):
+    """Persona viva: nessuna sezione decesso, e con contesto lega gli stessi
+    bonus potenziali che mostra il modal (la pagina piena non deve essere un
+    sottoinsieme del pannello)."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse('person_detail', args=[self.person.pk])
+
+    def test_nessuna_sezione_decesso(self):
+        self.client.login(username='member', password='x')
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, 'id="decesso"')
+        self.assertContains(resp, 'Selezionato/a da')
+        self.assertContains(resp, 'Vivo/a')
+
+    def test_bonus_potenziali_con_contesto_lega(self):
+        self.client.login(username='member', password='x')
+        resp = self.client.get(self.url, {'league': 'lega-privata'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Se morisse oggi')
+        self.assertContains(resp, f'Punti base +{self.private_league.base_points}')
+
+    def test_senza_contesto_lega_nessun_bonus_potenziale(self):
+        self.client.login(username='member', password='x')
+        resp = self.client.get(self.url)
+        self.assertNotContains(resp, 'Se morisse oggi')
 
 
 class BulkSyncServerSideTest(ViewsBaseTestCase):

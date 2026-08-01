@@ -93,7 +93,7 @@
             <div class="d-flex align-items-center gap-2">
               <span class="fm-pos{% if forloop.counter == 1 %} fm-pos-first{% endif %}" aria-label="Posizione {{ forloop.counter }}">{{ forloop.counter }}</span>
               <div class="fm-row-main">
-                <a href="#" data-fm-person-pk="{{ e.person.pk }}" class="fw-semibold text-decoration-none">{{ e.person.name_it }}</a>
+                <a href="{% url 'person_detail' e.person.pk %}{% if e.person.is_dead %}#decesso{% endif %}" data-fm-person-pk="{{ e.person.pk }}" class="fw-semibold text-decoration-none">{{ e.person.name_it }}</a>
                 {% if e.person.is_dead %}
                   <span class="badge text-bg-danger">&#9760;{% if e.person.death_date %} {{ e.person.death_date|date:"d/m/Y" }}{% endif %}</span>
                 {% else %}
@@ -129,7 +129,7 @@
             <div class="d-flex align-items-center gap-2">
               <span class="fm-pos{% if forloop.counter == 1 %} fm-pos-first{% endif %}" aria-label="Posizione {{ forloop.counter }}">{{ forloop.counter }}</span>
               <div class="fm-row-main">
-                <a href="#" data-fm-person-pk="{{ e.person.pk }}" class="fw-semibold text-decoration-none">{{ e.person.name_it }}</a>
+                <a href="{% url 'person_detail' e.person.pk %}{% if e.person.is_dead %}#decesso{% endif %}" data-fm-person-pk="{{ e.person.pk }}" class="fw-semibold text-decoration-none">{{ e.person.name_it }}</a>
                 <div class="small text-body-secondary">
                   In {{ e.teams }} squadr{{ e.teams|pluralize:"a,e" }}{% if e.person.get_age_at_death %} &middot; {{ e.person.get_age_at_death }} anni{% endif %}
                 </div>
