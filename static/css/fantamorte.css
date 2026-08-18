@@ -43,6 +43,26 @@
   --fm-topbar-ink: #e8e6df;
   --fm-topbar-muted: #9aa0ab;
   --fm-topbar-line: rgba(255, 255, 255, 0.10);
+
+  /* Safe area del device: notch / isola dinamica in alto, home indicator in
+     basso, notch laterale in landscape. Ogni regola legge questi token e mai
+     env() direttamente: così l'unico punto da toccare è questo, e i test
+     possono simulare un device con notch sovrascrivendo i token. */
+  --fm-safe-top: env(safe-area-inset-top, 0px);
+  --fm-safe-right: env(safe-area-inset-right, 0px);
+  --fm-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --fm-safe-left: env(safe-area-inset-left, 0px);
+
+  /* Geometria delle due barre fisse: altezza a safe area ZERO (padding interno
+     compreso), respiro tra barra e contenuto, e il padding con cui ogni barra
+     scansa il bordo fisico del device. Il padding del body e lo scroll-padding
+     derivano da qui: cambiando l'altezza di una barra si tocca solo il token,
+     non due numeri da tenere in sync. */
+  --fm-topbar-h: 3.2rem;
+  --fm-tabbar-h: 3.45rem;
+  --fm-bar-gap: 1.25rem;
+  --fm-topbar-pad-top: calc(0.5rem + var(--fm-safe-top));
+  --fm-tabbar-pad-bottom: calc(0.3rem + var(--fm-safe-bottom));
 }
 
 /* Variante chiara "osso" (default + esplicita) */
@@ -119,8 +139,16 @@
 
 html {
   -webkit-text-size-adjust: 100%;
-  scroll-padding-top: 4.5rem;
-  /* L'area scoperta dall'overscroll deve avere il colore della pagina. */
+  scroll-padding-top: calc(var(--fm-topbar-h) + var(--fm-safe-top) + 0.5rem);
+  /* Le barre sono position:fixed, ma l'overscroll del documento trascina con
+     sé anche i fixed: in fondo alla pagina Android "stira" la bottom nav e la
+     top bar scorre via con effetto molla (idem il bounce di iOS). Non è
+     rimediabile dal lato delle barre — va eliminato l'overscroll, che è
+     esattamente ciò che fa overscroll-behavior: none (costo: niente
+     pull-to-refresh su Chrome Android, che per una PWA è un guadagno). */
+  overscroll-behavior: none;
+  /* Se un browser ignora la riga sopra, l'area scoperta dal bounce ha almeno
+     il colore della pagina. */
   background-color: var(--fm-ground);
 }
 
@@ -133,9 +161,10 @@ body {
   background-color: var(--fm-ground);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  /* Compensazione top bar fixed (3rem barra + padding safe-area + respiro). */
-  padding-top: 4.5rem;
-  padding-top: calc(3rem + max(0.5rem, env(safe-area-inset-top, 0px)) + 1rem);
+  /* Alcuni engine leggono overscroll-behavior dal body invece che da html. */
+  overscroll-behavior: none;
+  /* Compensazione top bar fixed: altezza barra + safe area + respiro. */
+  padding-top: calc(var(--fm-topbar-h) + var(--fm-safe-top) + var(--fm-bar-gap));
 }
 
 img, svg { vertical-align: middle; }
@@ -368,8 +397,10 @@ strong, b { font-weight: 600; }
 /* ============================ 5. GRIGLIA ================================= */
 .container {
   width: 100%;
-  padding-right: calc(var(--fm-gutter) * 0.5);
-  padding-left: calc(var(--fm-gutter) * 0.5);
+  /* In landscape su device con notch le safe area laterali non sono zero: il
+     gutter da solo lascerebbe il contenuto sotto il notch. */
+  padding-right: calc(var(--fm-gutter) * 0.5 + var(--fm-safe-right));
+  padding-left: calc(var(--fm-gutter) * 0.5 + var(--fm-safe-left));
   margin-right: auto;
   margin-left: auto;
 }
@@ -1127,7 +1158,11 @@ a.list-group-item,
   z-index: 1030;
   background-color: var(--fm-topbar-bg);
   color: var(--fm-topbar-ink);
-  padding-top: max(0.5rem, env(safe-area-inset-top, 0px));
+  /* La barra deve iniziare sotto la safe area (notch / isola dinamica), non
+     dietro: il padding la spinge giù e la min-height garantisce che il
+     contenuto abbia comunque la sua altezza piena. */
+  padding-top: var(--fm-topbar-pad-top);
+  min-height: calc(var(--fm-topbar-h) + var(--fm-safe-top));
   border-bottom: 1px solid var(--fm-topbar-line);
 }
 .fm-topbar .nav-link { color: var(--fm-topbar-muted); }
@@ -1174,8 +1209,9 @@ a.list-group-item,
   display: flex;
   background-color: var(--fm-tabbar-bg);
   border-top: 1px solid var(--fm-line);
-  padding: 0.3rem 0.25rem;
-  padding-bottom: max(0.3rem, env(safe-area-inset-bottom, 0px));
+  padding: 0.3rem calc(0.25rem + var(--fm-safe-right)) 0.3rem calc(0.25rem + var(--fm-safe-left));
+  padding-bottom: var(--fm-tabbar-pad-bottom);
+  min-height: calc(var(--fm-tabbar-h) + var(--fm-safe-bottom));
 }
 .fm-tab {
   flex: 1 1 0;
@@ -1196,8 +1232,8 @@ a.list-group-item,
 .fm-tab.active { color: var(--fm-accent); }
 .fm-tab-icon { width: 22px; height: 22px; }
 @media (max-width: 991.98px) {
-  body { padding-bottom: calc(4.2rem + env(safe-area-inset-bottom, 0px)); }
-  html { scroll-padding-bottom: 4.5rem; }
+  body { padding-bottom: calc(var(--fm-tabbar-h) + var(--fm-safe-bottom) + var(--fm-bar-gap)); }
+  html { scroll-padding-bottom: calc(var(--fm-tabbar-h) + var(--fm-safe-bottom) + 0.5rem); }
 }
 
 /* ---- Marchio ---- */

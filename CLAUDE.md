@@ -585,12 +585,29 @@ Note di efficienza (importanti se tocchi il client):
   Profilo, solo utenti autenticati). Lo stato attivo arriva dal context
   processor `active_nav` (`game/context_processors.py`, mappa
   `resolver_match.url_name`; le sottopagine di leghe/squadre/persone
-  accendono il tab Leghe). Il body compensa entrambe le barre in
-  `fantamorte.css` (padding-top con safe area notch, padding-bottom sotto
-  `lg` con `env(safe-area-inset-bottom)`): se cambi l'altezza di una
-  barra, aggiorna il padding corrispondente. Niente hamburger/offcanvas:
-  su mobile "Come funziona", Django admin e logout stanno nella card
-  Account del profilo.
+  accendono il tab Leghe). Niente hamburger/offcanvas: su mobile "Come
+  funziona", Django admin e logout stanno nella card Account del profilo.
+- **Geometria delle barre e safe area**: altezze e safe area sono **token**
+  nella sezione ① di `fantamorte.css` (`--fm-topbar-h`, `--fm-tabbar-h`,
+  `--fm-bar-gap`, `--fm-safe-top/right/bottom/left`,
+  `--fm-topbar-pad-top`, `--fm-tabbar-pad-bottom`). Il padding del body e
+  lo `scroll-padding` di `html` **derivano** da quei token: per cambiare
+  l'altezza di una barra si tocca solo il token, non due numeri da tenere
+  in sync. Nessuna regola scrive `env(safe-area-inset-*)` direttamente —
+  passa dai token, così un test in browser può simulare un device con
+  notch sovrascrivendoli.
+- **iOS: mai `black-translucent`.** In `base.html` la status bar è
+  `apple-mobile-web-app-status-bar-style="black"`. Con `black-translucent`
+  iOS estende la webview sotto la status bar ma riporta
+  `env(safe-area-inset-top)=0` in standalone: la top bar finisce dietro il
+  notch / l'isola dinamica. `viewport-fit=cover` invece serve e resta (safe
+  area laterali in landscape e home indicator in basso).
+- **Overscroll**: `html`/`body` hanno `overscroll-behavior: none`. L'overscroll
+  del documento (stretch elastico su Android, bounce su iOS) trascina con sé
+  anche gli elementi `position: fixed`: senza quella riga, a fondo pagina la
+  bottom nav si stira e la top bar scorre via con effetto molla. Non è
+  rimediabile dal lato delle barre. Effetto collaterale accettato: niente
+  pull-to-refresh su Chrome Android.
 - **Chips e tile riusabili**: metadati di pagina (periodo, iscritti, owner,
   jolly…) come chips `.fm-facts`/`.fm-fact`; numeri-chiave delle regole come
   tile `.fm-stat` via partial `_league_rules_summary.html` (usato da

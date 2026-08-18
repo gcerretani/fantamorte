@@ -9,7 +9,12 @@
   <link rel="icon" href="{% static 'pwa/icon.svg' %}" type="image/svg+xml">
   <link rel="apple-touch-icon" href="{% static 'pwa/apple-touch-icon.png' %}">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  {# NON usare "black-translucent": in standalone iOS estende la webview sotto #}
+  {# la status bar e riporta env(safe-area-inset-top)=0, quindi la top bar #}
+  {# finisce dietro il notch / l'isola dinamica. Con "black" la webview parte #}
+  {# sotto la status bar (nera, in tinta con --fm-topbar-bg) e il problema non #}
+  {# esiste; viewport-fit=cover resta per le safe area laterali e in basso. #}
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="Fantamorte">
   <title>{% block title %}Fantamorte{% endblock %}</title>
   <link href="{% static 'css/fantamorte.css' %}" rel="stylesheet">
@@ -46,8 +51,9 @@
   <symbol id="fmIcoSkull" viewBox="0 0 512 512"><path fill="currentColor" d="M256 96c-79.5 0-144 60.4-144 134.9 0 41.4 19.6 78.4 50.5 103.4v33.4c0 14.4 11.7 26.1 26.1 26.1h12.5v33.6c0 9.4 7.6 17 17 17h75.8c9.4 0 17-7.6 17-17v-33.6h12.5c14.4 0 26.1-11.7 26.1-26.1v-33.4C380.4 309.3 400 272.3 400 230.9 400 156.4 335.5 96 256 96zm-52 184c-14.4 0-26-11.6-26-26s11.6-26 26-26 26 11.6 26 26-11.6 26-26 26zm104 0c-14.4 0-26-11.6-26-26s11.6-26 26-26 26 11.6 26 26-11.6 26-26 26zm-100 65l-13-26h130l-13 26h-26l-13-19-13 19h-26l-13-19-13 19h-26z"/></symbol>
 </svg>
 
-{# fixed-top (non sticky): la barra resta inchiodata al viewport anche con #}
-{# l'overscroll/rubber-band; il body compensa l'altezza via CSS (fantamorte.css). #}
+{# fixed-top (non sticky): la barra resta inchiodata al viewport; l'overscroll #}
+{# del documento (che trascina anche i fixed) e' disattivato in CSS con #}
+{# overscroll-behavior. Il body compensa l'altezza via token --fm-topbar-h. #}
 {# Sotto lg la navigazione sta nella bottom nav (_bottom_nav.html): qui #}
 {# restano solo brand, installa e tema. Da lg in su i link sono inline. #}
 <nav class="navbar navbar-expand-lg fm-topbar" aria-label="Navigazione principale">
