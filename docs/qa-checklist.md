@@ -189,6 +189,15 @@ Riferimenti architetturali: [`CLAUDE.md`](../CLAUDE.md).
       lega/squadra utilizzabili senza campi tagliati, bottoni con area di
       tocco adeguata (niente doppio-tap accidentale su azioni distruttive
       come "Revoca conferma" o "Rimuovi membro").
+- [ ] **Barre fisse immobili**: scorrere fino in fondo a una pagina lunga
+      (classifica, timeline decessi) e continuare a trascinare: la bottom
+      nav non si deve stirare e la top bar non deve scorrere via con
+      effetto molla (overscroll "elastico" di Chrome). Stessa verifica
+      trascinando verso il basso in cima alla pagina — dove, di
+      conseguenza, il pull-to-refresh è volutamente disattivato.
+- [ ] Su device con notch/foro fotocamera: contenuto della top bar (logo,
+      campanella, bottoni) mai sotto il ritaglio, in portrait **e** in
+      landscape (dove il notch mangia i bordi laterali).
 
 ## iOS / Safari
 
@@ -215,6 +224,17 @@ Riferimenti architetturali: [`CLAUDE.md`](../CLAUDE.md).
       zoom involontario (dimensione font minima negli input), bottoni con
       area di tocco adeguata, modal persona utilizzabile a schermo intero
       su schermi piccoli.
+- [ ] **Notch / isola dinamica (iPhone X e successivi), app installata da
+      Home Screen**: la top bar inizia sotto la status bar e il suo
+      contenuto non finisce mai dietro il ritaglio della fotocamera;
+      l'orologio e le icone di sistema restano leggibili. Ripetere in
+      landscape (safe area laterali) e verificare che la bottom nav resti
+      sopra l'home indicator.
+- [ ] **Barre fisse immobili**: in fondo a una pagina lunga, continuando a
+      trascinare, la bottom nav non si stira e la top bar non scorre via
+      (bounce/rubber-band di WebKit; su iOS < 16 `overscroll-behavior` può
+      essere ignorato — in quel caso l'area scoperta deve almeno restare
+      del colore della pagina, mai bianca).
 
 ---
 

@@ -2525,3 +2525,34 @@ class SostituzioneDecessoPreStagioneTest(ViewsBaseTestCase):
         html = self.client.get(url).content.decode()
         self.assertNotIn('rimuovilo/a e scegli un altro personaggio', html)
         self.assertIn('Sostituisci', html)
+
+
+class BarreFisseSafeAreaTest(ViewsBaseTestCase):
+    """Regressioni sulle due barre fisse (top bar e bottom nav) su mobile.
+
+    Il guasto storico: `apple-mobile-web-app-status-bar-style=black-translucent`
+    estende la webview sotto la status bar di iOS ma fa riportare
+    `env(safe-area-inset-top)=0`, così la top bar finiva dietro il notch /
+    l'isola dinamica. La geometria vera si verifica solo in un browser (vedi
+    docs/qa-checklist.md); qui si presidiano i due presupposti che, se
+    reintrodotti a rovescio, riportano il bug senza che nulla protesti.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.client.login(username='owner', password='x')
+
+    def test_status_bar_style_non_e_translucent(self):
+        html = self.client.get(reverse('home')).content.decode()
+        self.assertIn(
+            '<meta name="apple-mobile-web-app-status-bar-style" content="black">',
+            html,
+        )
+        self.assertNotIn('black-translucent', html)
+
+    def test_viewport_copre_le_safe_area(self):
+        # viewport-fit=cover serve alle safe area laterali e in basso: senza,
+        # env(safe-area-inset-*) è sempre 0 e la bottom nav finisce sotto
+        # l'home indicator.
+        html = self.client.get(reverse('home')).content.decode()
+        self.assertIn('viewport-fit=cover', html)
