@@ -737,7 +737,21 @@ Altri file di test:
 Esegui i test con:
 ```bash
 python manage.py test game wikidata_api
+# ~11 minuti in seriale; --parallel auto scende a ~3 (è quello che usa la CI)
+python manage.py test game wikidata_api --parallel auto
 ```
+
+La suite gira in CI su ogni push e PR verso `master`
+(`.github/workflows/tests.yml`), nella **stessa** configurazione della
+produzione: `DEBUG` non impostata, quindi `SECRET_KEY` obbligatoria e
+`ManifestStaticFilesStorage` attivo. Da qui due step che sembrano di troppo e
+non lo sono: `collectstatic` (senza manifest ogni view che usa `{% static %}`
+muore con «Missing staticfiles manifest entry») e l'installazione di
+`pkg-config` + `default-libmysqlclient-dev` (`mysqlclient` si compila da
+sorgente e senza quelli non trova il pkg-config). C'è anche
+`makemigrations --check`: un modello cambiato senza migration fa fallire la
+run. Nota che `docker-publish.yml` parte sui tag `v*` ed è **indipendente**:
+tagga solo commit già passati da questo workflow.
 
 ## Comandi utili
 
