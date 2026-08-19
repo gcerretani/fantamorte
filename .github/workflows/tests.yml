@@ -1,0 +1,70 @@
+name: Tests
+
+# Il build/publish dell'immagine parte sui tag v* (docker-publish.yml) e non
+# esegue nessun test: senza questo workflow una release poteva essere
+# pubblicata senza che la suite fosse mai girata.
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# Un push che supera il precedente sullo stesso ref annulla la run in corso.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      # DEBUG non è impostata, quindi vale il default False: la stessa
+      # configurazione della produzione (ManifestStaticFilesStorage compreso,
+      # vedi lo step collectstatic). Con DEBUG=False la SECRET_KEY è
+      # obbligatoria e non ha default: qui ne basta una finta, i test non
+      # firmano niente che debba sopravvivere alla run.
+      SECRET_KEY: chiave-finta-solo-per-i-test
+      # DATABASE_URL non serve: il default è SQLite su file, e il test runner
+      # crea comunque il suo database.
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      # mysqlclient si compila da sorgente e senza queste due non trova il
+      # pkg-config di MariaDB/MySQL ("Can not find valid pkg-config name").
+      # Si installa per davvero invece di saltarlo: è il driver che gira in
+      # produzione, e un import rotto va scoperto qui.
+      - name: Install MySQL client headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config default-libmysqlclient-dev
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Con DEBUG=False lo storage static è ManifestStaticFilesStorage: senza
+      # il manifest ogni pagina che usa {% static %} muore con
+      # "Missing staticfiles manifest entry". Lo step serve quindi ai test
+      # delle view, e in più verifica che il manifest sia coerente (un asset
+      # referenziato ma mancante fa fallire il collectstatic).
+      - name: Collect static files
+        run: python manage.py collectstatic --noinput
+
+      - name: Check for missing migrations
+        run: python manage.py makemigrations --check --dry-run
+
+      # --parallel: la suite è lunga (~11 min in seriale) e i test non
+      # condividono stato tra processi.
+      - name: Run tests
+        run: python manage.py test game wikidata_api --parallel auto
