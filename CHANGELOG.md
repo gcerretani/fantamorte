@@ -4,6 +4,27 @@ Tutte le modifiche rilevanti di questo progetto sono documentate qui.
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 il versionamento segue [SemVer](https://semver.org/lang/it/).
 
+## [0.3.7] - 2026-08-19
+
+- Fix iOS: la barra in alto non finisce più dietro il notch / l'isola
+  dinamica nell'app installata da Home Screen. La causa era la status bar
+  `black-translucent`, che estende la webview sotto la status bar ma fa
+  riportare `env(safe-area-inset-top)=0`, quindi non c'era nessuna safe area
+  da scansare (su Android l'inset viene riportato, e infatti lì funzionava)
+- Le due barre fisse ora restano immobili: l'overscroll del documento
+  (stretch elastico su Android, bounce su iOS) trascinava con sé anche gli
+  elementi `position: fixed`, così a fondo pagina la bottom nav si stirava e
+  la barra del titolo scorreva via a molla. Effetto collaterale voluto:
+  niente pull-to-refresh su Chrome Android
+- Le safe area laterali (notch in landscape) sono applicate anche a
+  contenuto e bottom nav, dove prima nessuno le leggeva
+- Altezza barre e safe area sono ora token CSS in un unico punto: il padding
+  del body e lo `scroll-padding` ne derivano, invece di ripetere gli stessi
+  numeri in tre posti
+- La suite di test gira in CI su ogni push e PR verso `master`, nella stessa
+  configurazione della produzione: prima il build dell'immagine partiva sui
+  tag `v*` senza che un test fosse mai stato eseguito
+
 ## [0.3.6] - 2026-08-01
 
 - Persona e decesso unificati in un'unica pagina navigabile (`/persona/<pk>/`,
