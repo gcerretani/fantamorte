@@ -5,13 +5,13 @@ changes the persistence contract of manual league bonus assignments, so only
 the two tests that deliberately asserted the old global ``DeathBonus`` storage
 are overridden here.  All other view tests are inherited unchanged.
 """
+from . import _views_test_cases as legacy
 from ._views_test_cases import *  # noqa: F401,F403
-from ._views_test_cases import ManualBonusAssignTest as _LegacyManualBonusAssignTest
 from .league_bonus_decisions import LeagueDeathBonus
 from .models import DeathBonus
 
 
-class ManualBonusAssignTest(_LegacyManualBonusAssignTest):
+class ManualBonusAssignTest(legacy.ManualBonusAssignTest):
     def test_admin_assegna_bonus_manuale(self):
         self.client.login(username='owner', password='x')
         self._assign()
