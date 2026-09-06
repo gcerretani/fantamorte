@@ -7,9 +7,18 @@ from django.db import transaction
 from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 
-from . import views
+from . import scoring, views
 from .models import BonusType, Death, DeathBonus, League, LeagueBonus, Team
 from .push_security import UnsafePushEndpoint, validate_push_endpoint
+
+
+def _csv_safe_text(value):
+    """Return spreadsheet-safe text while preserving its visible value."""
+    text = '' if value is None else str(value)
+    probe = text.lstrip(' \t\r\n')
+    if probe.startswith(('=', '+', '-', '@')) or text.startswith(('\t', '\r')):
+        return "'" + text
+    return text
 
 
 def _bonus_is_local_or_exclusive_system(league, bonus_type):
@@ -137,9 +146,29 @@ class PushRotateView(views.PushRotateView):
         return super().post(request)
 
 
-class LeagueDeathsCSVView(views.LeagueDeathsCSVView):
-    """Death export scoped to bonus metadata visible in this league."""
+class LeagueRankingsCSVView(views.LeagueRankingsCSVView):
+    def get(self, request, slug):
+        league = get_object_or_404(League, slug=slug)
+        if not league.can_user_view(request.user):
+            return HttpResponseForbidden('Non hai accesso a questa lega.')
+        rankings = scoring.compute_league_rankings(league)
+        resp = HttpResponse(content_type='text/csv; charset=utf-8')
+        resp['Content-Disposition'] = f'attachment; filename="classifica-{league.slug}.csv"'
+        writer = csv.writer(resp)
+        writer.writerow(['posizione', 'squadra', 'manager', 'punteggio', 'decessi'])
+        for pos, row in enumerate(rankings, 1):
+            team = row['team']
+            writer.writerow([
+                pos,
+                _csv_safe_text(team.name),
+                _csv_safe_text(team.manager.username),
+                row['score'],
+                len(row['deaths']),
+            ])
+        return resp
 
+
+class LeagueDeathsCSVView(views.LeagueDeathsCSVView):
     def get(self, request, slug):
         league = get_object_or_404(League, slug=slug)
         if not league.can_user_view(request.user):
@@ -162,8 +191,6 @@ class LeagueDeathsCSVView(views.LeagueDeathsCSVView):
         writer = csv.writer(resp)
         writer.writerow(['data', 'nome', 'eta', 'wikidata_id', 'bonus'])
         for death in deaths:
-            # System bonuses are global facts; custom bonuses are visible only
-            # in the league that owns their BonusType.
             bonus_names = ', '.join(
                 award.bonus_type.name
                 for award in death.bonuses.all()
@@ -171,9 +198,9 @@ class LeagueDeathsCSVView(views.LeagueDeathsCSVView):
             )
             writer.writerow([
                 death.death_date.isoformat(),
-                death.person.name_it,
+                _csv_safe_text(death.person.name_it),
                 death.death_age if death.death_age is not None else '',
-                death.person.wikidata_id,
-                bonus_names,
+                _csv_safe_text(death.person.wikidata_id),
+                _csv_safe_text(bonus_names),
             ])
         return resp
