@@ -1,27 +1,20 @@
 """View hardening that keeps security policy separate from the legacy UI code.
 
-The base views still contain the product flows.  Subclasses here only add
+The base views still contain the product flows. Subclasses here only add
 cross-cutting security/integrity guards and are wired explicitly from urls.py.
 Keeping the guards small makes them easier to review and test in isolation.
 """
 from django.contrib import messages
+from django.db import transaction
 from django.http import HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect
 
 from . import views
-from .models import BonusType, Death, DeathBonus, League, LeagueBonus
+from .models import BonusType, Death, DeathBonus, League, LeagueBonus, Team
 
 
 def _bonus_is_local_or_exclusive_system(league, bonus_type):
-    """Whether a league admin may mutate awards for ``bonus_type``.
-
-    Custom bonus types are intrinsically scoped by ``BonusType.league``.  A
-    system bonus has no such scope, so mutating its single ``DeathBonus`` row
-    would affect every league using that bonus.  For backwards compatibility
-    we still allow a system bonus configured in exactly this league; once the
-    same type is active elsewhere, only the global Django admin may change the
-    shared award.
-    """
+    """Whether a league admin may mutate awards for ``bonus_type``."""
     if bonus_type.league_id is not None:
         return bonus_type.league_id == league.pk
     return not LeagueBonus.objects.filter(
@@ -38,8 +31,6 @@ class LeagueDeathsView(views.LeagueDeathsView):
         if not is_admin:
             return info, assignable
 
-        # Do the shared-system lookup once for the whole page instead of once
-        # per badge/row.
         shared_system_ids = set(
             LeagueBonus.objects.filter(
                 is_active=True,
@@ -93,9 +84,6 @@ class LeagueDeathsView(views.LeagueDeathsView):
                 messages.error(request, 'Bonus non trovato.')
                 return redirect('league_deaths', slug=slug)
 
-            # Removal must be scoped to exactly the same death set rendered by
-            # this league.  Checking only the date range is insufficient when
-            # two leagues overlap.
             death_belongs_to_league = Death.objects.filter(
                 pk=death_bonus.death_id,
                 is_confirmed=True,
@@ -115,3 +103,34 @@ class LeagueDeathsView(views.LeagueDeathsView):
                 return redirect('league_deaths', slug=slug)
 
         return super().post(request, slug)
+
+
+class AddPersonView(views.AddPersonView):
+    """Serialize roster additions for a team and make the mutation atomic."""
+
+    def post(self, request, pk):
+        team = get_object_or_404(Team, pk=pk)
+        # Reject unauthorized callers before taking a database row lock.
+        if team.manager_id != request.user.pk:
+            return super().post(request, pk)
+        with transaction.atomic():
+            # Locking the Team row serializes all concurrent additions for the
+            # same roster. super().post re-fetches and re-validates counts,
+            # duplicates and age while this lock is held.
+            Team.objects.select_for_update().get(pk=pk)
+            return super().post(request, pk)
+
+
+class SubstituteMemberView(views.SubstituteMemberView):
+    """Make replacement creation + predecessor update one serialized write."""
+
+    def post(self, request, pk, member_pk):
+        team = get_object_or_404(Team, pk=pk)
+        if team.manager_id != request.user.pk:
+            return super().post(request, pk, member_pk)
+        with transaction.atomic():
+            # The team lock serializes replacements and other roster writes.
+            # The base view then re-fetches the member and rechecks whether it
+            # is still active before creating the replacement.
+            Team.objects.select_for_update().get(pk=pk)
+            return super().post(request, pk, member_pk)
