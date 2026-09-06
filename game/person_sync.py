@@ -19,9 +19,6 @@ from .scoring import invalidate_person_bonus_caches
 
 logger = logging.getLogger(__name__)
 
-# Campi anagrafici applicati 1:1 dall'entità Wikidata. Un valore None
-# nell'entità significa "non determinabile" (es. timeout label lookup):
-# non sovrascrive mai un valore esistente.
 ENTITY_FIELDS = (
     'name_it', 'name_en', 'description_it', 'birth_date', 'birth_year',
     'death_date', 'death_year', 'image_url', 'occupation', 'nationality',
@@ -30,55 +27,36 @@ ENTITY_FIELDS = (
 
 
 def sync_person_from_entity(person, entity, *, client, autoconfirm=True):
-    """Applica a ``person`` lo stato corrente di Wikidata (entità già scaricata).
+    """Applica a ``person`` lo stato corrente di Wikidata.
 
-    Nell'ordine:
-
-    1. aggiorna i campi anagrafici (:data:`ENTITY_FIELDS`, con guardia sui
-       None) e ricalcola ``is_dead``;
-    2. aggiorna ``claims_cache`` e invalida le cache bonus derivate
-       (``fm_potential``, ``wd_bonus``);
-    3. aggiorna ``last_checked``;
-    4. se la persona risulta deceduta, registra la :class:`Death` con
-       auto-rilevazione dei bonus (wikidata + età) e conferma secondo
-       ``autoconfirm`` — o promuove a confermata una Death esistente non
-       confermata. La conferma fa scattare punti e notifiche via signal.
-
-    ``person`` può essere anche un'istanza non ancora salvata (aggiunta in
-    rosa di una persona nuova). Ritorna ``(death, death_created)``:
-    ``(None, False)`` se la persona è viva.
+    Ritorna ``(death, death_created)``. Ogni conferma automatica valorizza
+    ``confirmed_at`` nella stessa write che imposta ``is_confirmed``: le
+    deadline di sostituzione non devono dipendere dal percorso (admin/cron).
     """
     for field in ENTITY_FIELDS:
         new_value = entity.get(field)
         if new_value is None:
-            # None = dato non determinabile da Wikidata (es. timeout label
-            # lookup) oppure assente: mai sovrascrivere il valore esistente
-            # (e mai scrivere None nei CharField NOT NULL).
             continue
         setattr(person, field, new_value)
     person.is_dead = bool(person.death_date or person.death_year)
     person.claims_cache = entity.get('claims_cache', {})
     person.last_checked = timezone.now()
     person.save()
-    # I claim sono appena stati rinfrescati: un esito negativo cachato del
-    # check gerarchico (wd_bonus, 7 giorni) non deve sopravvivere e far
-    # perdere bonus alla detection qui sotto.
     invalidate_person_bonus_caches(person)
 
     if not person.is_dead:
         return None, False
 
     year_for_death = (person.death_date or date_cls(person.death_year, 1, 1)).year
+    confirmation_time = timezone.now() if autoconfirm else None
     death, created = Death.objects.get_or_create(
         person=person,
         defaults={
             'death_date': person.death_date or date_cls(year_for_death, 12, 31),
             'death_age': person.get_age_at_death(),
             'source': Death.SOURCE_WIKIDATA,
-            # Il dato arriva da Wikidata con data valida: si conferma subito
-            # (punti + notifiche via signal). Revocabile da admin; data_frozen
-            # sulla persona la esclude dai check automatici successivi.
             'is_confirmed': autoconfirm,
+            'confirmed_at': confirmation_time,
         },
     )
 
@@ -100,32 +78,27 @@ def sync_person_from_entity(person, entity, *, client, autoconfirm=True):
                         defaults={'points_awarded': bt.points, 'is_auto_detected': True},
                     )
     else:
-        # Death già registrata: riallinea i campi derivati (snapshot) se i dati
-        # anagrafici della persona sono cambiati dopo la creazione — es. una
-        # correzione della data di nascita/morte. `death_age` è calcolato una
-        # sola volta alla creazione: senza questo riallineamento i bonus età
-        # (che leggono `death.death_age` nello scoring) resterebbero congelati
-        # al valore vecchio, con punteggi silenziosamente sbagliati.
         expected_date = person.death_date or date_cls(year_for_death, 12, 31)
         expected_age = person.get_age_at_death()
         update_fields = []
         if death.death_date != expected_date:
             death.death_date = expected_date
             update_fields.append('death_date')
-        # Non azzerare un'età nota se ora risulta non determinabile (dato
-        # transitoriamente assente): aggiorna solo verso un valore concreto.
         if expected_age is not None and death.death_age != expected_age:
             death.death_age = expected_age
             update_fields.append('death_age')
         if autoconfirm and not death.is_confirmed:
-            # Decesso già registrato ma mai confermato: promuovilo (la
-            # transizione False→True fa scattare punti e notifiche).
             death.is_confirmed = True
-            update_fields.append('is_confirmed')
+            death.confirmed_at = confirmation_time
+            update_fields.extend(['is_confirmed', 'confirmed_at'])
+        elif death.is_confirmed and death.confirmed_at is None:
+            # Repair a legacy inconsistent row only when this sync is allowed
+            # to confirm: the current successful Wikidata check is the first
+            # trustworthy timestamp we can record without fabricating history.
+            if autoconfirm:
+                death.confirmed_at = confirmation_time
+                update_fields.append('confirmed_at')
         if update_fields:
-            # Il post_save su Death invalida le classifiche delle leghe che
-            # coprono la data del decesso (game/signals.py): il punteggio dei
-            # bonus età, che dipende da death_age, viene così ricalcolato.
             death.save(update_fields=update_fields)
 
     return death, created
