@@ -1,23 +1,7 @@
-"""Controlla su Wikidata i decessi dei morituri presenti in una qualsiasi rosa.
-
-Nessun filtro sullo stato delle leghe: «questa persona è morta?» è una domanda
-che non dipende dal calendario, e il periodo di gioco lo applica lo scoring,
-che decide in quale lega quel decesso conta. Filtrare per lega lasciava due
-buchi. Le leghe **da iniziare** non venivano guardate, e un decesso in fase di
-composizione — quando basterebbe togliere la persona dalla rosa, senza
-consumare una sostituzione — restava invisibile. Le leghe **concluse** uscivano
-dalla selezione il giorno dopo la fine, e un decesso avvenuto *durante* il
-periodo di gioco ma registrato su Wikidata più tardi (capita con i personaggi
-meno noti) non veniva mai rilevato: quel decesso vale punti, quindi la
-classifica finale restava sbagliata per sempre.
-
-Una sola query SPARQL per fetta di giocatori — «di questi, a chi è comparsa
-una data di morte?» — anche senza filtro sull'anno, per lo stesso motivo.
-Con `--league <slug>` ci si restringe ai giocatori di quella lega.
-"""
+"""Controlla su Wikidata i decessi dei morituri presenti in una qualsiasi rosa."""
 import math
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from game.models import League, SiteSettings, WikipediaPerson
@@ -44,7 +28,6 @@ class Command(BaseCommand):
         dry_run = options['dry_run']
         slug = options.get('league')
         autoconfirm = not options['no_autoconfirm']
-
         client = WikidataClient()
 
         active_persons = WikipediaPerson.objects.filter(
@@ -54,8 +37,7 @@ class Command(BaseCommand):
         if slug:
             league = League.objects.filter(slug=slug).first()
             if league is None:
-                self.stdout.write(self.style.ERROR(f'Lega "{slug}" inesistente.'))
-                return
+                raise CommandError(f'Lega "{slug}" inesistente.')
             self.stdout.write(f'Lega: {league.name}')
             active_persons = active_persons.filter(team_members__team__league=league)
 
@@ -74,8 +56,10 @@ class Command(BaseCommand):
             schedule = max(1, settings.wikidata_check_schedule_hours)
             batch = max(1, math.ceil(total_active * schedule / interval))
 
-        selected = active_persons.order_by('last_checked')[:batch]
-        selected = list(selected.values_list('pk', 'wikidata_id'))
+        selected = list(
+            active_persons.order_by('last_checked')[:batch]
+            .values_list('pk', 'wikidata_id')
+        )
         selected_pks = [pk for pk, _ in selected]
         wikidata_ids = [qid for _, qid in selected]
         self.stdout.write(
@@ -84,11 +68,13 @@ class Command(BaseCommand):
         if not wikidata_ids:
             return
 
-        dead_ids = set()
+        # `last_checked` means last successful check. A failed batch must fail
+        # the command before any selected row is advanced, otherwise scheduler
+        # telemetry says the check passed and those people are deprioritized.
         try:
-            dead_ids.update(client.check_deaths_batch(wikidata_ids))
+            dead_ids = set(client.check_deaths_batch(wikidata_ids))
         except Exception as e:
-            self.stdout.write(self.style.ERROR(f'Errore SPARQL: {e}'))
+            raise CommandError(f'Errore SPARQL: {e}') from e
 
         self.stdout.write(f'Decessi rilevati: {len(dead_ids)}')
 
@@ -113,19 +99,17 @@ class Command(BaseCommand):
                 continue
 
             death, _created = sync_person_from_entity(
-                person,
-                entity,
-                client=client,
-                autoconfirm=autoconfirm,
-                force=force,
+                person, entity, client=client, autoconfirm=autoconfirm, force=force,
             )
-
             status = 'confermato' if death and death.is_confirmed else 'da confermare'
             self.stdout.write(self.style.SUCCESS(
                 f'Decesso ({status}): {person.name_it} ({qid}) † {death_date or death_year}'
             ))
 
         if not dry_run:
+            # Non-dead rows are only advanced after the batch completed
+            # successfully. Dead rows that failed the detail fetch stay old
+            # because they are excluded by dead_ids and will be retried.
             WikipediaPerson.objects.filter(pk__in=selected_pks).exclude(
                 wikidata_id__in=dead_ids
             ).update(last_checked=timezone.now())
