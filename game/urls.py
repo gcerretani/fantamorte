@@ -2,6 +2,7 @@ from django.urls import path
 from . import views
 from .hardened_views import (
     AddPersonView as HardenedAddPersonView,
+    LeagueDeathsCSVView as HardenedLeagueDeathsCSVView,
     LeagueDeathsView as HardenedLeagueDeathsView,
     PushRotateView as HardenedPushRotateView,
     PushSubscribeView as HardenedPushSubscribeView,
@@ -25,7 +26,7 @@ urlpatterns = [
     path('leghe/<slug:slug>/squadra/nuova/', views.TeamCreateView.as_view(), name='team_create'),
     path('leghe/<slug:slug>/calendar.ics', views.LeagueCalendarView.as_view(), name='league_calendar'),
     path('leghe/<slug:slug>/classifica.csv', views.LeagueRankingsCSVView.as_view(), name='league_rankings_csv'),
-    path('leghe/<slug:slug>/decessi.csv', views.LeagueDeathsCSVView.as_view(), name='league_deaths_csv'),
+    path('leghe/<slug:slug>/decessi.csv', HardenedLeagueDeathsCSVView.as_view(), name='league_deaths_csv'),
     path('regolamento/', views.RulesView.as_view(), name='rules'),
     path('profilo/', views.ProfileView.as_view(), name='profile'),
     path('api/profilo/preferenze/', views.ProfilePreferencesView.as_view(), name='profile_preferences'),

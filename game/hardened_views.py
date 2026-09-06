@@ -1,9 +1,10 @@
 """View hardening that keeps security policy separate from the legacy UI code."""
+import csv
 import json
 
 from django.contrib import messages
 from django.db import transaction
-from django.http import HttpResponseForbidden, JsonResponse
+from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 
 from . import views
@@ -134,3 +135,45 @@ class PushRotateView(views.PushRotateView):
             except UnsafePushEndpoint as exc:
                 return JsonResponse({'status': 'error', 'error': str(exc)}, status=400)
         return super().post(request)
+
+
+class LeagueDeathsCSVView(views.LeagueDeathsCSVView):
+    """Death export scoped to bonus metadata visible in this league."""
+
+    def get(self, request, slug):
+        league = get_object_or_404(League, slug=slug)
+        if not league.can_user_view(request.user):
+            return HttpResponseForbidden('Non hai accesso a questa lega.')
+        deaths = (
+            Death.objects.filter(
+                is_confirmed=True,
+                death_date__gte=league.start_date,
+                death_date__lte=league.end_date,
+                person__team_members__team__league=league,
+            )
+            .distinct()
+            .select_related('person')
+            .defer('person__claims_cache')
+            .prefetch_related('bonuses__bonus_type')
+            .order_by('death_date')
+        )
+        resp = HttpResponse(content_type='text/csv; charset=utf-8')
+        resp['Content-Disposition'] = f'attachment; filename="decessi-{league.slug}.csv"'
+        writer = csv.writer(resp)
+        writer.writerow(['data', 'nome', 'eta', 'wikidata_id', 'bonus'])
+        for death in deaths:
+            # System bonuses are global facts; custom bonuses are visible only
+            # in the league that owns their BonusType.
+            bonus_names = ', '.join(
+                award.bonus_type.name
+                for award in death.bonuses.all()
+                if award.bonus_type.league_id in (None, league.pk)
+            )
+            writer.writerow([
+                death.death_date.isoformat(),
+                death.person.name_it,
+                death.death_age if death.death_age is not None else '',
+                death.person.wikidata_id,
+                bonus_names,
+            ])
+        return resp
