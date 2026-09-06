@@ -3,13 +3,13 @@ from . import views
 from .hardened_views import (
     AddPersonView as HardenedAddPersonView,
     LeagueDeathsView as HardenedLeagueDeathsView,
+    PushRotateView as HardenedPushRotateView,
+    PushSubscribeView as HardenedPushSubscribeView,
     SubstituteMemberView as HardenedSubstituteMemberView,
 )
 
 urlpatterns = [
     path('', views.HomeView.as_view(), name='home'),
-
-    # Leghe
     path('leghe/', views.LeagueListView.as_view(), name='league_list'),
     path('leghe/nuova/', views.LeagueCreateView.as_view(), name='league_create'),
     path('leghe/<slug:slug>/', views.LeagueDetailView.as_view(), name='league_detail'),
@@ -26,20 +26,14 @@ urlpatterns = [
     path('leghe/<slug:slug>/calendar.ics', views.LeagueCalendarView.as_view(), name='league_calendar'),
     path('leghe/<slug:slug>/classifica.csv', views.LeagueRankingsCSVView.as_view(), name='league_rankings_csv'),
     path('leghe/<slug:slug>/decessi.csv', views.LeagueDeathsCSVView.as_view(), name='league_deaths_csv'),
-
-    # Pagine generiche
     path('regolamento/', views.RulesView.as_view(), name='rules'),
     path('profilo/', views.ProfileView.as_view(), name='profile'),
     path('api/profilo/preferenze/', views.ProfilePreferencesView.as_view(), name='profile_preferences'),
     path('statistiche/', views.StatsView.as_view(), name='stats'),
-
-    # Feed notifiche in-app
     path('notifiche/', views.NotificationListView.as_view(), name='notifications'),
     path('api/notifications/', views.NotificationListAPIView.as_view(), name='notifications_api'),
     path('api/notifications/unread-count/', views.NotificationUnreadCountView.as_view(), name='notifications_unread_count'),
     path('api/notifications/mark-read/', views.NotificationMarkReadView.as_view(), name='notifications_mark_read'),
-
-    # Squadre
     path('squadra/<int:pk>/', views.TeamDetailView.as_view(), name='team_detail'),
     path('squadra/<int:pk>/modifica/', views.TeamEditView.as_view(), name='team_edit'),
     path('squadra/<int:pk>/elimina/', views.TeamDeleteView.as_view(), name='team_delete'),
@@ -47,25 +41,16 @@ urlpatterns = [
     path('squadra/<int:pk>/rimuovi/<int:member_pk>/', views.RemovePersonView.as_view(), name='remove_person'),
     path('squadra/<int:pk>/sostituisci/<int:member_pk>/', HardenedSubstituteMemberView.as_view(), name='substitute_member'),
     path('squadra/<int:pk>/what-if/', views.TeamWhatIfView.as_view(), name='team_what_if'),
-
-    # Persone & decessi
     path('persona/<int:pk>/', views.PersonDetailView.as_view(), name='person_detail'),
     path('morte/<int:pk>/', views.DeathDetailView.as_view(), name='death_detail'),
     path('api/persona/<int:pk>/', views.PersonInfoView.as_view(), name='person_info'),
     path('api/persona/<int:pk>/summary/', views.PersonSummaryView.as_view(), name='person_summary'),
     path('api/search-person/', views.PersonSearchView.as_view(), name='person_search'),
-
-    # Sync Wikidata dei giocatori (per pannello admin lega); stesso core del
-    # cron check_deaths, vedi game/person_sync.py.
     path('api/leghe/<slug:slug>/wikidata-diff/', views.LeagueBulkDiffView.as_view(), name='league_wikidata_diff'),
-
-    # Push
-    path('api/push/subscribe/', views.PushSubscribeView.as_view(), name='push_subscribe'),
+    path('api/push/subscribe/', HardenedPushSubscribeView.as_view(), name='push_subscribe'),
     path('api/push/unsubscribe/', views.PushUnsubscribeView.as_view(), name='push_unsubscribe'),
     path('api/push/test/', views.PushTestView.as_view(), name='push_test'),
     path('api/push/devices/', views.PushDevicesView.as_view(), name='push_devices'),
     path('api/push/devices/<int:pk>/revoca/', views.PushDeviceRevokeView.as_view(), name='push_device_revoke'),
-    # Pubblica e csrf_exempt: la chiama il service worker, che non può leggere
-    # il cookie CSRF. Si autentica per capability (old_endpoint), vedi la view.
-    path('api/push/rotate/', views.PushRotateView.as_view(), name='push_rotate'),
+    path('api/push/rotate/', HardenedPushRotateView.as_view(), name='push_rotate'),
 ]

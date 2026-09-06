@@ -1,20 +1,17 @@
-"""View hardening that keeps security policy separate from the legacy UI code.
+"""View hardening that keeps security policy separate from the legacy UI code."""
+import json
 
-The base views still contain the product flows. Subclasses here only add
-cross-cutting security/integrity guards and are wired explicitly from urls.py.
-Keeping the guards small makes them easier to review and test in isolation.
-"""
 from django.contrib import messages
 from django.db import transaction
-from django.http import HttpResponseForbidden
+from django.http import HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 
 from . import views
 from .models import BonusType, Death, DeathBonus, League, LeagueBonus, Team
+from .push_security import UnsafePushEndpoint, validate_push_endpoint
 
 
 def _bonus_is_local_or_exclusive_system(league, bonus_type):
-    """Whether a league admin may mutate awards for ``bonus_type``."""
     if bonus_type.league_id is not None:
         return bonus_type.league_id == league.pk
     return not LeagueBonus.objects.filter(
@@ -24,20 +21,15 @@ def _bonus_is_local_or_exclusive_system(league, bonus_type):
 
 
 class LeagueDeathsView(views.LeagueDeathsView):
-    """League death timeline with strict cross-league bonus boundaries."""
-
     def _death_info(self, league, is_admin):
         info, assignable = super()._death_info(league, is_admin)
         if not is_admin:
             return info, assignable
-
         shared_system_ids = set(
             LeagueBonus.objects.filter(
                 is_active=True,
                 bonus_type__league__isnull=True,
-            )
-            .exclude(league=league)
-            .values_list('bonus_type_id', flat=True)
+            ).exclude(league=league).values_list('bonus_type_id', flat=True)
         )
         assignable = [
             lb for lb in assignable
@@ -58,32 +50,23 @@ class LeagueDeathsView(views.LeagueDeathsView):
         if not league.is_admin(request.user):
             return HttpResponseForbidden('Permesso negato.')
         action = request.POST.get('action', '')
-
         if action == 'assign_bonus':
             try:
-                bonus_type = BonusType.objects.get(
-                    pk=int(request.POST.get('bonus_type_id', '')),
-                )
+                bonus_type = BonusType.objects.get(pk=int(request.POST.get('bonus_type_id', '')))
             except (BonusType.DoesNotExist, ValueError, TypeError):
                 messages.error(request, 'Decesso o bonus non valido.')
                 return redirect('league_deaths', slug=slug)
             if not _bonus_is_local_or_exclusive_system(league, bonus_type):
-                messages.error(
-                    request,
-                    'Questo bonus di sistema è condiviso tra più leghe e può '
-                    'essere modificato solo dal Django admin.',
-                )
+                messages.error(request, 'Questo bonus di sistema è condiviso tra più leghe e può essere modificato solo dal Django admin.')
                 return redirect('league_deaths', slug=slug)
-
         elif action == 'remove_bonus':
             try:
-                death_bonus = DeathBonus.objects.select_related(
-                    'death__person', 'bonus_type',
-                ).get(pk=int(request.POST.get('death_bonus_id', '')))
+                death_bonus = DeathBonus.objects.select_related('death__person', 'bonus_type').get(
+                    pk=int(request.POST.get('death_bonus_id', ''))
+                )
             except (DeathBonus.DoesNotExist, ValueError, TypeError):
                 messages.error(request, 'Bonus non trovato.')
                 return redirect('league_deaths', slug=slug)
-
             death_belongs_to_league = Death.objects.filter(
                 pk=death_bonus.death_id,
                 is_confirmed=True,
@@ -95,42 +78,59 @@ class LeagueDeathsView(views.LeagueDeathsView):
                 messages.error(request, 'Bonus non trovato.')
                 return redirect('league_deaths', slug=slug)
             if not _bonus_is_local_or_exclusive_system(league, death_bonus.bonus_type):
-                messages.error(
-                    request,
-                    'Questo bonus è condiviso con un\'altra lega e non può '
-                    'essere modificato da qui.',
-                )
+                messages.error(request, 'Questo bonus è condiviso con un altra lega e non può essere modificato da qui.')
                 return redirect('league_deaths', slug=slug)
-
         return super().post(request, slug)
 
 
 class AddPersonView(views.AddPersonView):
-    """Serialize roster additions for a team and make the mutation atomic."""
-
     def post(self, request, pk):
         team = get_object_or_404(Team, pk=pk)
-        # Reject unauthorized callers before taking a database row lock.
         if team.manager_id != request.user.pk:
             return super().post(request, pk)
         with transaction.atomic():
-            # Locking the Team row serializes all concurrent additions for the
-            # same roster. super().post re-fetches and re-validates counts,
-            # duplicates and age while this lock is held.
             Team.objects.select_for_update().get(pk=pk)
             return super().post(request, pk)
 
 
 class SubstituteMemberView(views.SubstituteMemberView):
-    """Make replacement creation + predecessor update one serialized write."""
-
     def post(self, request, pk, member_pk):
         team = get_object_or_404(Team, pk=pk)
         if team.manager_id != request.user.pk:
             return super().post(request, pk, member_pk)
         with transaction.atomic():
-            # The team lock serializes replacements and other roster writes.
-            # The base view then re-fetches the member and rechecks whether it
-            # is still active before creating the replacement.
             Team.objects.select_for_update().get(pk=pk)
             return super().post(request, pk, member_pk)
+
+
+def _endpoint_from_json(request, *, rotate=False):
+    try:
+        data = json.loads(request.body.decode('utf-8'))
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if rotate:
+        subscription = data.get('subscription') or {}
+        return subscription.get('endpoint')
+    return data.get('endpoint')
+
+
+class PushSubscribeView(views.PushSubscribeView):
+    def post(self, request):
+        endpoint = _endpoint_from_json(request)
+        if endpoint:
+            try:
+                validate_push_endpoint(endpoint, resolve=False)
+            except UnsafePushEndpoint as exc:
+                return JsonResponse({'error': str(exc)}, status=400)
+        return super().post(request)
+
+
+class PushRotateView(views.PushRotateView):
+    def post(self, request):
+        endpoint = _endpoint_from_json(request, rotate=True)
+        if endpoint:
+            try:
+                validate_push_endpoint(endpoint, resolve=False)
+            except UnsafePushEndpoint as exc:
+                return JsonResponse({'status': 'error', 'error': str(exc)}, status=400)
+        return super().post(request)
