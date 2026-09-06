@@ -7,7 +7,7 @@ from .models import (
     League, LeagueMembership, LeagueBonus, SiteSettings,
     Notification,
 )
-from . import scoring
+from . import person_sync, scoring
 
 
 class LeagueMembershipInline(admin.TabularInline):
@@ -73,22 +73,20 @@ class WikidataPersonAdmin(admin.ModelAdmin):
 
     @admin.action(description='Aggiorna da Wikidata')
     def refresh_from_wikidata(self, request, queryset):
+        """Refresh through the same domain service used by cron and league UI.
+
+        The old action copied fields directly onto WikipediaPerson and could
+        therefore leave ``is_dead=True`` without creating/updating ``Death``
+        and its automatic bonuses.  All entry points now converge on
+        ``sync_person_from_entity``.
+        """
         from wikidata_api.client import WikidataClient
         client = WikidataClient()
         updated = 0
         for person in queryset:
             try:
                 entity = client.get_entity(person.wikidata_id)
-                person.name_it = entity['name_it']
-                person.name_en = entity.get('name_en', '')
-                person.birth_date = entity.get('birth_date')
-                person.birth_year = entity.get('birth_year')
-                person.death_date = entity.get('death_date')
-                person.death_year = entity.get('death_year')
-                person.is_dead = entity.get('death_date') is not None or entity.get('death_year') is not None
-                person.claims_cache = entity.get('claims_cache', {})
-                person.last_checked = timezone.now()
-                person.save()
+                person_sync.sync_person_from_entity(person, entity, client=client)
                 updated += 1
             except Exception as e:
                 self.message_user(request, f'Errore per {person.wikidata_id}: {e}', messages.WARNING)
