@@ -141,23 +141,24 @@ def league_first_last_death_pks(league):
 
 
 def _member_was_eligible_on_death(member, death, league):
-    """Return whether the person was already on this roster on death day.
+    """Return whether this roster slot existed when the death occurred.
 
-    Death currently has day precision only, therefore an addition on the same
-    calendar day remains eligible: without an event time we cannot establish
-    that the pick happened after the death.
+    Initial roster composition happens before the playing period, so its
+    technical ``added_at`` timestamp is not part of scoring and may also come
+    from historical imports/fixtures. During an active league, new roster
+    entries are created by the substitution flow; only those entries need the
+    temporal eligibility check.
 
-    Historical/imported rosters may have ``added_at`` set when they were
-    imported, even years after the league ended. Such a timestamp cannot be
-    treated as the original pick time, so dates after ``league.end_date`` are
-    deliberately grandfathered. Current-season additions always fall inside
-    the league window and are checked normally.
+    Death currently has day precision only. A replacement added on the same
+    calendar day as the death therefore remains eligible because the relative
+    ordering inside that day is unknowable.
     """
     if league is None or not member.added_at:
         return True
-    picked_on = timezone.localtime(member.added_at).date()
-    if picked_on > league.end_date:
+    is_replacement = TeamMember.objects.filter(replaced_by_id=member.pk).exists()
+    if not is_replacement:
         return True
+    picked_on = timezone.localtime(member.added_at).date()
     return picked_on <= death.death_date
 
 
