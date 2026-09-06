@@ -17,20 +17,13 @@ ENTITY_FIELDS = (
 
 
 def _reconcile_auto_bonuses_for_method(death, method, desired_types):
-    """Make auto-detected awards for one method match ``desired_types``.
-
-    Manual awards are never converted or removed. This is important because a
-    league admin may have deliberately filled a detection gap before Wikidata
-    was corrected. Automatic rows, instead, are derived state and must follow
-    the current source data.
-    """
     desired = {bt.pk: bt for bt in desired_types}
     auto_rows = DeathBonus.objects.filter(
         death=death,
         is_auto_detected=True,
         bonus_type__detection_method=method,
     )
-    auto_rows.exclude(bonus_type_id__in=desired).delete()
+    auto_rows.exclude(bonus_type_id__in=list(desired)).delete()
 
     for bt in desired.values():
         existing = DeathBonus.objects.filter(death=death, bonus_type=bt).first()
@@ -48,13 +41,6 @@ def _reconcile_auto_bonuses_for_method(death, method, desired_types):
 
 
 def reconcile_automatic_bonuses(death, person, client):
-    """Reconcile derived Wikidata/age bonuses after every successful sync.
-
-    A failure while asking Wikidata about property-based bonuses is treated as
-    an unknown source state: existing automatic awards are kept rather than
-    being erased because of a transient outage. Age rules are local and can be
-    reconciled independently.
-    """
     wikidata_types = BonusType.objects.filter(
         is_active=True,
         detection_method=BonusType.DETECTION_WIKIDATA,
@@ -78,7 +64,6 @@ def reconcile_automatic_bonuses(death, person, client):
 
     age = person.get_age_at_death()
     if age is None:
-        # Unknown is not proof that a previous age-based award is now invalid.
         return
     age_types = BonusType.objects.filter(
         is_active=True,
@@ -90,8 +75,16 @@ def reconcile_automatic_bonuses(death, person, client):
     )
 
 
-def sync_person_from_entity(person, entity, *, client, autoconfirm=True):
-    """Apply one successfully fetched Wikidata entity and derived state."""
+def sync_person_from_entity(person, entity, *, client, autoconfirm=True, force=False):
+    """Apply one successfully fetched Wikidata entity and derived state.
+
+    ``data_frozen`` is enforced here, at the single write boundary, instead of
+    relying on every caller to remember a guard.  ``force=True`` is the
+    explicit maintenance override used by ``check_deaths --force``.
+    """
+    if person.pk and person.data_frozen and not force:
+        return getattr(person, 'death', None), False
+
     for field in ENTITY_FIELDS:
         new_value = entity.get(field)
         if new_value is None:
@@ -139,7 +132,5 @@ def sync_person_from_entity(person, entity, *, client, autoconfirm=True):
         if update_fields:
             death.save(update_fields=update_fields)
 
-    # Derived awards are reconciled for both newly-created and existing Death
-    # rows, so late Wikidata corrections cannot leave scoring stale forever.
     reconcile_automatic_bonuses(death, person, client)
     return death, created

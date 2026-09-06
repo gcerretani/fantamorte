@@ -47,9 +47,6 @@ class Command(BaseCommand):
 
         client = WikidataClient()
 
-        # Candidati: membri attivi di una rosa qualsiasi, che il DB crede vivi.
-        # Nessun filtro sullo stato della lega (vedi docstring): ogni riga che
-        # la query restituisce è un decesso nuovo.
         active_persons = WikipediaPerson.objects.filter(
             team_members__replaced_by__isnull=True,
             is_dead=False,
@@ -66,26 +63,18 @@ class Command(BaseCommand):
         if not force:
             active_persons = active_persons.exclude(data_frozen=True)
 
-        # Rotazione: invece di controllare tutti in un colpo (burst ogni
-        # `interval` ore, poi scheduler a vuoto), ogni run controlla solo la
-        # fetta più "vecchia" di giocatori, dimensionata per coprire l'intero
-        # pool nell'arco dell'intervallo. I mai-controllati (last_checked NULL)
-        # hanno priorità (in MySQL/MariaDB i NULL ordinano per primi in ASC).
         total_active = active_persons.count()
         if force:
-            batch = total_active  # --force: tutto subito (comportamento storico)
+            batch = total_active
         elif options.get('limit') is not None:
             batch = max(0, options['limit'])
         else:
             settings = SiteSettings.get()
             interval = max(1, settings.wikidata_check_interval_hours)
             schedule = max(1, settings.wikidata_check_schedule_hours)
-            # Copri `total_active` persone in `interval/schedule` run:
             batch = max(1, math.ceil(total_active * schedule / interval))
 
         selected = active_persons.order_by('last_checked')[:batch]
-        # Materializza prima dello slice-update (non si può .update() un
-        # queryset già affettato): tengo pk (per l'update) e wikidata_id.
         selected = list(selected.values_list('pk', 'wikidata_id'))
         selected_pks = [pk for pk, _ in selected]
         wikidata_ids = [qid for _, qid in selected]
@@ -123,10 +112,12 @@ class Command(BaseCommand):
                 self.stdout.write(f'[DRY] {person.name_it} ({qid}) † {death_date or death_year}')
                 continue
 
-            # L'applicazione dei dati (campi, claims, cache, Death + bonus)
-            # è la stessa di ogni altro percorso: core condiviso.
             death, _created = sync_person_from_entity(
-                person, entity, client=client, autoconfirm=autoconfirm,
+                person,
+                entity,
+                client=client,
+                autoconfirm=autoconfirm,
+                force=force,
             )
 
             status = 'confermato' if death and death.is_confirmed else 'da confermare'
@@ -135,10 +126,6 @@ class Command(BaseCommand):
             ))
 
         if not dry_run:
-            # Segna controllati solo i giocatori di questo run (la fetta),
-            # esclusi quelli appena rilevati morti (sync_person_from_entity ha
-            # già aggiornato il loro last_checked). Così al run successivo la
-            # rotazione passa alla fetta successiva (last_checked più vecchio).
             WikipediaPerson.objects.filter(pk__in=selected_pks).exclude(
                 wikidata_id__in=dead_ids
             ).update(last_checked=timezone.now())
