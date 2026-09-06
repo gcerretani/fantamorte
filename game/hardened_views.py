@@ -8,6 +8,7 @@ from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 
 from . import scoring, views
+from .league_bonus_decisions import LeagueDeathBonus
 from .models import BonusType, Death, DeathBonus, League, LeagueBonus, Team
 from .push_security import UnsafePushEndpoint, validate_push_endpoint
 
@@ -21,38 +22,48 @@ def _csv_safe_text(value):
     return text
 
 
-def _bonus_is_local_or_exclusive_system(league, bonus_type):
-    if bonus_type.league_id is not None:
-        return bonus_type.league_id == league.pk
-    return not LeagueBonus.objects.filter(
-        bonus_type_id=bonus_type.pk,
-        is_active=True,
-    ).exclude(league=league).exists()
+def _league_death(league, death_id):
+    return Death.objects.filter(
+        pk=death_id,
+        is_confirmed=True,
+        death_date__gte=league.start_date,
+        death_date__lte=league.end_date,
+        person__team_members__team__league=league,
+    ).distinct().select_related('person').first()
 
 
 class LeagueDeathsView(views.LeagueDeathsView):
+    """League timeline where league admins only mutate league-scoped awards."""
+
     def _death_info(self, league, is_admin):
         info, assignable = super()._death_info(league, is_admin)
-        if not is_admin:
-            return info, assignable
-        shared_system_ids = set(
-            LeagueBonus.objects.filter(
-                is_active=True,
-                bonus_type__league__isnull=True,
-            ).exclude(league=league).values_list('bonus_type_id', flat=True)
-        )
-        assignable = [
-            lb for lb in assignable
-            if lb.bonus_type.league_id == league.pk
-            or (lb.bonus_type.league_id is None and lb.bonus_type_id not in shared_system_ids)
-        ]
+        lb_map = {
+            lb.bonus_type_id: lb
+            for lb in league.league_bonuses.filter(is_active=True).select_related('bonus_type')
+        }
+
+        # Existing DeathBonus rows are global/legacy facts.  A league admin may
+        # still remove a legacy custom row because BonusType.league proves its
+        # scope, but system rows are never mutated from a league page.
         for death_info in info.values():
             for item in death_info.get('bonus_items', []):
+                item['scope'] = 'global'
                 bt = item['bonus'].bonus_type
-                if bt.league_id not in (None, league.pk):
-                    item['removable'] = False
-                elif bt.league_id is None and bt.pk in shared_system_ids:
-                    item['removable'] = False
+                item['removable'] = bool(is_admin and bt.league_id == league.pk)
+
+        local_awards = (
+            LeagueDeathBonus.objects.filter(league=league, death_id__in=info.keys())
+            .select_related('bonus_type')
+        )
+        for award in local_awards:
+            lb = lb_map.get(award.bonus_type_id)
+            info.setdefault(award.death_id, {'bonus_items': []})['bonus_items'].append({
+                'bonus': award,
+                'scope': 'local',
+                'active': lb is not None,
+                'points': lb.compute_points(age=award.death.death_age) if lb else None,
+                'removable': is_admin,
+            })
         return info, assignable
 
     def post(self, request, slug):
@@ -60,36 +71,93 @@ class LeagueDeathsView(views.LeagueDeathsView):
         if not league.is_admin(request.user):
             return HttpResponseForbidden('Permesso negato.')
         action = request.POST.get('action', '')
+
         if action == 'assign_bonus':
             try:
-                bonus_type = BonusType.objects.get(pk=int(request.POST.get('bonus_type_id', '')))
-            except (BonusType.DoesNotExist, ValueError, TypeError):
+                death_id = int(request.POST.get('death_id', ''))
+                bonus_type_id = int(request.POST.get('bonus_type_id', ''))
+            except (ValueError, TypeError):
                 messages.error(request, 'Decesso o bonus non valido.')
                 return redirect('league_deaths', slug=slug)
-            if not _bonus_is_local_or_exclusive_system(league, bonus_type):
-                messages.error(request, 'Questo bonus di sistema è condiviso tra più leghe e può essere modificato solo dal Django admin.')
-                return redirect('league_deaths', slug=slug)
-        elif action == 'remove_bonus':
+            death = _league_death(league, death_id)
             try:
-                death_bonus = DeathBonus.objects.select_related('death__person', 'bonus_type').get(
-                    pk=int(request.POST.get('death_bonus_id', ''))
+                lb = league.league_bonuses.select_related('bonus_type').get(
+                    bonus_type_id=bonus_type_id,
+                    is_active=True,
+                    bonus_type__detection_method__in=self.ASSIGNABLE_METHODS,
                 )
-            except (DeathBonus.DoesNotExist, ValueError, TypeError):
+            except LeagueBonus.DoesNotExist:
+                lb = None
+            if death is None or lb is None:
+                messages.error(request, 'Decesso o bonus non valido.')
+                return redirect('league_deaths', slug=slug)
+            bt = lb.bonus_type
+            if bt.league_id not in (None, league.pk):
+                messages.error(request, 'Questo bonus appartiene a un’altra lega.')
+                return redirect('league_deaths', slug=slug)
+
+            # A global fact already applies in this league.  Do not create a
+            # redundant local row: this also preserves legacy scores verbatim.
+            if DeathBonus.objects.filter(death=death, bonus_type=bt).exists():
+                messages.info(request, f'Il bonus "{bt.name}" è già registrato globalmente sul decesso.')
+                return redirect('league_deaths', slug=slug)
+
+            award, created = LeagueDeathBonus.objects.get_or_create(
+                league=league,
+                death=death,
+                bonus_type=bt,
+                defaults={
+                    'created_by': request.user,
+                    'updated_by': request.user,
+                    'reason': 'Assegnazione manuale dalla cronologia decessi della lega.',
+                },
+            )
+            if not created:
+                award.updated_by = request.user
+                award.reason = 'Assegnazione manuale confermata dalla cronologia decessi della lega.'
+                award.save(update_fields=['updated_by', 'reason', 'updated_at'])
+            messages.success(request, f'Bonus "{bt.name}" assegnato solo in {league.name}.')
+            return redirect('league_deaths', slug=slug)
+
+        if action == 'remove_bonus':
+            scope = request.POST.get('bonus_scope', 'global')
+            try:
+                award_id = int(request.POST.get('death_bonus_id', ''))
+            except (ValueError, TypeError):
                 messages.error(request, 'Bonus non trovato.')
                 return redirect('league_deaths', slug=slug)
-            death_belongs_to_league = Death.objects.filter(
-                pk=death_bonus.death_id,
-                is_confirmed=True,
-                death_date__gte=league.start_date,
-                death_date__lte=league.end_date,
-                person__team_members__team__league=league,
-            ).exists()
-            if not death_belongs_to_league:
-                messages.error(request, 'Bonus non trovato.')
+
+            if scope == 'local':
+                award = LeagueDeathBonus.objects.select_related('death', 'bonus_type').filter(
+                    pk=award_id, league=league,
+                ).first()
+                if award is None or _league_death(league, award.death_id) is None:
+                    messages.error(request, 'Bonus non trovato.')
+                    return redirect('league_deaths', slug=slug)
+                name = award.bonus_type.name
+                award.delete()
+                messages.success(request, f'Assegnazione locale "{name}" rimossa.')
                 return redirect('league_deaths', slug=slug)
-            if not _bonus_is_local_or_exclusive_system(league, death_bonus.bonus_type):
-                messages.error(request, 'Questo bonus è condiviso con un altra lega e non può essere modificato da qui.')
+
+            # Backwards compatibility: legacy DeathBonus rows for a custom
+            # BonusType are provably scoped to this league and remain removable.
+            legacy = DeathBonus.objects.select_related('death', 'bonus_type').filter(pk=award_id).first()
+            if (
+                legacy is None
+                or _league_death(league, legacy.death_id) is None
+                or legacy.bonus_type.league_id != league.pk
+            ):
+                messages.error(
+                    request,
+                    'I bonus globali di sistema si correggono dal Django admin; '
+                    'un admin di lega non può modificarli.',
+                )
                 return redirect('league_deaths', slug=slug)
+            name = legacy.bonus_type.name
+            legacy.delete()
+            messages.success(request, f'Bonus legacy "{name}" rimosso dalla lega.')
+            return redirect('league_deaths', slug=slug)
+
         return super().post(request, slug)
 
 
@@ -173,7 +241,7 @@ class LeagueDeathsCSVView(views.LeagueDeathsCSVView):
         league = get_object_or_404(League, slug=slug)
         if not league.can_user_view(request.user):
             return HttpResponseForbidden('Non hai accesso a questa lega.')
-        deaths = (
+        deaths = list(
             Death.objects.filter(
                 is_confirmed=True,
                 death_date__gte=league.start_date,
@@ -186,21 +254,28 @@ class LeagueDeathsCSVView(views.LeagueDeathsCSVView):
             .prefetch_related('bonuses__bonus_type')
             .order_by('death_date')
         )
+        local_by_death = {}
+        for award in LeagueDeathBonus.objects.filter(
+            league=league, death_id__in=[d.pk for d in deaths],
+        ).select_related('bonus_type'):
+            local_by_death.setdefault(award.death_id, []).append(award)
+
         resp = HttpResponse(content_type='text/csv; charset=utf-8')
         resp['Content-Disposition'] = f'attachment; filename="decessi-{league.slug}.csv"'
         writer = csv.writer(resp)
         writer.writerow(['data', 'nome', 'eta', 'wikidata_id', 'bonus'])
         for death in deaths:
-            bonus_names = ', '.join(
+            bonus_names = {
                 award.bonus_type.name
                 for award in death.bonuses.all()
                 if award.bonus_type.league_id in (None, league.pk)
-            )
+            }
+            bonus_names.update(a.bonus_type.name for a in local_by_death.get(death.pk, []))
             writer.writerow([
                 death.death_date.isoformat(),
                 _csv_safe_text(death.person.name_it),
                 death.death_age if death.death_age is not None else '',
                 _csv_safe_text(death.person.wikidata_id),
-                _csv_safe_text(bonus_names),
+                _csv_safe_text(', '.join(sorted(bonus_names))),
             ])
         return resp

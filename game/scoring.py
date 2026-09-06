@@ -1,11 +1,10 @@
 """Logica punteggio. La League è la sorgente di verità per le regole.
 
-Ogni team ha (o avrà) un puntatore alla league. Le morti che contano sono
-quelle confermate avvenute tra `league.start_date` e `league.end_date`.
-
-Le leghe condividono solo il database degli eventi (Death/DeathBonus come
-proprietà del decesso): tutto ciò che è relativo alla lega — bonus primo e
-ultimo morto inclusi — viene calcolato qui, senza righe persistite condivise.
+I ``DeathBonus`` sono fatti globali del decesso. Le assegnazioni manuali fatte
+da un admin di lega sono invece ``LeagueDeathBonus`` e valgono esclusivamente
+nella lega che le ha create. I record globali legacy continuano a essere letti
+esattamente come prima, così l'introduzione dello scope non modifica le
+classifiche esistenti.
 """
 import time
 
@@ -13,6 +12,7 @@ from django.core.cache import cache
 from django.db.models import Prefetch
 from django.utils import timezone
 
+from .league_bonus_decisions import LeagueDeathBonus
 from .models import Death, BonusType, League, LeagueBonus, TeamMember
 
 
@@ -43,7 +43,25 @@ def _league_bonus_map(league):
     }
 
 
+def _effective_bonus_types(death, league):
+    """Bonus effettivi: fatti globali + assegnazioni locali della lega.
+
+    La mappa per id evita doppi conteggi quando un vecchio ``DeathBonus``
+    globale esiste già e un admin ripete l'assegnazione nella propria lega.
+    """
+    bonus_types = {award.bonus_type_id: award.bonus_type for award in death.bonuses.all()}
+    if league is None:
+        return bonus_types
+    local = getattr(death, '_league_bonus_awards_for_scoring', None)
+    if local is None:
+        local = LeagueDeathBonus.objects.filter(league=league, death=death).select_related('bonus_type')
+    for award in local:
+        bonus_types[award.bonus_type_id] = award.bonus_type
+    return bonus_types
+
+
 def _bonus_points_in_league(bonus, league, lb_map=None):
+    """Compatibilità per i percorsi legacy che passano una riga DeathBonus."""
     bt = bonus.bonus_type
     if bt.detection_method in (BonusType.DETECTION_FIRST_DEATH, BonusType.DETECTION_LAST_DEATH):
         return 0
@@ -115,7 +133,13 @@ def _confirmed_deaths_for_league(league):
             death_date__gte=league.start_date,
             death_date__lte=league.end_date,
             person__team_members__team__league=league,
-        ).distinct()
+        ).distinct().prefetch_related(
+            Prefetch(
+                'league_bonus_decisions',
+                queryset=LeagueDeathBonus.objects.filter(league=league).select_related('bonus_type'),
+                to_attr='_league_bonus_awards_for_scoring',
+            )
+        )
     return qs
 
 
@@ -141,18 +165,6 @@ def league_first_last_death_pks(league):
 
 
 def _member_was_eligible_on_death(member, death, league):
-    """Return whether this roster slot existed when the death occurred.
-
-    Initial roster composition happens before the playing period, so its
-    technical ``added_at`` timestamp is not part of scoring and may also come
-    from historical imports/fixtures. During an active league, new roster
-    entries are created by the substitution flow; only those entries need the
-    temporal eligibility check.
-
-    Death currently has day precision only. A replacement added on the same
-    calendar day as the death therefore remains eligible because the relative
-    ordering inside that day is unknowable.
-    """
     if league is None or not member.added_at:
         return True
     is_replacement = TeamMember.objects.filter(replaced_by_id=member.pk).exists()
@@ -165,9 +177,18 @@ def _member_was_eligible_on_death(member, death, league):
 def _points_for_member_death(member, team, death, league, lb_map, first_pk=None, last_pk=None):
     if not _member_was_eligible_on_death(member, death, league):
         return 0
-    raw = _base_points(league) + sum(
-        _bonus_points_in_league(b, league, lb_map) for b in death.bonuses.all()
-    )
+
+    raw = _base_points(league)
+    if league is None:
+        raw += sum(_bonus_points_in_league(b, None) for b in death.bonuses.all())
+    else:
+        for bt_id, bt in _effective_bonus_types(death, league).items():
+            if bt.detection_method in (BonusType.DETECTION_FIRST_DEATH, BonusType.DETECTION_LAST_DEATH):
+                continue
+            lb = lb_map.get(bt_id)
+            if lb is not None:
+                raw += lb.compute_points(age=death.death_age)
+
     for lb in lb_map.values():
         dm = lb.bonus_type.detection_method
         if dm == BonusType.DETECTION_ORIGINAL and member.is_original:
@@ -203,20 +224,23 @@ def compute_team_points_for_death(team, death):
 
 def _bonus_lines_for_death(member, death, league, lb_map, first_pk, last_pk):
     lines = []
-    for b in death.bonuses.all():
-        if b.bonus_type.detection_method in (BonusType.DETECTION_FIRST_DEATH, BonusType.DETECTION_LAST_DEATH):
-            continue
-        if league is None:
+    if league is None:
+        for b in death.bonuses.all():
+            if b.bonus_type.detection_method in (BonusType.DETECTION_FIRST_DEATH, BonusType.DETECTION_LAST_DEATH):
+                continue
             bt = b.bonus_type
             pts = bt.compute_points(age=death.death_age) if bt.points_formula else (
                 b.points_awarded if b.points_awarded is not None else bt.points
             )
             lines.append({'name': bt.name, 'points': pts})
-            continue
-        lb = lb_map.get(b.bonus_type_id)
-        if lb is None:
-            continue
-        lines.append({'name': b.bonus_type.name, 'points': lb.compute_points(age=death.death_age)})
+    else:
+        for bt_id, bt in _effective_bonus_types(death, league).items():
+            if bt.detection_method in (BonusType.DETECTION_FIRST_DEATH, BonusType.DETECTION_LAST_DEATH):
+                continue
+            lb = lb_map.get(bt_id)
+            if lb is not None:
+                lines.append({'name': bt.name, 'points': lb.compute_points(age=death.death_age)})
+
     for lb in lb_map.values():
         dm = lb.bonus_type.detection_method
         if dm == BonusType.DETECTION_ORIGINAL and member.is_original:
