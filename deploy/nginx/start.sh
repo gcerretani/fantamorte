@@ -1,8 +1,6 @@
 #!/bin/sh
-# Avvio nginx: collega i certificati Let's Encrypt se presenti, altrimenti
-# genera un self-signed di bootstrap (permette il primo avvio e l'emissione
-# del certificato reale via certbot webroot). Ricarica nginx ogni 6h per
-# raccogliere i certificati rinnovati.
+# Hook dell'entrypoint ufficiale nginx: prepara i certificati prima che
+# 20-envsubst-on-templates.sh generi default.conf e nginx venga avviato.
 set -e
 
 CERT_DIR="/etc/nginx/certs"
@@ -20,7 +18,7 @@ elif [ ! -f "$CERT_DIR/fullchain.pem" ]; then
         -keyout "$CERT_DIR/privkey.pem" -out "$CERT_DIR/fullchain.pem"
 fi
 
-# Reload periodico in background: aggancia certificati emessi/rinnovati.
+# Il processo resta figlio dell'entrypoint; al primo wake nginx è già attivo.
 (
     while :; do
         sleep 6h
@@ -31,5 +29,3 @@ fi
         nginx -s reload || true
     done
 ) &
-
-exec nginx -g 'daemon off;'
