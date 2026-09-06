@@ -10,8 +10,6 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  # A release tag is tested from the exact tagged commit before any image is
-  # pushed. This prevents a green test on another ref from authorizing publish.
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -27,15 +25,15 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: requirements.lock
       - name: Install MySQL client headers
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             pkg-config default-libmysqlclient-dev
-      - name: Install dependencies
+      - name: Install locked dependencies
         run: |
-          python -m pip install --disable-pip-version-check -r requirements.txt
+          python -m pip install --disable-pip-version-check -r requirements.lock
           python -m pip check
       - name: Collect static files
         run: python manage.py collectstatic --noinput
