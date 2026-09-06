@@ -1,14 +1,4 @@
-"""Sincronizzazione unica di una WikipediaPerson da Wikidata.
-
-Questo modulo è l'UNICO punto in cui lo stato di Wikidata viene applicato a
-una persona. Tutti i percorsi che aggiornano i dati — il cron
-``check_deaths``, il bottone "Controlla" della pagina admin giocatori,
-l'aggiunta in rosa (``_get_or_refresh_person``) — chiamano
-:func:`sync_person_from_entity`, così fanno per costruzione le stesse cose
-nello stesso ordine. Cambia solo la *strategia di selezione* delle persone
-da sincronizzare (batch SPARQL per il cron, click per l'admin, ricerca per
-il manager), mai il modo in cui i dati vengono applicati.
-"""
+"""Sincronizzazione unica di una WikipediaPerson da Wikidata."""
 import logging
 from datetime import date as date_cls
 
@@ -26,13 +16,82 @@ ENTITY_FIELDS = (
 )
 
 
-def sync_person_from_entity(person, entity, *, client, autoconfirm=True):
-    """Applica a ``person`` lo stato corrente di Wikidata.
+def _reconcile_auto_bonuses_for_method(death, method, desired_types):
+    """Make auto-detected awards for one method match ``desired_types``.
 
-    Ritorna ``(death, death_created)``. Ogni conferma automatica valorizza
-    ``confirmed_at`` nella stessa write che imposta ``is_confirmed``: le
-    deadline di sostituzione non devono dipendere dal percorso (admin/cron).
+    Manual awards are never converted or removed. This is important because a
+    league admin may have deliberately filled a detection gap before Wikidata
+    was corrected. Automatic rows, instead, are derived state and must follow
+    the current source data.
     """
+    desired = {bt.pk: bt for bt in desired_types}
+    auto_rows = DeathBonus.objects.filter(
+        death=death,
+        is_auto_detected=True,
+        bonus_type__detection_method=method,
+    )
+    auto_rows.exclude(bonus_type_id__in=desired).delete()
+
+    for bt in desired.values():
+        existing = DeathBonus.objects.filter(death=death, bonus_type=bt).first()
+        points = bt.compute_points(age=death.death_age)
+        if existing is None:
+            DeathBonus.objects.create(
+                death=death,
+                bonus_type=bt,
+                points_awarded=points,
+                is_auto_detected=True,
+            )
+        elif existing.is_auto_detected and existing.points_awarded != points:
+            existing.points_awarded = points
+            existing.save(update_fields=['points_awarded'])
+
+
+def reconcile_automatic_bonuses(death, person, client):
+    """Reconcile derived Wikidata/age bonuses after every successful sync.
+
+    A failure while asking Wikidata about property-based bonuses is treated as
+    an unknown source state: existing automatic awards are kept rather than
+    being erased because of a transient outage. Age rules are local and can be
+    reconciled independently.
+    """
+    wikidata_types = BonusType.objects.filter(
+        is_active=True,
+        detection_method=BonusType.DETECTION_WIKIDATA,
+    )
+    try:
+        desired_wikidata = client.detect_bonuses(
+            person.wikidata_id,
+            person.claims_cache,
+            wikidata_types,
+        )
+    except Exception:
+        logger.warning(
+            'Riconciliazione bonus Wikidata fallita per %s: mantengo lo stato precedente',
+            person.wikidata_id,
+            exc_info=True,
+        )
+    else:
+        _reconcile_auto_bonuses_for_method(
+            death, BonusType.DETECTION_WIKIDATA, desired_wikidata,
+        )
+
+    age = person.get_age_at_death()
+    if age is None:
+        # Unknown is not proof that a previous age-based award is now invalid.
+        return
+    age_types = BonusType.objects.filter(
+        is_active=True,
+        detection_method=BonusType.DETECTION_AGE,
+    )
+    desired_age = [bt for bt in age_types if client.detect_age_bonus(age, bt)]
+    _reconcile_auto_bonuses_for_method(
+        death, BonusType.DETECTION_AGE, desired_age,
+    )
+
+
+def sync_person_from_entity(person, entity, *, client, autoconfirm=True):
+    """Apply one successfully fetched Wikidata entity and derived state."""
     for field in ENTITY_FIELDS:
         new_value = entity.get(field)
         if new_value is None:
@@ -60,24 +119,7 @@ def sync_person_from_entity(person, entity, *, client, autoconfirm=True):
         },
     )
 
-    if created:
-        bonus_types = BonusType.objects.filter(
-            is_active=True, detection_method__in=['wikidata', 'age'],
-        )
-        for bt in client.detect_bonuses(person.wikidata_id, person.claims_cache, bonus_types):
-            DeathBonus.objects.get_or_create(
-                death=death, bonus_type=bt,
-                defaults={'points_awarded': bt.points, 'is_auto_detected': True},
-            )
-        age = person.get_age_at_death()
-        if age is not None:
-            for bt in bonus_types.filter(detection_method='age'):
-                if client.detect_age_bonus(age, bt):
-                    DeathBonus.objects.get_or_create(
-                        death=death, bonus_type=bt,
-                        defaults={'points_awarded': bt.points, 'is_auto_detected': True},
-                    )
-    else:
+    if not created:
         expected_date = person.death_date or date_cls(year_for_death, 12, 31)
         expected_age = person.get_age_at_death()
         update_fields = []
@@ -91,14 +133,13 @@ def sync_person_from_entity(person, entity, *, client, autoconfirm=True):
             death.is_confirmed = True
             death.confirmed_at = confirmation_time
             update_fields.extend(['is_confirmed', 'confirmed_at'])
-        elif death.is_confirmed and death.confirmed_at is None:
-            # Repair a legacy inconsistent row only when this sync is allowed
-            # to confirm: the current successful Wikidata check is the first
-            # trustworthy timestamp we can record without fabricating history.
-            if autoconfirm:
-                death.confirmed_at = confirmation_time
-                update_fields.append('confirmed_at')
+        elif autoconfirm and death.is_confirmed and death.confirmed_at is None:
+            death.confirmed_at = confirmation_time
+            update_fields.append('confirmed_at')
         if update_fields:
             death.save(update_fields=update_fields)
 
+    # Derived awards are reconciled for both newly-created and existing Death
+    # rows, so late Wikidata corrections cannot leave scoring stale forever.
+    reconcile_automatic_bonuses(death, person, client)
     return death, created
