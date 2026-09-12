@@ -34,10 +34,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name='leaguedeathbonus',
-            index=models.Index(fields=['league', 'death'], name='game_ldb_league_death_idx'),
-        ),
-        migrations.AddIndex(
-            model_name='leaguedeathbonus',
             index=models.Index(fields=['league', 'bonus_type'], name='game_ldb_league_bonus_idx'),
         ),
     ]
