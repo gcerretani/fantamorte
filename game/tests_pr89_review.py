@@ -4,7 +4,6 @@ from unittest.mock import MagicMock, patch
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.db import connection
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -115,7 +114,7 @@ class RosterLockReviewTest(ViewsBaseTestCase):
             wikidata_id='Q990102', name_it='Fresh candidate',
             is_dead=False, last_checked=timezone.now(),
         )
-        staff = User.objects.create_user(
+        User.objects.create_user(
             'staff-review', password='x', is_staff=True,
         )
         self.client.login(username='staff-review', password='x')
@@ -131,9 +130,10 @@ class RosterLockReviewTest(ViewsBaseTestCase):
         member.refresh_from_db()
         self.assertIsNotNone(member.replaced_by_id)
 
-    def test_wikidata_network_refresh_happens_before_team_transaction(self):
-        # Composition is open in the shared fixture. Use a stale candidate so
-        # the hardening wrapper must refresh it before acquiring select_for_update.
+    def test_wikidata_network_refresh_happens_before_team_row_lock(self):
+        # TestCase itself is transactional, so transaction.in_atomic_block
+        # cannot distinguish our roster transaction. Record the observable
+        # order instead: the external fetch must precede select_for_update().
         candidate = WikipediaPerson.objects.create(
             wikidata_id='Q990103', name_it='Stale candidate',
             is_dead=False, last_checked=None,
@@ -147,15 +147,20 @@ class RosterLockReviewTest(ViewsBaseTestCase):
             'image_url': '', 'occupation': '', 'nationality': '',
             'wikipedia_url_it': '', 'claims_cache': {},
         }
+        events = []
 
         def get_entity(_qid):
-            self.assertFalse(
-                connection.in_atomic_block,
-                'Wikidata network I/O must happen before the roster row lock',
-            )
+            events.append('network')
             return entity
 
-        with patch('game.views.WikidataClient.get_entity', side_effect=get_entity) as fetch:
+        original_lock = Team.objects.select_for_update
+
+        def select_for_update(*args, **kwargs):
+            events.append('lock')
+            return original_lock(*args, **kwargs)
+
+        with patch('game.views.WikidataClient.get_entity', side_effect=get_entity) as fetch, \
+             patch.object(Team.objects, 'select_for_update', side_effect=select_for_update):
             response = self.client.post(
                 reverse('add_person', args=[self.private_team.pk]),
                 {'wikidata_id': candidate.wikidata_id},
@@ -163,6 +168,9 @@ class RosterLockReviewTest(ViewsBaseTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(fetch.call_count, 1)
+        self.assertIn('network', events)
+        self.assertIn('lock', events)
+        self.assertLess(events.index('network'), events.index('lock'))
         self.assertTrue(
             self.private_team.members.filter(person=candidate, replaced_by=None).exists()
         )
