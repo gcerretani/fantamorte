@@ -71,26 +71,39 @@ class WikidataPersonAdmin(admin.ModelAdmin):
     readonly_fields = ('last_checked', 'summary_fetched_at', 'claims_cache')
     actions = ['refresh_from_wikidata']
 
-    @admin.action(description='Aggiorna da Wikidata')
+    @admin.action(description='Aggiorna da Wikidata (forza anche dati congelati)')
     def refresh_from_wikidata(self, request, queryset):
-        """Refresh through the same domain service used by cron and league UI.
+        """Operator-requested refresh through the shared synchronization core.
 
-        The old action copied fields directly onto WikipediaPerson and could
-        therefore leave ``is_dead=True`` without creating/updating ``Death``
-        and its automatic bonuses.  All entry points now converge on
-        ``sync_person_from_entity``.
+        ``data_frozen`` protects automatic/background refreshes. A superuser
+        explicitly selecting this admin action is the manual override, so the
+        domain service is called with ``force=True`` and a success is counted
+        only after the sync returns without error.
         """
         from wikidata_api.client import WikidataClient
         client = WikidataClient()
         updated = 0
+        failed = 0
         for person in queryset:
             try:
                 entity = client.get_entity(person.wikidata_id)
-                person_sync.sync_person_from_entity(person, entity, client=client)
+                person_sync.sync_person_from_entity(
+                    person, entity, client=client, force=True,
+                )
                 updated += 1
             except Exception as e:
-                self.message_user(request, f'Errore per {person.wikidata_id}: {e}', messages.WARNING)
-        self.message_user(request, f'{updated} persone aggiornate.')
+                failed += 1
+                self.message_user(
+                    request,
+                    f'Errore per {person.wikidata_id}: {e}',
+                    messages.WARNING,
+                )
+        level = messages.SUCCESS if failed == 0 else messages.WARNING
+        self.message_user(
+            request,
+            f'{updated} persone aggiornate; {failed} errori.',
+            level,
+        )
 
 
 @admin.register(BonusType)
