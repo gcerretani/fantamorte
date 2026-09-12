@@ -1,10 +1,14 @@
 """Discovery entrypoint for the view integration suite.
 
-The historical suite lives unchanged in ``_views_test_cases``.  Issue #62
+The historical suite lives unchanged in ``_views_test_cases``. Issue #62
 changes the persistence contract of manual league bonus assignments, so only
-the two tests that deliberately asserted the old global ``DeathBonus`` storage
-are overridden here.  All other view tests are inherited unchanged.
+the tests that deliberately asserted the old global ``DeathBonus`` storage are
+overridden here. Push rotation tests use a synthetic provider host and opt it
+in explicitly, matching the production allow-list extension mechanism.
 """
+from django.test import override_settings
+from django.urls import reverse
+
 from . import _views_test_cases as legacy
 from ._views_test_cases import *  # noqa: F401,F403
 from .league_bonus_decisions import LeagueDeathBonus
@@ -45,3 +49,9 @@ class ManualBonusAssignTest(legacy.ManualBonusAssignTest):
             },
         )
         self.assertFalse(LeagueDeathBonus.objects.filter(pk=award.pk).exists())
+
+
+@override_settings(WEBPUSH_ALLOWED_HOSTS=['push.example'])
+class PushRotateTest(legacy.PushRotateTest):
+    """Synthetic provider used by the legacy rotation tests is explicitly trusted."""
+    pass
