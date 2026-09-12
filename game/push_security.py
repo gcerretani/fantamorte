@@ -12,7 +12,7 @@ class UnsafePushEndpoint(ValueError):
 
 
 # Browser PushSubscription endpoints are issued by push services, not by the
-# application user.  Restricting outbound delivery to known provider domains
+# application user. Restricting outbound delivery to known provider domains
 # makes the hostname itself the SSRF boundary and removes the DNS-rebinding
 # TOCTOU between validation and requests/urllib3 resolving the destination.
 # Operators can extend (never implicitly weaken) this list with
@@ -26,12 +26,15 @@ _DEFAULT_ALLOWED_PUSH_HOSTS = (
 
 
 def _allowed_host_patterns():
-    configured = getattr(settings, 'WEBPUSH_ALLOWED_HOSTS', None)
-    if configured is None:
-        return _DEFAULT_ALLOWED_PUSH_HOSTS
+    configured = getattr(settings, 'WEBPUSH_ALLOWED_HOSTS', ())
     if isinstance(configured, str):
         configured = [h.strip() for h in configured.split(',') if h.strip()]
-    return tuple(str(h).strip().lower() for h in configured if str(h).strip())
+    extras = tuple(
+        str(h).strip().lower() for h in configured if str(h).strip()
+    )
+    # Setting additional providers must not accidentally remove the reviewed
+    # browser defaults.
+    return tuple(dict.fromkeys(_DEFAULT_ALLOWED_PUSH_HOSTS + extras))
 
 
 def _host_is_allowed(host):
