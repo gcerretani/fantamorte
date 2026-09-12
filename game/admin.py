@@ -7,7 +7,7 @@ from .models import (
     League, LeagueMembership, LeagueBonus, SiteSettings,
     Notification,
 )
-from . import scoring
+from . import person_sync, scoring
 
 
 class LeagueMembershipInline(admin.TabularInline):
@@ -71,28 +71,39 @@ class WikidataPersonAdmin(admin.ModelAdmin):
     readonly_fields = ('last_checked', 'summary_fetched_at', 'claims_cache')
     actions = ['refresh_from_wikidata']
 
-    @admin.action(description='Aggiorna da Wikidata')
+    @admin.action(description='Aggiorna da Wikidata (forza anche dati congelati)')
     def refresh_from_wikidata(self, request, queryset):
+        """Operator-requested refresh through the shared synchronization core.
+
+        ``data_frozen`` protects automatic/background refreshes. A superuser
+        explicitly selecting this admin action is the manual override, so the
+        domain service is called with ``force=True`` and a success is counted
+        only after the sync returns without error.
+        """
         from wikidata_api.client import WikidataClient
         client = WikidataClient()
         updated = 0
+        failed = 0
         for person in queryset:
             try:
                 entity = client.get_entity(person.wikidata_id)
-                person.name_it = entity['name_it']
-                person.name_en = entity.get('name_en', '')
-                person.birth_date = entity.get('birth_date')
-                person.birth_year = entity.get('birth_year')
-                person.death_date = entity.get('death_date')
-                person.death_year = entity.get('death_year')
-                person.is_dead = entity.get('death_date') is not None or entity.get('death_year') is not None
-                person.claims_cache = entity.get('claims_cache', {})
-                person.last_checked = timezone.now()
-                person.save()
+                person_sync.sync_person_from_entity(
+                    person, entity, client=client, force=True,
+                )
                 updated += 1
             except Exception as e:
-                self.message_user(request, f'Errore per {person.wikidata_id}: {e}', messages.WARNING)
-        self.message_user(request, f'{updated} persone aggiornate.')
+                failed += 1
+                self.message_user(
+                    request,
+                    f'Errore per {person.wikidata_id}: {e}',
+                    messages.WARNING,
+                )
+        level = messages.SUCCESS if failed == 0 else messages.WARNING
+        self.message_user(
+            request,
+            f'{updated} persone aggiornate; {failed} errori.',
+            level,
+        )
 
 
 @admin.register(BonusType)

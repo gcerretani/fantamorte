@@ -1,14 +1,4 @@
-"""Sincronizzazione unica di una WikipediaPerson da Wikidata.
-
-Questo modulo è l'UNICO punto in cui lo stato di Wikidata viene applicato a
-una persona. Tutti i percorsi che aggiornano i dati — il cron
-``check_deaths``, il bottone "Controlla" della pagina admin giocatori,
-l'aggiunta in rosa (``_get_or_refresh_person``) — chiamano
-:func:`sync_person_from_entity`, così fanno per costruzione le stesse cose
-nello stesso ordine. Cambia solo la *strategia di selezione* delle persone
-da sincronizzare (batch SPARQL per il cron, click per l'admin, ricerca per
-il manager), mai il modo in cui i dati vengono applicati.
-"""
+"""Sincronizzazione unica di una WikipediaPerson da Wikidata."""
 import logging
 from datetime import date as date_cls
 
@@ -19,9 +9,6 @@ from .scoring import invalidate_person_bonus_caches
 
 logger = logging.getLogger(__name__)
 
-# Campi anagrafici applicati 1:1 dall'entità Wikidata. Un valore None
-# nell'entità significa "non determinabile" (es. timeout label lookup):
-# non sovrascrive mai un valore esistente.
 ENTITY_FIELDS = (
     'name_it', 'name_en', 'description_it', 'birth_date', 'birth_year',
     'death_date', 'death_year', 'image_url', 'occupation', 'nationality',
@@ -29,103 +16,121 @@ ENTITY_FIELDS = (
 )
 
 
-def sync_person_from_entity(person, entity, *, client, autoconfirm=True):
-    """Applica a ``person`` lo stato corrente di Wikidata (entità già scaricata).
+def _reconcile_auto_bonuses_for_method(death, method, desired_types):
+    desired = {bt.pk: bt for bt in desired_types}
+    auto_rows = DeathBonus.objects.filter(
+        death=death,
+        is_auto_detected=True,
+        bonus_type__detection_method=method,
+    )
+    auto_rows.exclude(bonus_type_id__in=list(desired)).delete()
 
-    Nell'ordine:
+    for bt in desired.values():
+        existing = DeathBonus.objects.filter(death=death, bonus_type=bt).first()
+        points = bt.compute_points(age=death.death_age)
+        if existing is None:
+            DeathBonus.objects.create(
+                death=death,
+                bonus_type=bt,
+                points_awarded=points,
+                is_auto_detected=True,
+            )
+        elif existing.is_auto_detected and existing.points_awarded != points:
+            existing.points_awarded = points
+            existing.save(update_fields=['points_awarded'])
 
-    1. aggiorna i campi anagrafici (:data:`ENTITY_FIELDS`, con guardia sui
-       None) e ricalcola ``is_dead``;
-    2. aggiorna ``claims_cache`` e invalida le cache bonus derivate
-       (``fm_potential``, ``wd_bonus``);
-    3. aggiorna ``last_checked``;
-    4. se la persona risulta deceduta, registra la :class:`Death` con
-       auto-rilevazione dei bonus (wikidata + età) e conferma secondo
-       ``autoconfirm`` — o promuove a confermata una Death esistente non
-       confermata. La conferma fa scattare punti e notifiche via signal.
 
-    ``person`` può essere anche un'istanza non ancora salvata (aggiunta in
-    rosa di una persona nuova). Ritorna ``(death, death_created)``:
-    ``(None, False)`` se la persona è viva.
+def reconcile_automatic_bonuses(death, person, client):
+    wikidata_types = BonusType.objects.filter(
+        is_active=True,
+        detection_method=BonusType.DETECTION_WIKIDATA,
+    )
+    try:
+        desired_wikidata = client.detect_bonuses(
+            person.wikidata_id,
+            person.claims_cache,
+            wikidata_types,
+        )
+    except Exception:
+        logger.warning(
+            'Riconciliazione bonus Wikidata fallita per %s: mantengo lo stato precedente',
+            person.wikidata_id,
+            exc_info=True,
+        )
+    else:
+        _reconcile_auto_bonuses_for_method(
+            death, BonusType.DETECTION_WIKIDATA, desired_wikidata,
+        )
+
+    age = person.get_age_at_death()
+    if age is None:
+        return
+    age_types = BonusType.objects.filter(
+        is_active=True,
+        detection_method=BonusType.DETECTION_AGE,
+    )
+    desired_age = [bt for bt in age_types if client.detect_age_bonus(age, bt)]
+    _reconcile_auto_bonuses_for_method(
+        death, BonusType.DETECTION_AGE, desired_age,
+    )
+
+
+def sync_person_from_entity(person, entity, *, client, autoconfirm=True, force=False):
+    """Apply one successfully fetched Wikidata entity and derived state.
+
+    ``data_frozen`` is enforced here, at the single write boundary, instead of
+    relying on every caller to remember a guard.  ``force=True`` is the
+    explicit maintenance override used by ``check_deaths --force``.
     """
+    if person.pk and person.data_frozen and not force:
+        return getattr(person, 'death', None), False
+
     for field in ENTITY_FIELDS:
         new_value = entity.get(field)
         if new_value is None:
-            # None = dato non determinabile da Wikidata (es. timeout label
-            # lookup) oppure assente: mai sovrascrivere il valore esistente
-            # (e mai scrivere None nei CharField NOT NULL).
             continue
         setattr(person, field, new_value)
     person.is_dead = bool(person.death_date or person.death_year)
     person.claims_cache = entity.get('claims_cache', {})
     person.last_checked = timezone.now()
     person.save()
-    # I claim sono appena stati rinfrescati: un esito negativo cachato del
-    # check gerarchico (wd_bonus, 7 giorni) non deve sopravvivere e far
-    # perdere bonus alla detection qui sotto.
     invalidate_person_bonus_caches(person)
 
     if not person.is_dead:
         return None, False
 
     year_for_death = (person.death_date or date_cls(person.death_year, 1, 1)).year
+    confirmation_time = timezone.now() if autoconfirm else None
     death, created = Death.objects.get_or_create(
         person=person,
         defaults={
             'death_date': person.death_date or date_cls(year_for_death, 12, 31),
             'death_age': person.get_age_at_death(),
             'source': Death.SOURCE_WIKIDATA,
-            # Il dato arriva da Wikidata con data valida: si conferma subito
-            # (punti + notifiche via signal). Revocabile da admin; data_frozen
-            # sulla persona la esclude dai check automatici successivi.
             'is_confirmed': autoconfirm,
+            'confirmed_at': confirmation_time,
         },
     )
 
-    if created:
-        bonus_types = BonusType.objects.filter(
-            is_active=True, detection_method__in=['wikidata', 'age'],
-        )
-        for bt in client.detect_bonuses(person.wikidata_id, person.claims_cache, bonus_types):
-            DeathBonus.objects.get_or_create(
-                death=death, bonus_type=bt,
-                defaults={'points_awarded': bt.points, 'is_auto_detected': True},
-            )
-        age = person.get_age_at_death()
-        if age is not None:
-            for bt in bonus_types.filter(detection_method='age'):
-                if client.detect_age_bonus(age, bt):
-                    DeathBonus.objects.get_or_create(
-                        death=death, bonus_type=bt,
-                        defaults={'points_awarded': bt.points, 'is_auto_detected': True},
-                    )
-    else:
-        # Death già registrata: riallinea i campi derivati (snapshot) se i dati
-        # anagrafici della persona sono cambiati dopo la creazione — es. una
-        # correzione della data di nascita/morte. `death_age` è calcolato una
-        # sola volta alla creazione: senza questo riallineamento i bonus età
-        # (che leggono `death.death_age` nello scoring) resterebbero congelati
-        # al valore vecchio, con punteggi silenziosamente sbagliati.
+    if not created:
         expected_date = person.death_date or date_cls(year_for_death, 12, 31)
         expected_age = person.get_age_at_death()
         update_fields = []
         if death.death_date != expected_date:
             death.death_date = expected_date
             update_fields.append('death_date')
-        # Non azzerare un'età nota se ora risulta non determinabile (dato
-        # transitoriamente assente): aggiorna solo verso un valore concreto.
         if expected_age is not None and death.death_age != expected_age:
             death.death_age = expected_age
             update_fields.append('death_age')
         if autoconfirm and not death.is_confirmed:
-            # Decesso già registrato ma mai confermato: promuovilo (la
-            # transizione False→True fa scattare punti e notifiche).
             death.is_confirmed = True
-            update_fields.append('is_confirmed')
+            death.confirmed_at = confirmation_time
+            update_fields.extend(['is_confirmed', 'confirmed_at'])
+        elif autoconfirm and death.is_confirmed and death.confirmed_at is None:
+            death.confirmed_at = confirmation_time
+            update_fields.append('confirmed_at')
         if update_fields:
-            # Il post_save su Death invalida le classifiche delle leghe che
-            # coprono la data del decesso (game/signals.py): il punteggio dei
-            # bonus età, che dipende da death_age, viene così ricalcolato.
             death.save(update_fields=update_fields)
 
+    reconcile_automatic_bonuses(death, person, client)
     return death, created

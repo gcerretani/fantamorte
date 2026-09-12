@@ -1,11 +1,10 @@
 """Logica punteggio. La League è la sorgente di verità per le regole.
 
-Ogni team ha (o avrà) un puntatore alla league. Le morti che contano sono
-quelle confermate avvenute tra `league.start_date` e `league.end_date`.
-
-Le leghe condividono solo il database degli eventi (Death/DeathBonus come
-proprietà del decesso): tutto ciò che è relativo alla lega — bonus primo e
-ultimo morto inclusi — viene calcolato qui, senza righe persistite condivise.
+I ``DeathBonus`` sono fatti globali del decesso. Le assegnazioni manuali fatte
+da un admin di lega sono invece ``LeagueDeathBonus`` e valgono esclusivamente
+nella lega che le ha create. I record globali legacy continuano a essere letti
+esattamente come prima, così l'introduzione dello scope non modifica le
+classifiche esistenti.
 """
 import time
 
@@ -13,10 +12,9 @@ from django.core.cache import cache
 from django.db.models import Prefetch
 from django.utils import timezone
 
+from .league_bonus_decisions import LeagueDeathBonus
 from .models import Death, BonusType, League, LeagueBonus, TeamMember
 
-
-# ---------- helpers ----------
 
 def _league_of(team):
     return team.league if team.league_id else None
@@ -37,7 +35,6 @@ def _jolly_multiplier(league):
 
 
 def _league_bonus_map(league):
-    """Dizionario bonus_type_id → LeagueBonus attivo per la lega (o {} se senza lega)."""
     if league is None:
         return {}
     return {
@@ -46,16 +43,26 @@ def _league_bonus_map(league):
     }
 
 
-def _bonus_points_in_league(bonus, league, lb_map=None):
-    """Punti effettivi di un DeathBonus all'interno di una lega.
+def _effective_bonus_types(death, league):
+    """Bonus effettivi: fatti globali + assegnazioni locali della lega.
 
-    Tiene conto degli override (LeagueBonus.override_points / override_formula)
-    se presenti, altrimenti dei valori del BonusType. Se passato `lb_map`
-    (dict bonus_type_id -> LeagueBonus) lo usa per evitare query.
+    La mappa per id evita doppi conteggi quando un vecchio ``DeathBonus``
+    globale esiste già e un admin ripete l'assegnazione nella propria lega.
     """
+    bonus_types = {award.bonus_type_id: award.bonus_type for award in death.bonuses.all()}
+    if league is None:
+        return bonus_types
+    local = getattr(death, '_league_bonus_awards_for_scoring', None)
+    if local is None:
+        local = LeagueDeathBonus.objects.filter(league=league, death=death).select_related('bonus_type')
+    for award in local:
+        bonus_types[award.bonus_type_id] = award.bonus_type
+    return bonus_types
+
+
+def _bonus_points_in_league(bonus, league, lb_map=None):
+    """Compatibilità per i percorsi legacy che passano una riga DeathBonus."""
     bt = bonus.bonus_type
-    # Primo/ultimo morto sono relativi alla lega e calcolati dinamicamente
-    # (_first_last_death_pks): eventuali righe DeathBonus legacy vanno ignorate.
     if bt.detection_method in (BonusType.DETECTION_FIRST_DEATH, BonusType.DETECTION_LAST_DEATH):
         return 0
     age = bonus.death.death_age
@@ -64,11 +71,8 @@ def _bonus_points_in_league(bonus, league, lb_map=None):
             lb_map = _league_bonus_map(league)
         lb = lb_map.get(bt.id)
         if lb is None:
-            # La lega esiste ma il bonus non è tra quelli configurati: escluso
-            # (regola: una lega usa solo i bonus che si è scelta).
             return 0
         return lb.compute_points(age=age)
-    # Fallback legacy: usa i punti del BonusType
     if bt.points_formula:
         return bt.compute_points(age=age)
     if bonus.points_awarded is not None:
@@ -76,11 +80,9 @@ def _bonus_points_in_league(bonus, league, lb_map=None):
     return bt.points
 
 
-# ---------- cache invalidazione ----------
-
 _RANKINGS_VERSION_KEY = 'league_rankings_version:{league_id}'
 _RANKINGS_DATA_KEY = 'league_rankings:{league_id}:v{version}'
-_RANKINGS_TTL = 300  # 5 minuti, più che sufficienti come safety net
+_RANKINGS_TTL = 300
 
 
 def _rankings_version(league_id):
@@ -93,38 +95,16 @@ def _rankings_version(league_id):
 
 
 def invalidate_league_rankings(league_id):
-    """Bumpa la versione della cache dei rankings per una lega.
-
-    Pensata per essere chiamata da signal quando cambiano dati che influenzano
-    il punteggio (Death, DeathBonus, LeagueBonus, TeamMember, Team, League).
-    """
     if league_id is None:
         return
     cache.set(_RANKINGS_VERSION_KEY.format(league_id=league_id), int(time.time() * 1000), None)
 
 
 def league_cache_version(league_id):
-    """Versione corrente della cache di lega (vedi invalidate_league_rankings).
-
-    Usata anche come componente di chiavi derivate (es. i bonus potenziali del
-    modal persona): ogni invalidazione dei rankings — regole o bonus della
-    lega cambiati — le fa scadere in blocco.
-    """
     return _rankings_version(league_id)
 
 
 def invalidate_person_bonus_caches(person):
-    """Invalida le cache bonus derivate dai claim di una persona.
-
-    - ``fm_potential:<league>:<ver>:<person>``: bonus "se morisse oggi" del
-      modal, per tutte le leghe in cui la persona è in una rosa attiva;
-    - ``wd_bonus:<qid>:<prop>:<value>``: esito (7 giorni) dei check
-      gerarchici SPARQL, per tutti i bonus Wikidata attivi.
-
-    Da chiamare ogni volta che ``claims_cache`` viene rinfrescato (diff/apply
-    della pagina admin giocatori, ``check_deaths``): un esito negativo
-    cachato prima del refresh non deve sopravvivere ai claim nuovi.
-    """
     league_pks = League.objects.filter(
         teams__members__person=person,
         teams__members__replaced_by__isnull=True,
@@ -142,13 +122,6 @@ def invalidate_person_bonus_caches(person):
 
 
 def _confirmed_deaths_for_league(league):
-    """Decessi confermati che riguardano la lega: nel periodo di gioco e di
-    persone presenti in almeno una rosa della lega. Il database dei decessi è
-    condiviso tra leghe, ma un morto che nessuno gioca qui non conta — nemmeno
-    come "primo/ultimo morto" della lega (vedi `_first_last_death_pks`)."""
-    # `claims_cache` è un blob JSON enorme (media ~100 KB/persona) che lo
-    # scoring non usa mai: deferirlo evita la deserializzazione JSON che
-    # domina il costo CPU del calcolo classifiche.
     qs = (
         Death.objects.filter(is_confirmed=True)
         .select_related('person')
@@ -160,24 +133,23 @@ def _confirmed_deaths_for_league(league):
             death_date__gte=league.start_date,
             death_date__lte=league.end_date,
             person__team_members__team__league=league,
-        ).distinct()
+        ).distinct().prefetch_related(
+            Prefetch(
+                'league_bonus_decisions',
+                queryset=LeagueDeathBonus.objects.filter(league=league).select_related('bonus_type'),
+                to_attr='_league_bonus_awards_for_scoring',
+            )
+        )
     return qs
 
 
 def _find_member(team, person_id):
-    """Cerca un TeamMember per `person_id` usando la cache prefetchata se disponibile."""
     if 'members' in getattr(team, '_prefetched_objects_cache', {}):
         return next((m for m in team.members.all() if m.person_id == person_id), None)
     return team.members.filter(person_id=person_id).first()
 
 
 def _first_last_death_pks(league, deaths):
-    """pk del primo e dell'ultimo decesso confermato DELLA LEGA.
-
-    `deaths` deve essere già filtrato sul periodo della lega e ordinato per
-    death_date (è l'output di `_confirmed_deaths_for_league`). L'ultimo morto
-    è definitivo solo a lega conclusa: prima restituisce None.
-    """
     if league is None:
         return None, None
     deaths = list(deaths)
@@ -188,24 +160,35 @@ def _first_last_death_pks(league, deaths):
     return first_pk, last_pk
 
 
-# ---------- API pubblica ----------
-
 def league_first_last_death_pks(league):
-    """pk del primo e dell'ultimo decesso confermato della lega (vedi _first_last_death_pks)."""
     return _first_last_death_pks(league, _confirmed_deaths_for_league(league))
 
 
+def _member_was_eligible_on_death(member, death, league):
+    if league is None or not member.added_at:
+        return True
+    is_replacement = TeamMember.objects.filter(replaced_by_id=member.pk).exists()
+    if not is_replacement:
+        return True
+    picked_on = timezone.localtime(member.added_at).date()
+    return picked_on <= death.death_date
+
 
 def _points_for_member_death(member, team, death, league, lb_map, first_pk=None, last_pk=None):
-    """Calcola i punti per un singolo (member, death) con la mappa bonus precaricata.
+    if not _member_was_eligible_on_death(member, death, league):
+        return 0
 
-    `first_pk`/`last_pk` identificano il primo e l'ultimo decesso della lega
-    (vedi `_first_last_death_pks`): i relativi bonus sono per-lega e non
-    dipendono da righe DeathBonus condivise tra leghe.
-    """
-    raw = _base_points(league) + sum(
-        _bonus_points_in_league(b, league, lb_map) for b in death.bonuses.all()
-    )
+    raw = _base_points(league)
+    if league is None:
+        raw += sum(_bonus_points_in_league(b, None) for b in death.bonuses.all())
+    else:
+        for bt_id, bt in _effective_bonus_types(death, league).items():
+            if bt.detection_method in (BonusType.DETECTION_FIRST_DEATH, BonusType.DETECTION_LAST_DEATH):
+                continue
+            lb = lb_map.get(bt_id)
+            if lb is not None:
+                raw += lb.compute_points(age=death.death_age)
+
     for lb in lb_map.values():
         dm = lb.bonus_type.detection_method
         if dm == BonusType.DETECTION_ORIGINAL and member.is_original:
@@ -224,12 +207,6 @@ def _points_for_member_death(member, team, death, league, lb_map, first_pk=None,
 
 
 def compute_team_points_for_death(team, death):
-    """Punti che `team` guadagna da `death`, o 0 se il decesso non conta per
-    questa squadra: persona non in rosa, decesso non confermato, o fuori dalla
-    finestra `start_date`/`end_date` della lega (stesso filtro applicato da
-    `_confirmed_deaths_for_league` a classifiche e dettaglio squadra — senza
-    questa guardia la pagina decesso mostrerebbe punti che il punteggio reale
-    non assegna)."""
     if not death.is_confirmed:
         return 0
     league = _league_of(team)
@@ -246,34 +223,24 @@ def compute_team_points_for_death(team, death):
 
 
 def _bonus_lines_for_death(member, death, league, lb_map, first_pk, last_pk):
-    """Righe {name, points} dei bonus grezzi (pre-moltiplicatore) applicati a
-    (member, death) in questa lega: sia i `DeathBonus` persistiti attivi nella
-    lega, sia i bonus dinamici (originale/primo/ultimo morto) che non hanno una
-    riga DeathBonus propria. Pensata per il breakdown mostrato in team_detail:
-    senza queste righe i punti "in più" rispetto alla base risultano
-    ingiustificati in GUI (es. bonus originalità) o il bonus condiviso tra più
-    leghe (es. Covid-19) sembra assente pur contando."""
     lines = []
-    for b in death.bonuses.all():
-        if b.bonus_type.detection_method in (BonusType.DETECTION_FIRST_DEATH, BonusType.DETECTION_LAST_DEATH):
-            # Righe DeathBonus legacy: ignorate dallo scoring (vedi
-            # _bonus_points_in_league), i bonus dinamici sotto le sostituiscono.
-            continue
-        if league is None:
-            # Fallback legacy (squadra senza lega): stessa priorità di
-            # _bonus_points_in_league quando lb_map è vuota.
+    if league is None:
+        for b in death.bonuses.all():
+            if b.bonus_type.detection_method in (BonusType.DETECTION_FIRST_DEATH, BonusType.DETECTION_LAST_DEATH):
+                continue
             bt = b.bonus_type
             pts = bt.compute_points(age=death.death_age) if bt.points_formula else (
                 b.points_awarded if b.points_awarded is not None else bt.points
             )
             lines.append({'name': bt.name, 'points': pts})
-            continue
-        lb = lb_map.get(b.bonus_type_id)
-        if lb is None:
-            # Bonus non configurato in questa lega: non conta e non si mostra
-            # (coerente con _bonus_points_in_league).
-            continue
-        lines.append({'name': b.bonus_type.name, 'points': lb.compute_points(age=death.death_age)})
+    else:
+        for bt_id, bt in _effective_bonus_types(death, league).items():
+            if bt.detection_method in (BonusType.DETECTION_FIRST_DEATH, BonusType.DETECTION_LAST_DEATH):
+                continue
+            lb = lb_map.get(bt_id)
+            if lb is not None:
+                lines.append({'name': bt.name, 'points': lb.compute_points(age=death.death_age)})
+
     for lb in lb_map.values():
         dm = lb.bonus_type.detection_method
         if dm == BonusType.DETECTION_ORIGINAL and member.is_original:
@@ -338,8 +305,6 @@ def compute_team_total_score(team):
 
 
 def _compute_league_rankings_uncached(league):
-    # Come sopra: defer di `claims_cache` sulle persone in rosa (vedi
-    # `_confirmed_deaths_for_league`).
     teams = league.teams.select_related('manager').prefetch_related(
         Prefetch(
             'members',
@@ -381,18 +346,6 @@ def _compute_league_rankings_uncached(league):
 
 def simulate_team_points_for_person(team, person, death_age, death_month=None,
                                     extra_bonus_points=0):
-    """Simula i punti che `team` farebbe se `person` morisse oggi con l'età data.
-
-    Pensata per il simulatore "what-if". Non persiste nulla. Se `person` non
-    è in squadra ritorna 0.
-
-    death_month (1-12) abilita il moltiplicatore jolly se coincide col mese
-    jolly del team. Se None, non considera il jolly.
-
-    extra_bonus_points somma al punteggio grezzo (prima dei moltiplicatori)
-    i bonus automatici della lega rilevati dal chiamante, ad es. con
-    `_potential_league_bonuses` (Wikidata/età, punti già calcolati per lega).
-    """
     league = _league_of(team)
     member = team.members.filter(person=person, replaced_by__isnull=True).first()
     if member is None:
@@ -413,11 +366,6 @@ def simulate_team_points_for_person(team, person, death_age, death_month=None,
 
 
 def compute_league_rankings(league, use_cache=True):
-    """Classifica completa di una lega.
-
-    Cachata per `_RANKINGS_TTL` secondi e invalidata via versioning quando
-    cambiano Death/DeathBonus/LeagueBonus/TeamMember/Team (vedi signals).
-    """
     if not use_cache:
         return _compute_league_rankings_uncached(league)
     version = _rankings_version(league.id)
