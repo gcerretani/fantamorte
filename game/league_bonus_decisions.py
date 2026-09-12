@@ -43,7 +43,8 @@ class LeagueDeathBonus(models.Model):
             ),
         ]
         indexes = [
-            models.Index(fields=['league', 'death'], name='game_ldb_league_death_idx'),
+            # (league, death) is already a leftmost prefix of the unique
+            # constraint above; keep only the complementary access path.
             models.Index(fields=['league', 'bonus_type'], name='game_ldb_league_bonus_idx'),
         ]
         verbose_name = 'Assegnazione bonus decesso di lega'
@@ -57,6 +58,13 @@ class LeagueDeathBonus(models.Model):
                 raise ValidationError(
                     {'bonus_type': 'Un bonus personalizzato può essere assegnato solo nella propria lega.'}
                 )
+
+    def save(self, *args, **kwargs):
+        # Model.save() normally does not invoke clean()/full_clean(). Enforce
+        # this cross-table scope invariant on every ordinary ORM write so that
+        # scripts and future write paths cannot bypass the league boundary.
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return f'{self.bonus_type.name} per {self.death.person.name_it} [{self.league.name}]'
