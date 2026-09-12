@@ -1,6 +1,7 @@
 """View hardening that keeps security policy separate from the legacy UI code."""
 import csv
 import json
+import re
 
 from django.contrib import messages
 from django.db import transaction
@@ -30,6 +31,19 @@ def _league_death(league, death_id):
         death_date__lte=league.end_date,
         person__team_members__team__league=league,
     ).distinct().select_related('person').first()
+
+
+def _prefetch_roster_person(request):
+    """Resolve/refresh a roster candidate before acquiring a DB row lock.
+
+    The wrapped legacy views call ``_get_or_refresh_person`` again, but after a
+    successful refresh that second call is a fresh-cache hit and therefore does
+    not perform network I/O while the team row is locked.
+    """
+    wikidata_id = request.POST.get('wikidata_id', '').strip()
+    if not wikidata_id or not re.fullmatch(r'Q\d+', wikidata_id):
+        return None, None
+    return views._get_or_refresh_person(wikidata_id)
 
 
 class LeagueDeathsView(views.LeagueDeathsView):
@@ -102,20 +116,24 @@ class LeagueDeathsView(views.LeagueDeathsView):
                 messages.info(request, f'Il bonus "{bt.name}" è già registrato globalmente sul decesso.')
                 return redirect('league_deaths', slug=slug)
 
-            award, created = LeagueDeathBonus.objects.get_or_create(
-                league=league,
-                death=death,
-                bonus_type=bt,
-                defaults={
-                    'created_by': request.user,
-                    'updated_by': request.user,
-                    'reason': 'Assegnazione manuale dalla cronologia decessi della lega.',
-                },
-            )
-            if not created:
+            award = LeagueDeathBonus.objects.filter(
+                league=league, death=death, bonus_type=bt,
+            ).first()
+            if award is None:
+                award = LeagueDeathBonus(
+                    league=league,
+                    death=death,
+                    bonus_type=bt,
+                    created_by=request.user,
+                    updated_by=request.user,
+                    reason='Assegnazione manuale dalla cronologia decessi della lega.',
+                )
+            else:
                 award.updated_by = request.user
                 award.reason = 'Assegnazione manuale confermata dalla cronologia decessi della lega.'
-                award.save(update_fields=['updated_by', 'reason', 'updated_at'])
+            # save() enforces full_clean(), so this path and any future ORM
+            # writer share the same model-level league boundary.
+            award.save()
             messages.success(request, f'Bonus "{bt.name}" assegnato solo in {league.name}.')
             return redirect('league_deaths', slug=slug)
 
@@ -164,8 +182,15 @@ class LeagueDeathsView(views.LeagueDeathsView):
 class AddPersonView(views.AddPersonView):
     def post(self, request, pk):
         team = get_object_or_404(Team, pk=pk)
-        if team.manager_id != request.user.pk:
+        # The base view's _can_edit_team() intentionally permits only the team
+        # manager. Avoid unnecessary network work for requests that cannot write.
+        if team.manager_id != request.user.pk or not views._can_edit_team(team, request.user):
             return super().post(request, pk)
+
+        _, err = _prefetch_roster_person(request)
+        if err:
+            return JsonResponse({'error': err}, status=500)
+
         with transaction.atomic():
             Team.objects.select_for_update().get(pk=pk)
             return super().post(request, pk)
@@ -174,8 +199,17 @@ class AddPersonView(views.AddPersonView):
 class SubstituteMemberView(views.SubstituteMemberView):
     def post(self, request, pk, member_pk):
         team = get_object_or_404(Team, pk=pk)
-        if team.manager_id != request.user.pk:
+        # Unlike composition, the base substitution flow explicitly permits
+        # staff. Every authorized writer must therefore pass through the same
+        # team row lock to close the TOCTOU window.
+        if team.manager_id != request.user.pk and not request.user.is_staff:
             return super().post(request, pk, member_pk)
+
+        _, err = _prefetch_roster_person(request)
+        if err:
+            messages.error(request, err)
+            return redirect('substitute_member', pk=pk, member_pk=member_pk)
+
         with transaction.atomic():
             Team.objects.select_for_update().get(pk=pk)
             return super().post(request, pk, member_pk)
