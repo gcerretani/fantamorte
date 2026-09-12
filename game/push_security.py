@@ -4,10 +4,45 @@ import socket
 from urllib.parse import urlsplit
 
 import requests
+from django.conf import settings
 
 
 class UnsafePushEndpoint(ValueError):
     pass
+
+
+# Browser PushSubscription endpoints are issued by push services, not by the
+# application user.  Restricting outbound delivery to known provider domains
+# makes the hostname itself the SSRF boundary and removes the DNS-rebinding
+# TOCTOU between validation and requests/urllib3 resolving the destination.
+# Operators can extend (never implicitly weaken) this list with
+# WEBPUSH_ALLOWED_HOSTS in Django settings. A leading dot means "this domain
+# and its subdomains".
+_DEFAULT_ALLOWED_PUSH_HOSTS = (
+    'fcm.googleapis.com',
+    'updates.push.services.mozilla.com',
+    '.push.apple.com',
+)
+
+
+def _allowed_host_patterns():
+    configured = getattr(settings, 'WEBPUSH_ALLOWED_HOSTS', None)
+    if configured is None:
+        return _DEFAULT_ALLOWED_PUSH_HOSTS
+    if isinstance(configured, str):
+        configured = [h.strip() for h in configured.split(',') if h.strip()]
+    return tuple(str(h).strip().lower() for h in configured if str(h).strip())
+
+
+def _host_is_allowed(host):
+    for pattern in _allowed_host_patterns():
+        if pattern.startswith('.'):
+            root = pattern[1:]
+            if host == root or host.endswith(pattern):
+                return True
+        elif host == pattern:
+            return True
+    return False
 
 
 def _validate_ip(value):
@@ -17,12 +52,12 @@ def _validate_ip(value):
 
 
 def validate_push_endpoint(endpoint, *, resolve=False):
-    """Validate a Web Push endpoint without restricting providers.
+    """Validate a Web Push endpoint against trusted push-service domains.
 
-    Persistence performs cheap structural/literal-IP validation. Before every
-    outbound request ``resolve=True`` also verifies that every current DNS
-    answer is globally routable. Redirects are disabled by the transport, so a
-    public endpoint cannot bounce the request into the local network.
+    The provider allow-list is the primary SSRF boundary. DNS/IP checks are
+    defense in depth for literal addresses and provider resolution; requests
+    may resolve again later, but an attacker cannot supply an arbitrary DNS
+    zone because arbitrary hostnames are rejected before persistence/delivery.
     """
     if not isinstance(endpoint, str) or not endpoint or len(endpoint) > 4096:
         raise UnsafePushEndpoint('Endpoint push non valido')
@@ -39,8 +74,8 @@ def validate_push_endpoint(endpoint, *, resolve=False):
         raise UnsafePushEndpoint('Porta endpoint push non ammessa')
 
     host = parsed.hostname.rstrip('.').lower()
-    if host == 'localhost' or host.endswith('.localhost'):
-        raise UnsafePushEndpoint('Endpoint push locale non ammesso')
+    if not _host_is_allowed(host):
+        raise UnsafePushEndpoint('Provider push non ammesso')
 
     try:
         _validate_ip(host)
