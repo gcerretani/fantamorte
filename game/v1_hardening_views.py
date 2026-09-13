@@ -6,11 +6,11 @@ import re
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponseForbidden, JsonResponse
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.views import View
 
 from . import hardened_views, views
-from .models import League, LeagueMembership, Team
+from .models import League, LeagueMembership, Notification, Team
 
 
 def _claim_has_qid(claims, property_id, qid):
@@ -205,3 +205,22 @@ class SubstituteMemberView(hardened_views.SubstituteMemberView):
             messages.error(request, eligibility_error)
             return redirect('substitute_member', pk=pk, member_pk=member_pk)
         return super().post(request, pk, member_pk)
+
+
+class NotificationListView(views.NotificationListView):
+    """Mark read only the notifications that are actually rendered."""
+
+    def get(self, request):
+        notifications = list(Notification.objects.filter(user=request.user)[:100])
+        unread_ids = [notification.pk for notification in notifications if not notification.is_read]
+        unread_before = len(unread_ids)
+        if unread_ids:
+            Notification.objects.filter(
+                user=request.user,
+                pk__in=unread_ids,
+                is_read=False,
+            ).update(is_read=True)
+        return render(request, self.template_name, {
+            'notifications': notifications,
+            'unread_before': unread_before,
+        })
