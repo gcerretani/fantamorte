@@ -1,11 +1,9 @@
-"""Emette le notifiche di ciclo di vita della lega (inizio / fine) nel feed
-in-app dei membri.
+"""Emette le notifiche di ciclo di vita della lega (inizio / fine).
 
-Pensato per girare dal cron insieme a `check_deaths`. Idempotente: usa
-l'esistenza della riga `Notification (user, league, kind)` come marker, così la
-stessa transizione non viene notificata due volte. Non invia push/email di suo:
-crea solo le righe del feed (i canali si applicano solo se l'utente li ha
-attivati per la categoria "Inizio/fine lega e blocco squadra", default off).
+Pensato per girare dal cron insieme a ``check_deaths``. Idempotente: la riga
+``Notification (user, league, kind)`` e' il marker. Alla prima creazione del
+feed vengono tentati anche Push ed Email secondo le preferenze per-evento;
+run successivi non duplicano nessun canale.
 """
 from django.core.management.base import BaseCommand
 from django.utils import timezone
@@ -15,7 +13,7 @@ from game.notifications import emit_league_lifecycle_notifications
 
 
 class Command(BaseCommand):
-    help = 'Crea le notifiche feed di inizio/fine lega per i membri.'
+    help = 'Crea e consegna le notifiche di inizio/fine lega per i membri.'
 
     def add_arguments(self, parser):
         parser.add_argument('--dry-run', action='store_true',
