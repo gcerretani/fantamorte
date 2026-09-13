@@ -119,17 +119,22 @@ class DetectBonusesActionRecoveredTest(AdminActionsBaseTestCase):
         instance = mock_client_class.return_value
         instance.detect_bonuses.return_value = [self.bonus_wikidata]
         instance.detect_age_bonus.side_effect = (
-            lambda age, bt: bt.detection_method == BonusType.DETECTION_AGE
+            lambda age, bt: bt.pk == self.bonus_age.pk
         )
 
         self.admin.detect_bonuses_action(self.request, Death.objects.all())
+        first_ids = set(self.death.bonuses.values_list('pk', flat=True))
         self.admin.detect_bonuses_action(self.request, Death.objects.all())
+        second_ids = set(self.death.bonuses.values_list('pk', flat=True))
 
         awarded = {db.bonus_type_id: db for db in self.death.bonuses.all()}
         self.assertIn(self.bonus_wikidata.pk, awarded)
         self.assertIn(self.bonus_age.pk, awarded)
-        self.assertEqual(len(awarded), 2)
-        self.assertTrue(all(db.is_auto_detected for db in awarded.values()))
+        # Idempotency: the second run must not create any additional rows,
+        # regardless of other seeded bonus types present in the current app.
+        self.assertEqual(first_ids, second_ids)
+        self.assertTrue(awarded[self.bonus_wikidata.pk].is_auto_detected)
+        self.assertTrue(awarded[self.bonus_age.pk].is_auto_detected)
 
 
 class FrozenAdminRefreshRecoveredTest(AdminActionsBaseTestCase):
