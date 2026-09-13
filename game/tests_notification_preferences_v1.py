@@ -7,6 +7,8 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
+from fantamorte_project.version import __version__
+
 from . import notifications as notif
 from .models import League, LeagueMembership, Notification, PushSubscription, Team, TeamMember, WikipediaPerson
 
@@ -73,7 +75,7 @@ class PerEventPreferenceTest(TestCase):
         self.client.force_login(self.user)
         response = self.client.get(reverse('profile'))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'v1.0.0-dev')
+        self.assertContains(response, f'v{__version__}')
 
 
 @override_settings(
