@@ -56,6 +56,91 @@ def send_push(subscription: PushSubscription, payload: dict) -> bool:
         return False
 
 
+def _send_user_event_push(user, kind, payload):
+    """Consegna un evento feed a tutti i device dell'utente, rispettando l'opt-out."""
+    from .notifications import wants
+
+    if not wants(user, kind, 'push'):
+        return 0
+    sent = 0
+    for sub in PushSubscription.objects.filter(user=user):
+        if send_push(sub, payload):
+            sent += 1
+    return sent
+
+
+def send_preseason_death_push(team, person) -> int:
+    """Push immediata per un morto già presente in rosa prima dello start."""
+    league = team.league
+    body_parts = [f'{person.name_it} è deceduto/a prima dell\'inizio della lega.']
+    if league and league.has_started():
+        days = league.substitution_deadline_days or 0
+        if days:
+            body_parts.append(f'Hai {days} giorn{"o" if days == 1 else "i"} per sostituirlo/a.')
+        else:
+            body_parts.append('Puoi sostituirlo/a dalla pagina della squadra.')
+    elif league and league.is_registration_open():
+        body_parts.append('Toglilo/a dalla rosa e scegli un altro personaggio.')
+    else:
+        body_parts.append('Potrai sostituirlo/a dall\'inizio della lega.')
+    return _send_user_event_push(team.manager, 'preseason_removed', {
+        'type': 'preseason_removed',
+        'title': f'☠ {person.name_it} è deceduto/a prima dell\'inizio',
+        'body': ' '.join(body_parts),
+        'url': reverse('team_edit', args=[team.pk]),
+        'tag': f'preseason-death-{team.pk}-{person.pk}',
+        'urgent': True,
+    })
+
+
+def send_league_joined_push(membership) -> int:
+    """Push all'owner quando un nuovo utente entra nella lega."""
+    league = membership.league
+    joined = membership.user
+    owner = league.owner
+    if owner is None or owner.pk == joined.pk:
+        return 0
+    return _send_user_event_push(owner, 'league_joined', {
+        'type': 'league_joined',
+        'title': f'{joined.username} si è iscritto a {league.name}',
+        'body': '',
+        'url': reverse('league_detail', args=[league.slug]),
+        'tag': f'league-joined-{membership.pk}',
+    })
+
+
+def send_team_locked_push(team) -> int:
+    """Push al manager quando la rosa viene bloccata."""
+    return _send_user_event_push(team.manager, 'team_locked', {
+        'type': 'team_locked',
+        'title': 'La tua squadra è stata bloccata',
+        'body': f'La rosa di "{team.name}" non è più modificabile.',
+        'url': reverse('team_detail', args=[team.pk]),
+        'tag': f'team-locked-{team.pk}',
+    })
+
+
+def send_league_lifecycle_push(user, league, kind) -> int:
+    """Push per inizio/fine lega, speculare alla riga persistita nel feed."""
+    from .models import Notification
+
+    if kind == Notification.KIND_LEAGUE_STARTED:
+        title = f'La lega {league.name} è iniziata'
+        body = 'Le squadre sono definitive: da ora i decessi contano.'
+    elif kind == Notification.KIND_LEAGUE_ENDED:
+        title = f'La lega {league.name} si è conclusa'
+        body = 'Dai un\'occhiata alla classifica finale.'
+    else:
+        return 0
+    return _send_user_event_push(user, kind, {
+        'type': kind,
+        'title': title,
+        'body': body,
+        'url': reverse('league_detail', args=[league.slug]),
+        'tag': f'{kind}-{league.pk}',
+    })
+
+
 def broadcast_death_notification(death: Death) -> int:
     from .notifications import (
         affected_manager_leagues, death_member_user_ids, leagues_for_death, wants,
