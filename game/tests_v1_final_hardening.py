@@ -156,3 +156,58 @@ class CaptainRuleTests(TestCase):
         self.m2.refresh_from_db()
         self.assertTrue(self.m1.is_captain)
         self.assertTrue(self.m2.is_captain)
+
+
+class WikidataRosterEligibilityTests(TestCase):
+    def setUp(self):
+        today = timezone.localdate()
+        self.user = User.objects.create_user('wikidata-manager', password='pw')
+        self.league = League.objects.create(
+            name='Eligibility league', slug='eligibility-league', owner=self.user,
+            start_date=today + timedelta(days=2), end_date=today + timedelta(days=30),
+            registration_opens=today - timedelta(days=2), registration_closes=today + timedelta(days=1),
+            max_total_age=200,
+        )
+        LeagueMembership.objects.create(league=self.league, user=self.user, role=LeagueMembership.ROLE_OWNER)
+        self.team = Team.objects.create(league=self.league, manager=self.user, name='W')
+        self.client.force_login(self.user)
+
+    @staticmethod
+    def _claims(instance_of):
+        return {'P31': [{'mainsnak': {'datavalue': {'value': {'id': instance_of}}}}]}
+
+    def _cached_person(self, qid, *, instance_of='Q5', birth_year=None):
+        return WikipediaPerson.objects.create(
+            wikidata_id=qid,
+            name_it=qid,
+            birth_year=birth_year,
+            claims_cache=self._claims(instance_of),
+            last_checked=timezone.now(),
+        )
+
+    def test_direct_non_human_qid_is_rejected(self):
+        person = self._cached_person('Q910001', instance_of='Q11424', birth_year=1980)
+        response = self.client.post(reverse('add_person', args=[self.team.pk]), {
+            'wikidata_id': person.wikidata_id,
+            'is_captain': '0',
+        })
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(TeamMember.objects.filter(team=self.team, person=person).exists())
+
+    def test_missing_birth_data_is_rejected_when_age_limit_is_enabled(self):
+        person = self._cached_person('Q910002')
+        response = self.client.post(reverse('add_person', args=[self.team.pk]), {
+            'wikidata_id': person.wikidata_id,
+            'is_captain': '0',
+        })
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(TeamMember.objects.filter(team=self.team, person=person).exists())
+
+    def test_human_with_birth_data_can_be_added(self):
+        person = self._cached_person('Q910003', birth_year=2000)
+        response = self.client.post(reverse('add_person', args=[self.team.pk]), {
+            'wikidata_id': person.wikidata_id,
+            'is_captain': '0',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(TeamMember.objects.filter(team=self.team, person=person).exists())

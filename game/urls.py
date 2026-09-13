@@ -2,13 +2,11 @@ from django.urls import path
 from . import views
 from . import v1_hardening_views
 from .hardened_views import (
-    AddPersonView as HardenedAddPersonView,
     LeagueDeathsCSVView as HardenedLeagueDeathsCSVView,
     LeagueDeathsView as HardenedLeagueDeathsView,
     LeagueRankingsCSVView as HardenedLeagueRankingsCSVView,
     PushRotateView as HardenedPushRotateView,
     PushSubscribeView as HardenedPushSubscribeView,
-    SubstituteMemberView as HardenedSubstituteMemberView,
 )
 
 urlpatterns = [
@@ -40,9 +38,9 @@ urlpatterns = [
     path('squadra/<int:pk>/', views.TeamDetailView.as_view(), name='team_detail'),
     path('squadra/<int:pk>/modifica/', v1_hardening_views.TeamEditView.as_view(), name='team_edit'),
     path('squadra/<int:pk>/elimina/', views.TeamDeleteView.as_view(), name='team_delete'),
-    path('squadra/<int:pk>/aggiungi/', HardenedAddPersonView.as_view(), name='add_person'),
+    path('squadra/<int:pk>/aggiungi/', v1_hardening_views.AddPersonView.as_view(), name='add_person'),
     path('squadra/<int:pk>/rimuovi/<int:member_pk>/', views.RemovePersonView.as_view(), name='remove_person'),
-    path('squadra/<int:pk>/sostituisci/<int:member_pk>/', HardenedSubstituteMemberView.as_view(), name='substitute_member'),
+    path('squadra/<int:pk>/sostituisci/<int:member_pk>/', v1_hardening_views.SubstituteMemberView.as_view(), name='substitute_member'),
     path('squadra/<int:pk>/what-if/', views.TeamWhatIfView.as_view(), name='team_what_if'),
     path('persona/<int:pk>/', views.PersonDetailView.as_view(), name='person_detail'),
     path('morte/<int:pk>/', views.DeathDetailView.as_view(), name='death_detail'),
