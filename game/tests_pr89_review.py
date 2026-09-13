@@ -17,6 +17,16 @@ from .tests_views import ViewsBaseTestCase
 User = get_user_model()
 
 
+def human_claims():
+    return {
+        'P31': [{
+            'mainsnak': {
+                'datavalue': {'value': {'id': 'Q5'}},
+            },
+        }],
+    }
+
+
 class PushEndpointBoundaryTest(TestCase):
     def test_arbitrary_public_hostname_is_rejected_before_dns(self):
         with patch('game.push_security.socket.getaddrinfo') as resolver:
@@ -112,7 +122,7 @@ class RosterLockReviewTest(ViewsBaseTestCase):
         member = self._prepare_dead_member()
         candidate = WikipediaPerson.objects.create(
             wikidata_id='Q990102', name_it='Fresh candidate',
-            is_dead=False, last_checked=timezone.now(),
+            is_dead=False, last_checked=timezone.now(), claims_cache=human_claims(),
         )
         User.objects.create_user(
             'staff-review', password='x', is_staff=True,
@@ -145,7 +155,7 @@ class RosterLockReviewTest(ViewsBaseTestCase):
             'birth_date': None, 'birth_year': None,
             'death_date': None, 'death_year': None,
             'image_url': '', 'occupation': '', 'nationality': '',
-            'wikipedia_url_it': '', 'claims_cache': {},
+            'wikipedia_url_it': '', 'claims_cache': human_claims(),
         }
         events = []
 
