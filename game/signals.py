@@ -36,7 +36,7 @@ def _track_death_confirmation_state(sender, instance, **kwargs):
 
 @receiver(post_save, sender=Death)
 def notify_on_death_confirmed(sender, instance, created, **kwargs):
-    """Quando una Death passa a is_confirmed=True, invia push e email a chi ha optato."""
+    """Quando una Death passa a is_confirmed=True, invia feed/push/email."""
     was_confirmed = getattr(instance, '_was_confirmed', False)
     if not (instance.is_confirmed and not was_confirmed):
         return
@@ -49,15 +49,24 @@ def notify_on_death_confirmed(sender, instance, created, **kwargs):
         logger.exception('Errore creazione feed per Death %s', instance.pk)
 
     # Decesso pre-stagione: il membro resta in rosa (il posto è recuperabile
-    # togliendolo in composizione o sostituendolo a lega avviata), il manager
-    # viene avvisato. Le morti in stagione seguono il flusso di sostituzione.
+    # togliendolo in composizione o sostituendolo a lega avviata). Feed e push
+    # sono entrambi immediati per il manager interessato.
     try:
         from .notifications import notify_preseason_dead_members
-        notify_preseason_dead_members(instance)
+        from .push import send_preseason_death_push
+        members = TeamMember.objects.filter(
+            person=instance.person, replaced_by=None,
+            team__league__start_date__gt=instance.death_date,
+        ).select_related('team', 'team__manager', 'team__league')
+        for member in members:
+            notify_preseason_dead_members(instance)
+            break
+        for member in members:
+            send_preseason_death_push(member.team, instance.person)
     except Exception:
         logger.exception('Errore notifica decessi pre-stagione per Death %s', instance.pk)
 
-    # Push best-effort: gli errori non devono bloccare il salvataggio.
+    # Push decesso nel periodo di gioco: best-effort, errori non bloccanti.
     try:
         from .push import broadcast_death_notification
         broadcast_death_notification(instance)
@@ -74,12 +83,15 @@ def notify_on_death_confirmed(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender=LeagueMembership)
 def notify_on_league_joined(sender, instance, created, **kwargs):
-    """Nuovo iscritto a una lega → notifica l'owner (feed in-app)."""
+    """Nuovo iscritto a una lega → feed + push all'owner."""
     if not created:
         return
     try:
         from .notifications import notify_league_joined
-        notify_league_joined(instance)
+        notification = notify_league_joined(instance)
+        if notification is not None:
+            from .push import send_league_joined_push
+            send_league_joined_push(instance)
     except Exception:
         logger.exception('Errore notifica iscrizione lega %s', instance.pk)
 
@@ -99,13 +111,15 @@ def _track_team_lock_state(sender, instance, **kwargs):
 
 @receiver(post_save, sender=Team)
 def notify_on_team_locked(sender, instance, created, **kwargs):
-    """Quando una squadra passa a is_locked=True → notifica il manager (feed)."""
+    """Quando una squadra passa a is_locked=True → feed + push al manager."""
     was_locked = getattr(instance, '_was_locked', False)
     if not (instance.is_locked and not was_locked):
         return
     try:
         from .notifications import notify_team_locked
         notify_team_locked(instance)
+        from .push import send_team_locked_push
+        send_team_locked_push(instance)
     except Exception:
         logger.exception('Errore notifica blocco squadra %s', instance.pk)
 
