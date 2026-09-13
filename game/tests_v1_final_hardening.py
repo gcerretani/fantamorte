@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone as dt_timezone
 from unittest.mock import patch
 
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -62,7 +63,6 @@ class LeaguePhasePolicyTests(TestCase):
         )
 
     def test_phase_uses_rome_calendar_date_not_utc_date(self):
-        # 22:30 UTC on 13 September is already 00:30 on 14 September in Rome.
         instant = datetime(2026, 9, 13, 22, 30, tzinfo=dt_timezone.utc)
         league = self._league(datetime(2026, 9, 14).date())
         with patch('django.utils.timezone.now', return_value=instant):
@@ -71,8 +71,66 @@ class LeaguePhasePolicyTests(TestCase):
             self.assertFalse(league.is_finished())
 
     def test_end_date_remains_active_until_next_local_day_across_dst(self):
-        # After the autumn DST switch Rome is UTC+1: 23:30 UTC is 00:30 next day.
         instant = datetime(2026, 10, 25, 23, 30, tzinfo=dt_timezone.utc)
         league = self._league(datetime(2026, 10, 25).date())
         with patch('django.utils.timezone.now', return_value=instant):
             self.assertTrue(league.is_finished())
+
+
+class AuthorizationAndInputHardeningTests(TestCase):
+    def setUp(self):
+        today = timezone.localdate()
+        self.owner = User.objects.create_user('auth-owner', password='pw')
+        self.admin = User.objects.create_user('auth-admin', password='pw')
+        self.other_admin = User.objects.create_user('auth-admin-2', password='pw')
+        self.member = User.objects.create_user('auth-member', password='pw')
+        self.league = League.objects.create(
+            name='Auth league', slug='auth-league', owner=self.owner,
+            start_date=today + timedelta(days=2), end_date=today + timedelta(days=30),
+            registration_opens=today - timedelta(days=2), registration_closes=today + timedelta(days=1),
+        )
+        LeagueMembership.objects.create(league=self.league, user=self.owner, role=LeagueMembership.ROLE_OWNER)
+        self.admin_membership = LeagueMembership.objects.create(
+            league=self.league, user=self.admin, role=LeagueMembership.ROLE_ADMIN,
+        )
+        self.other_admin_membership = LeagueMembership.objects.create(
+            league=self.league, user=self.other_admin, role=LeagueMembership.ROLE_ADMIN,
+        )
+        self.member_membership = LeagueMembership.objects.create(
+            league=self.league, user=self.member, role=LeagueMembership.ROLE_MEMBER,
+        )
+
+    def test_league_admin_cannot_remove_peer_admin(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(reverse('league_admin', args=[self.league.slug]), {
+            'action': 'remove_member', 'membership_id': self.other_admin_membership.pk,
+        })
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(LeagueMembership.objects.filter(pk=self.other_admin_membership.pk).exists())
+
+    def test_owner_can_remove_admin(self):
+        self.client.force_login(self.owner)
+        response = self.client.post(reverse('league_admin', args=[self.league.slug]), {
+            'action': 'remove_member', 'membership_id': self.other_admin_membership.pk,
+        })
+        self.assertRedirects(response, reverse('league_admin', args=[self.league.slug]))
+        self.assertFalse(LeagueMembership.objects.filter(pk=self.other_admin_membership.pk).exists())
+
+    def test_profile_preferences_rejects_non_boolean_channel_value(self):
+        self.client.force_login(self.member)
+        response = self.client.post(
+            reverse('profile_preferences'),
+            data='{"prefs":{"death":{"push":"false"}}}',
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_push_unsubscribe_rejects_non_string_endpoint(self):
+        self.client.force_login(self.member)
+        response = self.client.post(
+            reverse('push_unsubscribe'), data='{"endpoint":123}', content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_social_login_requires_post(self):
+        self.assertFalse(settings.SOCIALACCOUNT_LOGIN_ON_GET)
