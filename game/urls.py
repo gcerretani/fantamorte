@@ -1,5 +1,6 @@
 from django.urls import path
 from . import views
+from . import v1_hardening_views
 from .hardened_views import (
     AddPersonView as HardenedAddPersonView,
     LeagueDeathsCSVView as HardenedLeagueDeathsCSVView,
@@ -16,7 +17,7 @@ urlpatterns = [
     path('leghe/nuova/', views.LeagueCreateView.as_view(), name='league_create'),
     path('leghe/<slug:slug>/', views.LeagueDetailView.as_view(), name='league_detail'),
     path('leghe/<slug:slug>/iscriviti/', views.LeagueJoinView.as_view(), name='league_join'),
-    path('leghe/<slug:slug>/abbandona/', views.LeagueLeaveView.as_view(), name='league_leave'),
+    path('leghe/<slug:slug>/abbandona/', v1_hardening_views.LeagueLeaveView.as_view(), name='league_leave'),
     path('leghe/<slug:slug>/elimina/', views.LeagueDeleteView.as_view(), name='league_delete'),
     path('leghe/<slug:slug>/admin/', views.LeagueAdminView.as_view(), name='league_admin'),
     path('leghe/<slug:slug>/admin/giocatori/', views.LeaguePlayersRefreshView.as_view(), name='league_players_refresh'),
