@@ -1,7 +1,8 @@
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -46,3 +47,32 @@ class LeagueLeaveHistoryTests(TestCase):
         self.client.post(reverse('league_leave', args=[league.slug]))
 
         self.assertFalse(Team.objects.filter(pk=team.pk).exists())
+
+
+@override_settings(TIME_ZONE='Europe/Rome', USE_TZ=True)
+class LeaguePhasePolicyTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user('phase-owner', password='pw')
+
+    def _league(self, day):
+        return League.objects.create(
+            name='Phase league', slug='phase-league', owner=self.owner,
+            start_date=day, end_date=day,
+            registration_opens=day, registration_closes=day,
+        )
+
+    def test_phase_uses_rome_calendar_date_not_utc_date(self):
+        # 22:30 UTC on 13 September is already 00:30 on 14 September in Rome.
+        instant = datetime(2026, 9, 13, 22, 30, tzinfo=dt_timezone.utc)
+        league = self._league(datetime(2026, 9, 14).date())
+        with patch('django.utils.timezone.now', return_value=instant):
+            self.assertTrue(league.has_started())
+            self.assertTrue(league.is_registration_open())
+            self.assertFalse(league.is_finished())
+
+    def test_end_date_remains_active_until_next_local_day_across_dst(self):
+        # After the autumn DST switch Rome is UTC+1: 23:30 UTC is 00:30 next day.
+        instant = datetime(2026, 10, 25, 23, 30, tzinfo=dt_timezone.utc)
+        league = self._league(datetime(2026, 10, 25).date())
+        with patch('django.utils.timezone.now', return_value=instant):
+            self.assertTrue(league.is_finished())

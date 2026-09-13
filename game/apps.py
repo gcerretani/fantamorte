@@ -12,3 +12,6 @@ class GameConfig(AppConfig):
         from . import signals  # noqa: F401
         from . import league_bonus_signals  # noqa: F401
         from . import league_bonus_admin  # noqa: F401
+        from . import phase_policy
+
+        phase_policy.install()
