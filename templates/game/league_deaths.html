@@ -23,10 +23,8 @@
 
 {% if is_admin and assignable_bonuses %}
   <p class="small text-body-secondary mb-2">
-    Come admin puoi assegnare a mano i bonus ai decessi (i punti mostrati sono quelli
-    effettivi di questa lega, override inclusi). Attenzione: i bonus <em>di sistema</em>
-    valgono in tutte le leghe che li hanno attivati; solo quelli
-    <span class="badge text-bg-info">personalizzato</span> contano esclusivamente qui.
+    Le assegnazioni manuali fatte da questa pagina valgono <strong>solo in {{ league.name }}</strong>.
+    I fatti globali rilevati dal sistema restano condivisi e possono essere corretti solo dal Django admin.
   </p>
 {% endif %}
 
@@ -71,13 +69,13 @@
               {% endif %}
               {% for item in event.bonus_items %}
                 {% if item.active %}
-                  <span class="badge text-bg-secondary">{{ item.bonus.bonus_type.name }} +{{ item.points }}
+                  <span class="badge text-bg-secondary">{{ item.bonus.bonus_type.name }} +{{ item.points }}{% if item.scope == 'local' %} <span aria-label="solo in questa lega">· locale</span>{% endif %}
                     {% if item.removable %}
                       <form method="post" class="d-inline" onsubmit="return confirm('Rimuovere il bonus «{{ item.bonus.bonus_type.name }}» da {{ event.death.person.name_it }}?');">
                         {% csrf_token %}
                         <input type="hidden" name="action" value="remove_bonus">
                         <input type="hidden" name="death_bonus_id" value="{{ item.bonus.pk }}">
-                        {# btn-close senza -white: si adatta al tema (i badge ora sono tinte chiare/scure). #}
+                        <input type="hidden" name="bonus_scope" value="{{ item.scope }}">
                         <button class="btn-close fm-badge-close" aria-label="Rimuovi bonus"></button>
                       </form>
                     {% endif %}

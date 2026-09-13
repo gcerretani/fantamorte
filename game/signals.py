@@ -1,5 +1,4 @@
-"""Signal handlers per profili utente, notifiche push sui decessi e
-invalidazione della cache della classifica di lega."""
+"""Signal handlers per profili, notifiche e invalidazione cache classifiche."""
 import logging
 
 from django.contrib.auth.models import User
@@ -7,8 +6,8 @@ from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
 from .models import (
-    Death, DeathBonus, League, LeagueBonus, LeagueMembership, Team, TeamMember,
-    UserProfile,
+    Death, DeathBonus, League, LeagueBonus, LeagueMembership, Notification,
+    Team, TeamMember, UserProfile,
 )
 from .scoring import invalidate_league_rankings
 
@@ -17,13 +16,20 @@ logger = logging.getLogger(__name__)
 
 @receiver(post_save, sender=User)
 def ensure_user_profile(sender, instance, created, **kwargs):
-    if created:
-        UserProfile.objects.get_or_create(user=instance)
+    if not created:
+        return
+    profile, _ = UserProfile.objects.get_or_create(user=instance)
+    # I nuovi profili devono avere subito le chiavi per-evento. La funzione
+    # conserva anche le vecchie chiavi per rendere sicuro un eventuale rollback.
+    from .notifications import expand_legacy_notification_prefs
+    expanded = expand_legacy_notification_prefs(profile.notification_prefs)
+    if expanded != profile.notification_prefs:
+        profile.notification_prefs = expanded
+        profile.save(update_fields=['notification_prefs'])
 
 
 @receiver(pre_save, sender=Death)
 def _track_death_confirmation_state(sender, instance, **kwargs):
-    """Memorizza lo stato precedente di is_confirmed per riconoscere la transizione."""
     if not instance.pk:
         instance._was_confirmed = False
         return
@@ -36,35 +42,45 @@ def _track_death_confirmation_state(sender, instance, **kwargs):
 
 @receiver(post_save, sender=Death)
 def notify_on_death_confirmed(sender, instance, created, **kwargs):
-    """Quando una Death passa a is_confirmed=True, invia push e email a chi ha optato."""
     was_confirmed = getattr(instance, '_was_confirmed', False)
     if not (instance.is_confirmed and not was_confirmed):
         return
 
-    # Feed in-app (persist-first): sempre creato, a prescindere dai canali.
     try:
         from .notifications import create_death_notifications
         create_death_notifications(instance)
     except Exception:
         logger.exception('Errore creazione feed per Death %s', instance.pk)
 
-    # Decesso pre-stagione: il membro resta in rosa (il posto è recuperabile
-    # togliendolo in composizione o sostituendolo a lega avviata), il manager
-    # viene avvisato. Le morti in stagione seguono il flusso di sostituzione.
+    # Pre-stagione: feed, push ed email immediati solo ai manager con il
+    # personaggio ancora attivo in rosa.
     try:
-        from .notifications import notify_preseason_dead_members
-        notify_preseason_dead_members(instance)
+        from .notifications import notify_preseason_member_dead
+        from .push import send_preseason_death_push
+        from .email import send_event_email
+        members = TeamMember.objects.filter(
+            person=instance.person, replaced_by=None,
+            team__league__start_date__gt=instance.death_date,
+        ).select_related('team', 'team__manager', 'team__league')
+        for member in members:
+            notification = notify_preseason_member_dead(member.team, instance.person)
+            send_preseason_death_push(member.team, instance.person)
+            send_event_email(
+                member.team.manager,
+                Notification.KIND_PRESEASON_REMOVED,
+                notification.title,
+                notification.body,
+                notification.url,
+            )
     except Exception:
         logger.exception('Errore notifica decessi pre-stagione per Death %s', instance.pk)
 
-    # Push best-effort: gli errori non devono bloccare il salvataggio.
     try:
         from .push import broadcast_death_notification
         broadcast_death_notification(instance)
     except Exception:
         logger.exception('Errore invio push per Death %s', instance.pk)
 
-    # Email: sempre sincrone (volume basso). Errori non devono bloccare il salvataggio.
     try:
         from .email import broadcast_death_email
         broadcast_death_email(instance)
@@ -74,19 +90,29 @@ def notify_on_death_confirmed(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender=LeagueMembership)
 def notify_on_league_joined(sender, instance, created, **kwargs):
-    """Nuovo iscritto a una lega → notifica l'owner (feed in-app)."""
     if not created:
         return
     try:
         from .notifications import notify_league_joined
-        notify_league_joined(instance)
+        notification = notify_league_joined(instance)
+        if notification is None:
+            return
+        from .push import send_league_joined_push
+        from .email import send_event_email
+        send_league_joined_push(instance)
+        send_event_email(
+            notification.user,
+            Notification.KIND_LEAGUE_JOINED,
+            notification.title,
+            notification.body,
+            notification.url,
+        )
     except Exception:
         logger.exception('Errore notifica iscrizione lega %s', instance.pk)
 
 
 @receiver(pre_save, sender=Team)
 def _track_team_lock_state(sender, instance, **kwargs):
-    """Memorizza lo stato precedente di is_locked per riconoscere la transizione."""
     if not instance.pk:
         instance._was_locked = False
         return
@@ -99,19 +125,27 @@ def _track_team_lock_state(sender, instance, **kwargs):
 
 @receiver(post_save, sender=Team)
 def notify_on_team_locked(sender, instance, created, **kwargs):
-    """Quando una squadra passa a is_locked=True → notifica il manager (feed)."""
     was_locked = getattr(instance, '_was_locked', False)
     if not (instance.is_locked and not was_locked):
         return
     try:
         from .notifications import notify_team_locked
-        notify_team_locked(instance)
+        notification = notify_team_locked(instance)
+        from .push import send_team_locked_push
+        from .email import send_event_email
+        send_team_locked_push(instance)
+        send_event_email(
+            instance.manager,
+            Notification.KIND_TEAM_LOCKED,
+            notification.title,
+            notification.body,
+            notification.url,
+        )
     except Exception:
         logger.exception('Errore notifica blocco squadra %s', instance.pk)
 
 
 def _invalidate_for_leagues_with_death(death):
-    """Invalida la cache rankings di tutte le leghe che contengono questo death."""
     league_ids = League.objects.filter(
         start_date__lte=death.death_date, end_date__gte=death.death_date,
     ).values_list('id', flat=True)
@@ -133,9 +167,6 @@ def _invalidate_rankings_on_death_bonus_change(sender, instance, **kwargs):
 
 @receiver(post_save, sender=League)
 def _invalidate_rankings_on_league_change(sender, instance, **kwargs):
-    """Le regole della lega (base_points, moltiplicatori, date) entrano nel
-    calcolo del punteggio: un salvataggio dal pannello admin deve invalidare
-    subito la classifica, non attendere il TTL di 5 minuti."""
     invalidate_league_rankings(instance.pk)
 
 

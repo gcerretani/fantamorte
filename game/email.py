@@ -1,9 +1,4 @@
-"""Invio email transazionali per decessi e reminder sostituzione.
-
-Speculare a `push.py`: ogni funzione cattura le proprie eccezioni e ritorna
-un esito booleano, così che il chiamante (signal o management command) non
-si rompa per problemi di SMTP/configurazione.
-"""
+"""Invio email transazionali per gli eventi del feed notifiche."""
 import logging
 
 from django.conf import settings
@@ -11,15 +6,14 @@ from django.contrib.sites.models import Site
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.urls import reverse
+from django.utils.html import escape
 
-from .models import Death, LeagueMembership, Team, TeamMember
+from .models import Death, LeagueMembership, Notification, Team, TeamMember
 
 logger = logging.getLogger(__name__)
 
 
 def _email_configured() -> bool:
-    """Vero se è configurato un mittente. Il backend SMTP non è obbligatorio:
-    in dev/test si può usare console o locmem."""
     return bool(getattr(settings, 'DEFAULT_FROM_EMAIL', ''))
 
 
@@ -41,7 +35,6 @@ def _abs_url(path: str) -> str:
 
 
 def _send(to_email: str, subject: str, context: dict, template_base: str) -> bool:
-    """Renderizza template txt+html e invia. Ritorna True su successo."""
     if not _email_configured() or not to_email:
         return False
     try:
@@ -61,13 +54,35 @@ def _send(to_email: str, subject: str, context: dict, template_base: str) -> boo
         return False
 
 
-def broadcast_death_email(death: Death) -> int:
-    """Manda email a tutti gli utenti delle leghe in cui il decesso cade nel
-    periodo di gioco e che vogliono i decessi via email (matrice preferenze).
+def send_event_email(user, kind, title, body='', url='') -> bool:
+    """Email generica per gli eventi che non hanno un template specializzato."""
+    from .notifications import wants
 
-    Subject differente se la persona è nella squadra dell'utente ("urgent").
-    Ritorna il numero di email inviate con successo.
-    """
+    if not _email_configured() or not user.email or not wants(user, kind, 'email'):
+        return False
+    target = _abs_url(url) if url else _site_base_url()
+    text = body or title
+    if target:
+        text = f'{text}\n\nApri Fantamorte: {target}'
+    html = f'<p>{escape(body or title)}</p>'
+    if target:
+        html += f'<p><a href="{escape(target)}">Apri Fantamorte</a></p>'
+    try:
+        msg = EmailMultiAlternatives(
+            subject=title,
+            body=text,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[user.email],
+        )
+        msg.attach_alternative(html, 'text/html')
+        msg.send(fail_silently=False)
+        return True
+    except Exception as e:
+        logger.warning('Errore invio email evento %s a %s: %s', kind, user.email, e)
+        return False
+
+
+def broadcast_death_email(death: Death) -> int:
     if not _email_configured():
         return 0
 
@@ -75,36 +90,32 @@ def broadcast_death_email(death: Death) -> int:
 
     person = death.person
     leagues = leagues_for_death(death)
-
     memberships = LeagueMembership.objects.filter(
         league__in=leagues,
     ).select_related('user', 'league', 'user__profile')
-    # (user, league) couples → un'email per coppia per dare il contesto della
-    # lega. Gating per-categoria: solo chi vuole i decessi via email.
-    recipients = [
-        (m.user, m.league) for m in memberships
-        if m.user.email and wants(m.user, 'death', 'email')
-    ]
 
-    if not recipients:
-        return 0
+    recipients = []
+    for membership in memberships:
+        user = membership.user
+        league = membership.league
+        if not user.email:
+            continue
+        affected = Team.objects.filter(
+            manager=user,
+            league=league,
+            members__person=person,
+            members__replaced_by=None,
+        ).exists()
+        kind = Notification.KIND_DEATH_TEAM if affected else Notification.KIND_DEATH
+        if wants(user, kind, 'email'):
+            recipients.append((user, league, affected))
 
     sent = 0
-    for user, league in recipients:
-        affected_qs = Team.objects.filter(
-            manager=user, members__person=person, members__replaced_by=None,
+    for user, league, affected in recipients:
+        subject = (
+            f'☠ {person.name_it} era nella tua squadra!'
+            if affected else f'☠ {person.name_it} è deceduto/a'
         )
-        if league is not None:
-            affected_qs = affected_qs.filter(league=league)
-        affected = affected_qs.exists()
-
-        if affected:
-            subject = f'☠ {person.name_it} era nella tua squadra!'
-        else:
-            subject = f'☠ {person.name_it} è deceduto/a'
-
-        # L'email è per-coppia (utente, lega): il link porta la lega con sé,
-        # così la pagina persona apre col breadcrumb di quella lega.
         person_path = reverse('person_detail', args=[death.person_id])
         if league is not None:
             person_path += f'?league={league.slug}'
@@ -129,13 +140,12 @@ def broadcast_death_email(death: Death) -> int:
 
 
 def send_substitution_reminder_email(team_member: TeamMember, days_left: int) -> bool:
-    """Email all'utente con un reminder per la sostituzione di un membro morto."""
     if not _email_configured():
         return False
     from .notifications import wants
 
     user = team_member.team.manager
-    if not user.email or not wants(user, 'substitution', 'email'):
+    if not user.email or not wants(user, Notification.KIND_SUBSTITUTION, 'email'):
         return False
 
     person = team_member.person

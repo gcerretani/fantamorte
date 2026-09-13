@@ -1,11 +1,6 @@
 {% load static %}/* Fantamorte service worker */
 const CACHE = 'fantamorte-v{{ cache_version }}';
-// Asset propri risolti dal tag static di Django: in produzione
-// (ManifestStaticFilesStorage) sono i nomi con hash, gli stessi che le
-// pagine referenziano — i path non hashati non verrebbero mai riusati e
-// nginx li serve con cache lunga (30 giorni), rischiando stale.
 const PRECACHE = [
-  '/',
   '/offline/',
   '{% static "css/fantamorte.css" %}',
   '{% static "js/fantamorte.js" %}',
@@ -37,12 +32,11 @@ self.addEventListener('fetch', function (event) {
   const req = event.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  // Nessuna dipendenza esterna: si intercetta solo la stessa origine.
   if (url.origin !== self.location.origin) return;
-  // Cache-first SOLO per asset immutabili: static (nomi con hash), media.
-  // Mai per le API: una risposta JSON cachata qui verrebbe riservita per
-  // sempre e il modal persona mostrerebbe bonus/dati vecchi anche a server
-  // aggiornato.
+
+  // Cache only immutable/public assets. Authenticated HTML is deliberately
+  // never persisted: a shared device or a later account must not receive a
+  // page cached under a previous session.
   const isAsset = url.pathname.startsWith('/static/')
     || url.pathname.startsWith('/media/');
   if (isAsset) {
@@ -59,43 +53,29 @@ self.addEventListener('fetch', function (event) {
     );
     return;
   }
-  // Network-first con fallback offline per le pagine HTML.
+
   if (req.headers.get('accept') && req.headers.get('accept').includes('text/html')) {
     event.respondWith(
-      fetch(req).then(function (resp) {
-        // Cache solo risposte 200 stessa-origine: mai redirect (302 login),
-        // pagine di errore o risposte opache.
-        if (resp.ok && resp.type === 'basic') {
-          const copy = resp.clone();
-          caches.open(CACHE).then(function (c) { c.put(req, copy); });
-        }
-        return resp;
-      }).catch(function () {
-        return caches.match(req).then(function (m) { return m || caches.match('/offline/'); });
+      fetch(req).catch(function () {
+        return caches.match('/offline/');
       })
     );
   }
-  // Tutto il resto (API JSON, manifest, ...): non intercettare, va in rete.
+  // API JSON, manifest and every other request go directly to the network.
 });
 
-// -------- Push --------
 self.addEventListener('push', function (event) {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch (e) { data = { title: 'Fantamorte', body: event.data && event.data.text() }; }
   const title = data.title || '☠ Fantamorte';
   const options = {
     body: data.body || '',
-    // icon: immagine grande a colori. badge: silhouette nella status bar
-    // Android, che ne usa SOLO il canale alpha — deve essere il PNG
-    // monocromatico trasparente, mai l'icona quadrata opaca (diventerebbe
-    // un quadrato bianco). Il payload può fare override di entrambi.
     icon: data.icon || '{% static "pwa/icon-192.png" %}',
     badge: data.badge || '{% static "pwa/badge-96.png" %}',
     tag: data.tag || 'fantamorte',
     data: { url: data.url || '/' },
     requireInteraction: !!data.urgent,
   };
-  // Avvisa le tab aperte così il badge campanella si aggiorna senza reload.
   event.waitUntil(Promise.all([
     self.registration.showNotification(title, options),
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (cs) {
@@ -104,12 +84,6 @@ self.addEventListener('push', function (event) {
   ]));
 });
 
-// Il browser può ruotare l'endpoint push senza che l'utente faccia nulla: se
-// non si aggiorna la riga corrispondente, quella vecchia resta in DB (e il
-// profilo mostra dispositivi fantasma) finché un invio non incassa un 410.
-// La rotazione può avvenire senza tab aperte, quindi la fetch parte da qui;
-// non essendoci DOM non si può leggere il cookie CSRF, per questo l'endpoint
-// /api/push/rotate/ si autentica sull'endpoint vecchio (vedi PushRotateView).
 const VAPID_PUBLIC_KEY = '{{ vapid_public_key }}';
 
 function urlBase64ToUint8Array(base64String) {
@@ -123,8 +97,6 @@ function urlBase64ToUint8Array(base64String) {
 
 self.addEventListener('pushsubscriptionchange', function (event) {
   const oldEndpoint = event.oldSubscription && event.oldSubscription.endpoint;
-  // Senza l'endpoint vecchio non c'è nulla da correlare: la riga stantia
-  // verrà rimossa dal primo invio che riceve 404/410.
   if (!oldEndpoint) return;
   event.waitUntil((async function () {
     let sub = event.newSubscription || null;
@@ -145,7 +117,7 @@ self.addEventListener('pushsubscriptionchange', function (event) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ old_endpoint: oldEndpoint, subscription: sub.toJSON() }),
       });
-    } catch (e) { /* best-effort: riprova alla prossima rotazione */ }
+    } catch (e) { /* best-effort */ }
   })());
 });
 

@@ -1,93 +1,132 @@
 """Modulo centrale delle notifiche.
 
-Principio "persist-first": ogni evento crea prima una riga `Notification`
-(il feed in-app, **sempre attivo**), poi push ed email sono canali di consegna
-costruiti sopra la stessa risoluzione di destinatari. Questo rende il sistema
-canale-agnostico: aggiungere in futuro FCM/APNs sarà un nuovo canale accanto a
-Web Push, riusando queste stesse funzioni e le righe `Notification`.
-
-Qui vivono, in un solo punto:
-- le categorie utente-visibili della matrice preferenze (categoria × canale);
-- la mappa `kind → categoria` per il gating dei canali;
-- la risoluzione dei destinatari di un decesso (condivisa da feed/push/email);
-- le funzioni di creazione delle righe del feed;
-- gli helper del badge (conteggio non-lette, mark-as-read).
+Ogni evento crea prima una riga ``Notification`` nel feed in-app, che è
+sempre attivo. Push ed email sono canali opzionali configurabili *per singolo
+evento* dal profilo utente.
 """
 import logging
 
 from django.urls import reverse
 
-from .models import (
-    League, LeagueMembership, Notification, Team, TeamMember,
-    default_notification_prefs,
-)
+from .models import League, LeagueMembership, Notification, Team, TeamMember
 
 logger = logging.getLogger(__name__)
 
 
-# Categorie utente-visibili della matrice preferenze (categoria × canale).
-# Ogni categoria raggruppa uno o più `kind` di Notification. Definite QUI in un
-# unico punto: UI, validazione dell'endpoint preferenze e gating dei canali le
-# leggono da qui.
+# Una riga della UI per ogni Notification.kind: nessun raggruppamento implicito.
 NOTIFICATION_CATEGORIES = [
     {
-        'key': 'death',
-        'label': 'Decessi nelle tue leghe',
-        'help': 'Un personaggio muore in una lega di cui fai parte.',
-        'kinds': [Notification.KIND_DEATH, Notification.KIND_DEATH_TEAM],
+        'key': Notification.KIND_DEATH,
+        'label': 'Decesso in una tua lega',
+        'help': 'Muore un personaggio presente in una rosa della tua lega.',
+        'default': {'push': True, 'email': True},
     },
     {
-        'key': 'substitution',
-        'label': 'Membro deceduto',
-        'help': 'Un membro della tua squadra muore: reminder di sostituzione, '
-                'o avviso se il decesso avviene prima dell\'inizio della lega.',
-        'kinds': [Notification.KIND_SUBSTITUTION, Notification.KIND_PRESEASON_REMOVED],
+        'key': Notification.KIND_DEATH_TEAM,
+        'label': 'Decesso nella tua squadra',
+        'help': 'Muore un personaggio ancora presente nella tua rosa.',
+        'default': {'push': True, 'email': True},
     },
     {
-        'key': 'league_joined',
-        'label': 'Iscrizioni alla tua lega',
+        'key': Notification.KIND_PRESEASON_REMOVED,
+        'label': "Decesso prima dell'inizio della lega",
+        'help': "Un personaggio della tua rosa muore prima dell'inizio della lega.",
+        'default': {'push': True, 'email': True},
+    },
+    {
+        'key': Notification.KIND_SUBSTITUTION,
+        'label': 'Reminder di sostituzione',
+        'help': 'La finestra per sostituire un personaggio deceduto sta per scadere.',
+        'default': {'push': True, 'email': True},
+    },
+    {
+        'key': Notification.KIND_LEAGUE_JOINED,
+        'label': 'Nuovo iscritto alla tua lega',
         'help': 'Qualcuno si iscrive a una lega di cui sei proprietario.',
-        'kinds': [Notification.KIND_LEAGUE_JOINED],
+        'default': {'push': False, 'email': False},
     },
     {
-        'key': 'league_events',
-        'label': 'Inizio/fine lega e blocco squadra',
-        'help': 'Una lega inizia o si conclude, oppure la tua squadra viene bloccata.',
-        'kinds': [
-            Notification.KIND_LEAGUE_STARTED,
-            Notification.KIND_LEAGUE_ENDED,
-            Notification.KIND_TEAM_LOCKED,
-        ],
+        'key': Notification.KIND_LEAGUE_STARTED,
+        'label': 'Lega iniziata',
+        'help': 'Una lega di cui fai parte entra nel periodo di gioco.',
+        'default': {'push': False, 'email': False},
+    },
+    {
+        'key': Notification.KIND_LEAGUE_ENDED,
+        'label': 'Lega conclusa',
+        'help': 'Una lega di cui fai parte termina il periodo di gioco.',
+        'default': {'push': False, 'email': False},
+    },
+    {
+        'key': Notification.KIND_TEAM_LOCKED,
+        'label': 'Squadra bloccata',
+        'help': "La tua rosa viene bloccata e non è più modificabile.",
+        'default': {'push': False, 'email': False},
     },
 ]
 
-# kind → categoria (per il gating di canale in push/email).
-KIND_CATEGORY = {
-    kind: cat['key']
-    for cat in NOTIFICATION_CATEGORIES
-    for kind in cat['kinds']
-}
-
 CHANNELS = ('push', 'email')
 CATEGORY_KEYS = {cat['key'] for cat in NOTIFICATION_CATEGORIES}
+EVENT_DEFAULTS = {cat['key']: dict(cat['default']) for cat in NOTIFICATION_CATEGORIES}
+
+# Compatibilità con le preferenze salvate prima della v1. La migration 0027
+# espande queste chiavi, ma il fallback rende sicuro anche un DB non ancora
+# migrato durante un rolling deploy.
+LEGACY_CATEGORY_BY_EVENT = {
+    Notification.KIND_DEATH: 'death',
+    Notification.KIND_DEATH_TEAM: 'death',
+    Notification.KIND_SUBSTITUTION: 'substitution',
+    Notification.KIND_PRESEASON_REMOVED: 'substitution',
+    Notification.KIND_LEAGUE_JOINED: 'league_joined',
+    Notification.KIND_LEAGUE_STARTED: 'league_events',
+    Notification.KIND_LEAGUE_ENDED: 'league_events',
+    Notification.KIND_TEAM_LOCKED: 'league_events',
+}
 
 
-# --------------------------------------------------------------------------
-# Preferenze di canale
-# --------------------------------------------------------------------------
+def expand_legacy_notification_prefs(prefs):
+    """Espande la vecchia matrice raggruppata nelle 8 chiavi per-evento.
 
-def wants(user, kind_or_category, channel):
-    """True se `user` vuole ricevere l'evento sul canale ('push'|'email').
-
-    Accetta sia un `kind` di Notification sia una chiave di categoria. Il feed
-    in-app non passa da qui: è sempre attivo.
+    Le preferenze per-evento già presenti vincono. Le vecchie chiavi vengono
+    mantenute: sono innocue e permettono downgrade/rollback senza perdere le
+    scelte dell'utente.
     """
-    category = KIND_CATEGORY.get(kind_or_category, kind_or_category)
+    source = dict(prefs or {})
+    result = dict(source)
+    for event, legacy in LEGACY_CATEGORY_BY_EVENT.items():
+        if event in result:
+            continue
+        legacy_state = source.get(legacy)
+        if isinstance(legacy_state, dict):
+            result[event] = {
+                'push': bool(legacy_state.get('push', EVENT_DEFAULTS[event]['push'])),
+                'email': bool(legacy_state.get('email', EVENT_DEFAULTS[event]['email'])),
+            }
+        else:
+            result[event] = dict(EVENT_DEFAULTS[event])
+    return result
+
+
+def wants(user, kind, channel):
+    """True se ``user`` vuole ``kind`` sul canale push/email.
+
+    Il feed in-app non passa da qui ed è sempre attivo.
+    """
+    if channel not in CHANNELS:
+        return False
+    default = EVENT_DEFAULTS.get(kind, {}).get(channel, False)
     profile = getattr(user, 'profile', None)
-    if profile is not None:
-        return profile.wants(category, channel)
-    defaults = default_notification_prefs().get(category, {})
-    return bool(defaults.get(channel, False))
+    if profile is None:
+        return bool(default)
+    prefs = profile.notification_prefs or {}
+    event_state = prefs.get(kind)
+    if isinstance(event_state, dict) and channel in event_state:
+        return bool(event_state[channel])
+    legacy = LEGACY_CATEGORY_BY_EVENT.get(kind)
+    legacy_state = prefs.get(legacy) if legacy else None
+    if isinstance(legacy_state, dict) and channel in legacy_state:
+        return bool(legacy_state[channel])
+    return bool(default)
 
 
 # --------------------------------------------------------------------------
@@ -95,21 +134,20 @@ def wants(user, kind_or_category, channel):
 # --------------------------------------------------------------------------
 
 def leagues_for_death(death):
-    """Leghe il cui periodo di gioco contiene la data del decesso."""
+    """Leghe realmente interessate dal decesso.
+
+    Una lega conta solo se la data del decesso cade nel suo periodo di gioco
+    e la persona è ancora presente in almeno una rosa attiva di quella lega.
+    """
     return list(League.objects.filter(
-        start_date__lte=death.death_date, end_date__gte=death.death_date,
-    ))
+        start_date__lte=death.death_date,
+        end_date__gte=death.death_date,
+        teams__members__person=death.person,
+        teams__members__replaced_by=None,
+    ).distinct())
 
 
 def affected_manager_leagues(person, leagues):
-    """`{manager_id: League}` per chi ha `person` in una squadra attiva in `leagues`.
-
-    Serve a dire a ogni destinatario *la sua* lega: prendere una lega qualsiasi
-    tra quelle che contengono la data del decesso significa nominarne una di cui
-    l'utente magari non fa nemmeno parte. Se un manager è coinvolto in più leghe
-    per lo stesso decesso se ne cita una (le notifiche sono per-decesso, non
-    per-lega).
-    """
     if not leagues:
         return {}
     teams = Team.objects.filter(
@@ -119,12 +157,10 @@ def affected_manager_leagues(person, leagues):
 
 
 def affected_manager_ids(person, leagues):
-    """Id dei manager che hanno `person` in una squadra attiva in `leagues`."""
     return set(affected_manager_leagues(person, leagues))
 
 
 def death_member_user_ids(leagues):
-    """Id (distinti) degli utenti iscritti alle leghe interessate dal decesso."""
     return list(
         LeagueMembership.objects.filter(league__in=leagues)
         .values_list('user_id', flat=True).distinct()
@@ -145,19 +181,13 @@ def _create(user, kind, title, body='', url='', is_urgent=False, death=None, lea
 def _death_body(death):
     dd = death.death_date
     date_str = dd.strftime('%d/%m/%Y') if hasattr(dd, 'strftime') else str(dd)
-    parts = [f'È deceduto/a il {date_str}.']
+    parts = [f"È deceduto/a il {date_str}."]
     if death.death_age:
         parts.append(f'Età: {death.death_age} anni.')
     return ' '.join(parts)
 
 
 def create_death_notifications(death):
-    """Crea una riga feed per ogni iscritto alle leghe interessate dal decesso.
-
-    `KIND_DEATH_TEAM` + urgente per chi ha la persona in squadra attiva,
-    altrimenti `KIND_DEATH`. Idempotente su (user, death, kind).
-    Ritorna il numero di righe create.
-    """
     leagues = leagues_for_death(death)
     if not leagues:
         return 0
@@ -189,13 +219,12 @@ def create_death_notifications(death):
 
 
 def create_substitution_notification(team_member, days_left):
-    """Crea la riga feed del reminder di sostituzione per il manager."""
     user = team_member.team.manager
     person = team_member.person
     league = team_member.team.league
     title = (f'⏳ {days_left} giorn{"o" if days_left == 1 else "i"} '
              f'per sostituire {person.name_it}')
-    body_parts = [f'{person.name_it} è deceduto/a e fa parte della tua squadra.']
+    body_parts = [f"{person.name_it} è deceduto/a e fa parte della tua squadra."]
     if league:
         body_parts.append(f'Lega: {league.name}.')
     return _create(
@@ -207,16 +236,8 @@ def create_substitution_notification(team_member, days_left):
 
 
 def notify_preseason_member_dead(team, person):
-    """Notifica il manager di un membro deceduto PRIMA dell'inizio della lega.
-
-    Il rimedio dipende da dove siamo nel calendario, e il testo lo dice:
-    in composizione si toglie dalla rosa e si sceglie un altro (la
-    sostituzione non ha senso, il decesso non conta a punteggio); a lega
-    avviata si sostituisce come una morte in stagione (vedi
-    ``TeamMember.can_be_substituted``).
-    """
     league = team.league
-    body_parts = [f'{person.name_it} è deceduto/a prima dell\'inizio della lega.']
+    body_parts = [f"{person.name_it} è deceduto/a prima dell'inizio della lega."]
     if league and league.has_started():
         days = league.substitution_deadline_days or 0
         if days:
@@ -226,12 +247,10 @@ def notify_preseason_member_dead(team, person):
     elif league and league.is_registration_open():
         body_parts.append('Toglilo/a dalla rosa e scegli un altro personaggio.')
     else:
-        # Iscrizioni già chiuse ma lega non ancora iniziata: nessuna azione
-        # possibile adesso, il diritto di sostituzione si apre all'avvio.
-        body_parts.append('Potrai sostituirlo/a dall\'inizio della lega.')
+        body_parts.append("Potrai sostituirlo/a dall'inizio della lega.")
     return _create(
         user=team.manager, kind=Notification.KIND_PRESEASON_REMOVED,
-        title=f'☠ {person.name_it} è deceduto/a prima dell\'inizio',
+        title=f"☠ {person.name_it} è deceduto/a prima dell'inizio",
         body=' '.join(body_parts),
         url=reverse('team_edit', args=[team.pk]),
         is_urgent=True, league=league,
@@ -239,16 +258,6 @@ def notify_preseason_member_dead(team, person):
 
 
 def notify_preseason_dead_members(death):
-    """Notifica i manager che hanno in rosa un deceduto PRIMA dell'inizio lega.
-
-    Il membro **non** viene rimosso dalla rosa. Cancellarlo lascerebbe il
-    manager senza rimedio ogni volta che non può più intervenire — iscrizioni
-    chiuse, oppure conferma arrivata a lega già avviata o conclusa, dove la
-    riga sparirebbe in silenzio riscrivendo la rosa storica. Restando in rosa,
-    il posto è recuperabile: prima dell'inizio togliendolo e scegliendone un
-    altro, dall'inizio in poi con la sostituzione. Ritorna il numero di
-    manager notificati.
-    """
     if not death.death_date:
         return 0
     members = TeamMember.objects.filter(
@@ -266,7 +275,6 @@ def notify_preseason_dead_members(death):
 
 
 def notify_league_joined(membership):
-    """Notifica l'owner della lega quando un nuovo membro si iscrive."""
     league = membership.league
     joined = membership.user
     owner = league.owner
@@ -281,7 +289,6 @@ def notify_league_joined(membership):
 
 
 def notify_team_locked(team):
-    """Notifica il manager quando la sua squadra viene bloccata."""
     return _create(
         user=team.manager, kind=Notification.KIND_TEAM_LOCKED,
         title='La tua squadra è stata bloccata',
@@ -292,32 +299,38 @@ def notify_team_locked(team):
 
 
 def emit_league_lifecycle_notifications(league, kind):
-    """Crea (idempotente) una notifica lifecycle per ogni membro della lega.
-
-    `kind` ∈ {KIND_LEAGUE_STARTED, KIND_LEAGUE_ENDED}. Dedup su
-    (user, league, kind). Ritorna il numero di righe create.
-    """
     if kind == Notification.KIND_LEAGUE_STARTED:
         title = f'La lega {league.name} è iniziata'
         body = 'Le squadre sono definitive: da ora i decessi contano.'
-    else:
+    elif kind == Notification.KIND_LEAGUE_ENDED:
         title = f'La lega {league.name} si è conclusa'
-        body = 'Dai un\'occhiata alla classifica finale.'
+        body = "Dai un'occhiata alla classifica finale."
+    else:
+        return 0
     url = reverse('league_detail', args=[league.slug])
     created = 0
-    for uid in LeagueMembership.objects.filter(league=league).values_list('user_id', flat=True):
-        _, was_created = Notification.objects.get_or_create(
-            user_id=uid, league=league, kind=kind,
+    memberships = LeagueMembership.objects.filter(league=league).select_related('user')
+    for membership in memberships:
+        notification, was_created = Notification.objects.get_or_create(
+            user=membership.user, league=league, kind=kind,
             defaults={'title': title, 'body': body, 'url': url},
         )
-        if was_created:
-            created += 1
+        if not was_created:
+            continue
+        created += 1
+        try:
+            from .push import send_league_lifecycle_push
+            send_league_lifecycle_push(membership.user, league, kind)
+        except Exception:
+            logger.exception('Errore push lifecycle %s per user %s', kind, membership.user_id)
+        try:
+            from .email import send_event_email
+            send_event_email(membership.user, kind, notification.title,
+                             notification.body, notification.url)
+        except Exception:
+            logger.exception('Errore email lifecycle %s per user %s', kind, membership.user_id)
     return created
 
-
-# --------------------------------------------------------------------------
-# Badge / feed helpers
-# --------------------------------------------------------------------------
 
 def unread_count(user):
     if not getattr(user, 'is_authenticated', False):

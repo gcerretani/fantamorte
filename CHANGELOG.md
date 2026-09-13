@@ -4,6 +4,42 @@ Tutte le modifiche rilevanti di questo progetto sono documentate qui.
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 il versionamento segue [SemVer](https://semver.org/lang/it/).
 
+## [1.0.0] - 2026-09-13
+
+### Aggiunto
+
+- Feed notifiche persistente in-app con campanella, conteggio non letti e pagina dedicata.
+- Matrice notifiche per singolo evento: ciascuno degli 8 eventi supportati ha preferenze Push ed Email indipendenti, mentre il feed in-app resta sempre attivo.
+- Notifiche immediate per decessi nella propria squadra, decessi nelle proprie leghe, decessi pre-stagione, reminder di sostituzione, nuovi iscritti, inizio/fine lega e blocco squadra.
+- Versione applicativa centralizzata ed esposta nel footer del sito.
+- Supporto al bonus decesso per lega con vincoli di integrità e regole di assegnazione esplicite.
+- Copertura di regressione aggiuntiva per azioni Django admin, rilevamento bonus e comando `mark_originals`.
+- Suite CI completa anche su MariaDB 11.4, oltre a SQLite.
+
+### Modificato
+
+- I destinatari di un decesso sono ora limitati alle leghe realmente coinvolte: la morte deve ricadere nel periodo della lega e il personaggio deve essere ancora presente in almeno una rosa attiva di quella stessa lega.
+- Decesso generico e decesso nella propria squadra sono eventi distinti e configurabili separatamente.
+- Le preferenze notifiche pre-v1 vengono espanse automaticamente nelle nuove chiavi per-evento senza perdere le scelte dell'utente.
+- Il flusso notifiche e' stato riallineato al principio persist-first: il feed viene creato sempre, mentre Push ed Email rispettano il relativo opt-in/opt-out.
+- Hardening della consegna Web Push contro endpoint non sicuri, redirect e DNS rebinding.
+- Maggiore integrita' nelle scritture delle rose e nei percorsi di sincronizzazione/aggiornamento dati.
+- Pipeline CI e build rese piu' rigorose, con dipendenze Python bloccate e controllo delle migration mancanti.
+- Script di backup, scheduler e container di produzione ripuliti e resi piu' robusti.
+- Lo storico di rose e squadre viene preservato quando un membro viene rimosso dopo l'inizio della lega.
+- Le transizioni di fase basate su date rispettano in modo coerente la timezone configurata, inclusi i boundary DST.
+- La gestione dei capitani rispetta `max_captains`, valida prima di mutare i dati e conserva i flag storici necessari allo scoring.
+- I QID Wikidata inseriti direttamente vengono validati come esseri umani (`P31=Q5`); i dati di nascita sono richiesti quando servono per verificare un limite di eta'.
+
+### Corretto
+
+- Eliminato il rumore cross-lega: un decesso scoperto perche' un personaggio e' giocato in un'altra lega contemporanea non viene piu' notificato agli utenti di leghe dove quel personaggio non e' presente.
+- I giocatori gia' sostituiti non rendono piu' una lega interessata da un successivo decesso.
+- Gli eventi che prima potevano restare solo nel feed ora hanno anche il relativo canale Push; la parita' Email e' stata completata per gli eventi configurabili nel profilo.
+- Refresh manuale da admin di persone con dati congelati e altre regressioni di consistenza emerse dall'audit pre-v1.
+- Permessi di rimozione membri/admin riallineati, payload JSON malformati gestiti come errori 4xx e avvio del social login protetto tramite POST/CSRF.
+- Il feed segna come lette soltanto le notifiche effettivamente renderizzate.
+
 ## [0.3.7] - 2026-08-19
 
 - Fix iOS: la barra in alto non finisce più dietro il notch / l'isola

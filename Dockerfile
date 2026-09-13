@@ -12,8 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # girare come root nel container.
 RUN groupadd --system app && useradd --system --gid app --home-dir /app --no-create-home app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# requirements.txt resta la sorgente delle intenzioni; requirements.lock è il
+# set esatto revisionato che CI e produzione installano.
+COPY requirements.txt requirements.lock ./
+RUN pip install --no-cache-dir -r requirements.lock && pip check
 
 COPY . .
 
