@@ -1,6 +1,8 @@
 """Context processor: espone alcune impostazioni pubbliche ai template."""
 from django.conf import settings
 
+from fantamorte_project.version import __version__
+
 
 def _active_nav(request):
     """Destinazione attiva della bottom nav, dal nome della URL corrente.
@@ -45,6 +47,7 @@ def public_settings(request):
         unread = Notification.objects.filter(user=request.user, is_read=False).count()
 
     return {
+        'APP_VERSION': __version__,
         'VAPID_PUBLIC_KEY': getattr(settings, 'VAPID_PUBLIC_KEY', ''),
         'PWA_APP_NAME': getattr(settings, 'PWA_APP_NAME', 'Fantamorte'),
         'PWA_THEME_COLOR': getattr(settings, 'PWA_APP_THEME_COLOR', '#171a20'),
