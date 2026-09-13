@@ -7,7 +7,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from .models import League, LeagueMembership, Team
+from .models import League, LeagueMembership, Team, TeamMember, WikipediaPerson
 
 
 class LeagueLeaveHistoryTests(TestCase):
@@ -33,9 +33,7 @@ class LeagueLeaveHistoryTests(TestCase):
         league = self._league(started=True)
         LeagueMembership.objects.create(league=league, user=self.user)
         team = Team.objects.create(league=league, manager=self.user, name='Storica')
-
         response = self.client.post(reverse('league_leave', args=[league.slug]))
-
         self.assertRedirects(response, reverse('home'))
         self.assertFalse(LeagueMembership.objects.filter(league=league, user=self.user).exists())
         self.assertTrue(Team.objects.filter(pk=team.pk).exists())
@@ -44,9 +42,7 @@ class LeagueLeaveHistoryTests(TestCase):
         league = self._league(started=False)
         LeagueMembership.objects.create(league=league, user=self.user)
         team = Team.objects.create(league=league, manager=self.user, name='Bozza')
-
         self.client.post(reverse('league_leave', args=[league.slug]))
-
         self.assertFalse(Team.objects.filter(pk=team.pk).exists())
 
 
@@ -90,47 +86,73 @@ class AuthorizationAndInputHardeningTests(TestCase):
             registration_opens=today - timedelta(days=2), registration_closes=today + timedelta(days=1),
         )
         LeagueMembership.objects.create(league=self.league, user=self.owner, role=LeagueMembership.ROLE_OWNER)
-        self.admin_membership = LeagueMembership.objects.create(
-            league=self.league, user=self.admin, role=LeagueMembership.ROLE_ADMIN,
-        )
-        self.other_admin_membership = LeagueMembership.objects.create(
-            league=self.league, user=self.other_admin, role=LeagueMembership.ROLE_ADMIN,
-        )
-        self.member_membership = LeagueMembership.objects.create(
-            league=self.league, user=self.member, role=LeagueMembership.ROLE_MEMBER,
-        )
+        self.admin_membership = LeagueMembership.objects.create(league=self.league, user=self.admin, role=LeagueMembership.ROLE_ADMIN)
+        self.other_admin_membership = LeagueMembership.objects.create(league=self.league, user=self.other_admin, role=LeagueMembership.ROLE_ADMIN)
+        self.member_membership = LeagueMembership.objects.create(league=self.league, user=self.member, role=LeagueMembership.ROLE_MEMBER)
 
     def test_league_admin_cannot_remove_peer_admin(self):
         self.client.force_login(self.admin)
-        response = self.client.post(reverse('league_admin', args=[self.league.slug]), {
-            'action': 'remove_member', 'membership_id': self.other_admin_membership.pk,
-        })
+        response = self.client.post(reverse('league_admin', args=[self.league.slug]), {'action': 'remove_member', 'membership_id': self.other_admin_membership.pk})
         self.assertEqual(response.status_code, 403)
         self.assertTrue(LeagueMembership.objects.filter(pk=self.other_admin_membership.pk).exists())
 
     def test_owner_can_remove_admin(self):
         self.client.force_login(self.owner)
-        response = self.client.post(reverse('league_admin', args=[self.league.slug]), {
-            'action': 'remove_member', 'membership_id': self.other_admin_membership.pk,
-        })
+        response = self.client.post(reverse('league_admin', args=[self.league.slug]), {'action': 'remove_member', 'membership_id': self.other_admin_membership.pk})
         self.assertRedirects(response, reverse('league_admin', args=[self.league.slug]))
         self.assertFalse(LeagueMembership.objects.filter(pk=self.other_admin_membership.pk).exists())
 
     def test_profile_preferences_rejects_non_boolean_channel_value(self):
         self.client.force_login(self.member)
-        response = self.client.post(
-            reverse('profile_preferences'),
-            data='{"prefs":{"death":{"push":"false"}}}',
-            content_type='application/json',
-        )
+        response = self.client.post(reverse('profile_preferences'), data='{"prefs":{"death":{"push":"false"}}}', content_type='application/json')
         self.assertEqual(response.status_code, 400)
 
     def test_push_unsubscribe_rejects_non_string_endpoint(self):
         self.client.force_login(self.member)
-        response = self.client.post(
-            reverse('push_unsubscribe'), data='{"endpoint":123}', content_type='application/json',
-        )
+        response = self.client.post(reverse('push_unsubscribe'), data='{"endpoint":123}', content_type='application/json')
         self.assertEqual(response.status_code, 400)
 
     def test_social_login_requires_post(self):
         self.assertFalse(settings.SOCIALACCOUNT_LOGIN_ON_GET)
+
+
+class CaptainRuleTests(TestCase):
+    def setUp(self):
+        today = timezone.localdate()
+        self.user = User.objects.create_user('captain-manager', password='pw')
+        self.league = League.objects.create(
+            name='Captain league', slug='captain-league', owner=self.user,
+            start_date=today + timedelta(days=2), end_date=today + timedelta(days=30),
+            registration_opens=today - timedelta(days=2), registration_closes=today + timedelta(days=1),
+            max_captains=1,
+        )
+        LeagueMembership.objects.create(league=self.league, user=self.user, role=LeagueMembership.ROLE_OWNER)
+        self.team = Team.objects.create(league=self.league, manager=self.user, name='C')
+        self.p1 = WikipediaPerson.objects.create(wikidata_id='Q900001', name_it='Uno')
+        self.p2 = WikipediaPerson.objects.create(wikidata_id='Q900002', name_it='Due')
+        self.m1 = TeamMember.objects.create(team=self.team, person=self.p1, is_captain=True)
+        self.m2 = TeamMember.objects.create(team=self.team, person=self.p2, is_captain=False)
+        self.client.force_login(self.user)
+
+    def test_invalid_captain_id_keeps_existing_captain(self):
+        self.client.post(reverse('team_edit', args=[self.team.pk]), {'captain_id': '999999'})
+        self.m1.refresh_from_db()
+        self.m2.refresh_from_db()
+        self.assertTrue(self.m1.is_captain)
+        self.assertFalse(self.m2.is_captain)
+
+    def test_single_captain_switch_happens_after_validation(self):
+        self.client.post(reverse('team_edit', args=[self.team.pk]), {'captain_id': str(self.m2.pk)})
+        self.m1.refresh_from_db()
+        self.m2.refresh_from_db()
+        self.assertFalse(self.m1.is_captain)
+        self.assertTrue(self.m2.is_captain)
+
+    def test_multiple_captain_league_preserves_existing_captain(self):
+        self.league.max_captains = 2
+        self.league.save(update_fields=['max_captains'])
+        self.client.post(reverse('team_edit', args=[self.team.pk]), {'captain_id': str(self.m2.pk)})
+        self.m1.refresh_from_db()
+        self.m2.refresh_from_db()
+        self.assertTrue(self.m1.is_captain)
+        self.assertTrue(self.m2.is_captain)

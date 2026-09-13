@@ -65,8 +65,6 @@ class LeagueAdminView(views.LeagueAdminView):
         if member.role == LeagueMembership.ROLE_ADMIN and not actor_can_manage_roles:
             return HttpResponseForbidden('Solo il proprietario può rimuovere un amministratore.')
 
-        # Keep the same historical-integrity rule as voluntary leave: after the
-        # game starts, removing access must not erase an already-scored team.
         team = Team.objects.filter(league=league, manager=member.user).first()
         member.delete()
         if team is not None and not league.has_started():
@@ -110,3 +108,67 @@ class PushUnsubscribeView(views.PushUnsubscribeView):
         if not isinstance(data, dict) or not isinstance(data.get('endpoint'), str):
             return JsonResponse({'error': 'endpoint non valido'}, status=400)
         return super().post(request)
+
+
+class TeamEditView(views.TeamEditView):
+    """Keep captain editing consistent with League.max_captains and history."""
+
+    def post(self, request, pk):
+        team = get_object_or_404(Team, pk=pk)
+        if team.manager != request.user and not request.user.is_staff:
+            return redirect('team_detail', pk=pk)
+        if not views._can_edit_team(team, request.user):
+            messages.error(request, 'Non è più possibile modificare la squadra.')
+            return redirect('team_edit', pk=pk)
+
+        league = team.league
+        name = request.POST.get('name', '').strip()
+        jolly_month = request.POST.get('jolly_month', '')
+        captain_id = request.POST.get('captain_id', '').strip()
+
+        captain = None
+        if captain_id:
+            try:
+                captain_pk = int(captain_id)
+            except (TypeError, ValueError):
+                captain_pk = None
+            if captain_pk is not None:
+                captain = team.members.filter(pk=captain_pk, replaced_by=None).first()
+            if captain is None:
+                messages.error(request, 'Capitano non valido: nessuna modifica applicata.')
+                return redirect('team_edit', pk=pk)
+
+            max_captains = league.max_captains if league else 1
+            if max_captains > 1 and not captain.is_captain:
+                active_captains = team.members.filter(is_captain=True, replaced_by=None).count()
+                if active_captains >= max_captains:
+                    messages.error(request, f'La squadra ha già {max_captains} capitani.')
+                    return redirect('team_edit', pk=pk)
+
+        if name:
+            team.name = name
+        if jolly_month and (not league or league.jolly_enabled):
+            try:
+                parsed_month = int(jolly_month)
+            except (TypeError, ValueError):
+                parsed_month = None
+            if parsed_month is not None and 1 <= parsed_month <= 12:
+                team.jolly_month = parsed_month
+            else:
+                messages.error(request, 'Mese jolly non valido.')
+                return redirect('team_edit', pk=pk)
+        team.save()
+
+        if captain is not None:
+            max_captains = league.max_captains if league else 1
+            if max_captains == 1:
+                # Only active rows participate in the current captain rule.
+                # Historical/replaced captain flags must stay untouched because
+                # scoring uses the flag stored on the member that died.
+                team.members.filter(replaced_by=None).exclude(pk=captain.pk).update(is_captain=False)
+            if not captain.is_captain:
+                captain.is_captain = True
+                captain.save(update_fields=['is_captain'])
+
+        messages.success(request, 'Squadra aggiornata.')
+        return redirect('team_edit', pk=pk)
