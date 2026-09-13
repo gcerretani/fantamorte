@@ -95,10 +95,19 @@ def wants(user, kind_or_category, channel):
 # --------------------------------------------------------------------------
 
 def leagues_for_death(death):
-    """Leghe il cui periodo di gioco contiene la data del decesso."""
+    """Leghe realmente interessate dal decesso.
+
+    Una lega conta solo se la data del decesso cade nel suo periodo di gioco
+    *e* la persona e' ancora presente in almeno una rosa di quella lega. Questo
+    evita di notificare agli utenti di una lega decessi scoperti perche' la
+    stessa persona e' giocata soltanto in altre leghe contemporanee.
+    """
     return list(League.objects.filter(
-        start_date__lte=death.death_date, end_date__gte=death.death_date,
-    ))
+        start_date__lte=death.death_date,
+        end_date__gte=death.death_date,
+        teams__members__person=death.person,
+        teams__members__replaced_by=None,
+    ).distinct())
 
 
 def affected_manager_leagues(person, leagues):
