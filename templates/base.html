@@ -20,6 +20,7 @@
   <link href="{% static 'css/fantamorte.css' %}" rel="stylesheet">
   {% block extra_head %}{% endblock %}
   <script>
+    // Applica subito il tema per evitare flash. Pref tri-state: auto|light|dark.
     (function(){
       var html = document.documentElement;
       var stored = localStorage.getItem('fm-theme');
@@ -39,6 +40,7 @@
 </head>
 <body class="bg-body-tertiary">
 <a href="#fmMainContent" class="fm-skip-link">Salta al contenuto</a>
+{# Sprite icone condivise (bottom nav, bottoni): referenziate con <use>. #}
 <svg xmlns="http://www.w3.org/2000/svg" class="d-none" aria-hidden="true" focusable="false">
   <symbol id="fmIcoHome" viewBox="0 0 24 24"><path d="M12 3 3 10.2V21h6.4v-5.8h5.2V21H21V10.2L12 3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
   <symbol id="fmIcoLeagues" viewBox="0 0 24 24"><path d="M6 4h12v5a6 6 0 0 1-12 0V4zM6 6H3.5v1.5A3.5 3.5 0 0 0 7 11M18 6h2.5v1.5A3.5 3.5 0 0 1 17 11M12 15v3M8 21h8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></symbol>
@@ -49,6 +51,11 @@
   <symbol id="fmIcoSkull" viewBox="0 0 512 512"><path fill="currentColor" d="M256 96c-79.5 0-144 60.4-144 134.9 0 41.4 19.6 78.4 50.5 103.4v33.4c0 14.4 11.7 26.1 26.1 26.1h12.5v33.6c0 9.4 7.6 17 17 17h75.8c9.4 0 17-7.6 17-17v-33.6h12.5c14.4 0 26.1-11.7 26.1-26.1v-33.4C380.4 309.3 400 272.3 400 230.9 400 156.4 335.5 96 256 96zm-52 184c-14.4 0-26-11.6-26-26s11.6-26 26-26 26 11.6 26 26-11.6 26-26 26zm104 0c-14.4 0-26-11.6-26-26s11.6-26 26-26 26 11.6 26 26-11.6 26-26 26zm-100 65l-13-26h130l-13 26h-26l-13-19-13 19h-26l-13-19-13 19h-26z"/></symbol>
 </svg>
 
+{# fixed-top (non sticky): la barra resta inchiodata al viewport; l'overscroll #}
+{# del documento (che trascina anche i fixed) e' disattivato in CSS con #}
+{# overscroll-behavior. Il body compensa l'altezza via token --fm-topbar-h. #}
+{# Sotto lg la navigazione sta nella bottom nav (_bottom_nav.html): qui #}
+{# restano solo brand, installa e tema. Da lg in su i link sono inline. #}
 <nav class="navbar navbar-expand-lg fm-topbar" aria-label="Navigazione principale">
   <div class="container">
     <a class="navbar-brand" href="{% url 'home' %}">{% include '_logo.html' %} Fantamorte</a>
@@ -59,21 +66,30 @@
         <li class="nav-item"><a class="nav-link{% if active_nav == 'stats' %} active{% endif %}" href="{% url 'stats' %}">Statistiche</a></li>
         <li class="nav-item"><a class="nav-link" href="{% url 'rules' %}">Come funziona</a></li>
         <li class="nav-item"><a class="nav-link{% if active_nav == 'profile' %} active{% endif %}" href="{% url 'profile' %}">Profilo</a></li>
-        {% if user.is_staff %}<li class="nav-item"><a class="nav-link" href="{% url 'admin:index' %}">Admin</a></li>{% endif %}
+        {% if user.is_staff %}
+          <li class="nav-item"><a class="nav-link" href="{% url 'admin:index' %}">Admin</a></li>
+        {% endif %}
       </ul>
     {% endif %}
     <div class="d-flex align-items-center ms-auto gap-2">
       {% if user.is_authenticated %}
-        <a href="{% url 'notifications' %}" class="btn btn-icon fm-bell position-relative" title="Notifiche" aria-label="Notifiche{% if unread_notifications_count %} ({{ unread_notifications_count }} non lette){% endif %}">
+        <a href="{% url 'notifications' %}" class="btn btn-icon fm-bell position-relative"
+           title="Notifiche" aria-label="Notifiche{% if unread_notifications_count %} ({{ unread_notifications_count }} non lette){% endif %}">
           <svg class="fm-ico" aria-hidden="true"><use href="#fmIcoBell"/></svg>
-          <span class="fm-bell-badge badge text-bg-danger{% if not unread_notifications_count %} d-none{% endif %}" data-fm-bell-badge>{{ unread_notifications_count }}</span>
+          <span class="fm-bell-badge badge text-bg-danger{% if not unread_notifications_count %} d-none{% endif %}"
+                data-fm-bell-badge>{{ unread_notifications_count }}</span>
         </a>
       {% endif %}
-      <button id="fmInstallBtn" class="btn btn-icon" type="button" title="Installa app" aria-label="Installa app"><span aria-hidden="true">&#x2913;</span></button>
-      <button id="fmThemeBtn" class="btn btn-icon" type="button" title="Cambia tema" aria-label="Cambia tema">◐</button>
+      <button id="fmInstallBtn" class="btn btn-icon" type="button"
+        title="Installa app" aria-label="Installa app"><span aria-hidden="true">&#x2913;</span></button>
+      <button id="fmThemeBtn" class="btn btn-icon" type="button"
+        title="Cambia tema" aria-label="Cambia tema">◐</button>
       {% if user.is_authenticated %}
         <span class="navbar-text d-none d-lg-inline ms-3 me-2">{{ user.username }}</span>
-        <form method="post" action="{% url 'account_logout' %}" class="d-none d-lg-inline ms-1">{% csrf_token %}<button type="submit" class="btn btn-outline-light btn-sm">Esci</button></form>
+        <form method="post" action="{% url 'account_logout' %}" class="d-none d-lg-inline ms-1">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-outline-light btn-sm">Esci</button>
+        </form>
       {% else %}
         <a class="btn btn-outline-light btn-sm ms-2" href="{% url 'account_login' %}">Accedi</a>
         <a class="nav-link ms-2 d-none d-sm-inline" href="{% url 'account_signup' %}">Registrati</a>
@@ -82,10 +98,18 @@
   </div>
 </nav>
 
-<main id="fmMainContent" class="container" tabindex="-1" {% if league %}data-fm-league="{{ league.slug }}"{% elif team.league %}data-fm-league="{{ team.league.slug }}"{% endif %}>
+{# data-fm-league: contesto per il modal persona (bonus potenziali per lega). #}
+<main id="fmMainContent" class="container" tabindex="-1"
+      {% if league %}data-fm-league="{{ league.slug }}"{% elif team.league %}data-fm-league="{{ team.league.slug }}"{% endif %}>
   <div role="status" aria-live="polite" aria-atomic="true">
-  {% for msg in messages %}<div class="alert alert-{{ msg.tags|default:'info' }} alert-dismissible fade show" role="alert">{{ msg }}<button type="button" class="btn-close" data-fm-dismiss="alert" aria-label="Chiudi messaggio"></button></div>{% endfor %}
+  {% for msg in messages %}
+    <div class="alert alert-{{ msg.tags|default:'info' }} alert-dismissible fade show" role="alert">
+      {{ msg }}
+      <button type="button" class="btn-close" data-fm-dismiss="alert" aria-label="Chiudi messaggio"></button>
+    </div>
+  {% endfor %}
   </div>
+
   {% block content %}{% endblock %}
 </main>
 
@@ -99,41 +123,116 @@
       <span class="fm-footer-sep" aria-hidden="true">&middot;</span>
       <a href="https://www.wikidata.org" target="_blank" rel="noopener">Dati da Wikidata</a>
       <span class="fm-footer-sep" aria-hidden="true">&middot;</span>
-      <a href="https://github.com/gcerretani/fantamorte" target="_blank" rel="noopener" title="Codice sorgente su GitHub"><svg class="fm-ico" aria-hidden="true"><use href="#fmIcoGitHub"/></svg> GitHub</a>
+      <a href="https://github.com/gcerretani/fantamorte" target="_blank" rel="noopener"
+         title="Codice sorgente su GitHub">
+        <svg class="fm-ico" aria-hidden="true"><use href="#fmIcoGitHub"/></svg> GitHub
+      </a>
     </nav>
     <div class="fm-footer-motto">Pronostica, totalizza, vinci.</div>
   </div>
 </footer>
 
+<!-- Modal dettagli persona -->
 <div class="modal fade" id="fmPersonModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="fmPersonModalLabel">…</h5><button type="button" class="btn-close" data-fm-dismiss="modal" aria-label="Chiudi"></button></div><div class="modal-body" id="fmPersonModalBody"><div class="text-center text-body-secondary py-5"><div class="spinner-border" role="status"></div></div></div></div></div>
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="fmPersonModalLabel">…</h5>
+        <button type="button" class="btn-close" data-fm-dismiss="modal" aria-label="Chiudi"></button>
+      </div>
+      <div class="modal-body" id="fmPersonModalBody">
+        <div class="text-center text-body-secondary py-5"><div class="spinner-border" role="status"></div></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 {% if user.is_authenticated %}
+<!-- Onboarding: proponi installazione app + notifiche (apertura una tantum via JS). -->
 <div class="modal fade" id="fmOnboardModal" tabindex="-1" aria-hidden="true" aria-labelledby="fmOnboardTitle">
-  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
-    <div class="modal-header"><h5 class="modal-title" id="fmOnboardTitle">Porta Fantamorte sul telefono</h5><button type="button" class="btn-close" data-fm-dismiss="modal" aria-label="Chiudi"></button></div>
-    <div class="modal-body">
-      <p class="text-body-secondary">Installa l'app sulla schermata Home e attiva le notifiche: così non ti perdi nessun decesso della tua rosa.</p>
-      <section data-fm-onboard-install class="d-none mb-4">
-        <div class="fm-label">1 · Installa l'app</div>
-        <div data-fm-install-native class="d-none"><p class="mb-2">Aggiungi Fantamorte alla schermata Home con un tocco.</p><button type="button" class="btn btn-primary" data-fm-install-trigger>Installa l'app</button></div>
-        <div data-fm-install-ios class="d-none"><p class="mb-2">Su iPhone/iPad, da <strong>Safari</strong>:</p><ol class="mb-0 ps-3"><li>Tocca il pulsante <strong>Condividi</strong> (il quadrato con la freccia verso l'alto).</li><li>Scorri e scegli <strong>«Aggiungi a Home»</strong>.</li><li>Conferma toccando <strong>Aggiungi</strong> in alto a destra.</li></ol></div>
-        <div data-fm-install-android class="d-none"><p class="mb-2">Su Android, dal menu del browser:</p><ol class="mb-0 ps-3"><li>Apri il menu <strong>⋮</strong> in alto a destra.</li><li>Tocca <strong>«Installa app»</strong> o <strong>«Aggiungi a schermata Home»</strong>.</li><li>Conferma.</li></ol></div>
-      </section>
-      <section data-fm-onboard-push class="d-none">
-        <div class="fm-label">2 · Attiva le notifiche</div>
-        <div data-fm-push-cta class="d-none"><p class="mb-2">Ricevi un avviso quando muore un personaggio della tua squadra.</p><button type="button" class="btn btn-primary" data-fm-push-trigger>Abilita le notifiche</button></div>
-        <div data-fm-push-ios-hint class="d-none"><p class="mb-0 text-body-secondary">Su iPhone le notifiche funzionano solo dopo aver installato l'app dalla schermata Home (iOS 16.4+). Completa prima il passo 1, poi riapri l'app e attivale dal <a href="{% url 'profile' %}">profilo</a>.</p></div>
-        <div data-fm-push-blocked class="d-none"><p class="mb-0 text-body-secondary">Le notifiche risultano bloccate nelle impostazioni del browser per questo sito: riattivale da lì per poterle ricevere.</p></div>
-      </section>
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="fmOnboardTitle">Porta Fantamorte sul telefono</h5>
+        <button type="button" class="btn-close" data-fm-dismiss="modal" aria-label="Chiudi"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-body-secondary">Installa l'app sulla schermata Home e attiva le
+          notifiche: così non ti perdi nessun decesso della tua rosa.</p>
+
+        <!-- Passo 1 · installazione (un solo blocco visibile, scelto in base al dispositivo) -->
+        <section data-fm-onboard-install class="d-none mb-4">
+          <div class="fm-label">1 · Installa l'app</div>
+
+          <div data-fm-install-native class="d-none">
+            <p class="mb-2">Aggiungi Fantamorte alla schermata Home con un tocco.</p>
+            <button type="button" class="btn btn-primary" data-fm-install-trigger>Installa l'app</button>
+          </div>
+
+          <div data-fm-install-ios class="d-none">
+            <p class="mb-2">Su iPhone/iPad, da <strong>Safari</strong>:</p>
+            <ol class="mb-0 ps-3">
+              <li>Tocca il pulsante <strong>Condividi</strong> (il quadrato con la freccia verso l'alto).</li>
+              <li>Scorri e scegli <strong>«Aggiungi a Home»</strong>.</li>
+              <li>Conferma toccando <strong>Aggiungi</strong> in alto a destra.</li>
+            </ol>
+          </div>
+
+          <div data-fm-install-android class="d-none">
+            <p class="mb-2">Su Android, dal menu del browser:</p>
+            <ol class="mb-0 ps-3">
+              <li>Apri il menu <strong>⋮</strong> in alto a destra.</li>
+              <li>Tocca <strong>«Installa app»</strong> o <strong>«Aggiungi a schermata Home»</strong>.</li>
+              <li>Conferma.</li>
+            </ol>
+          </div>
+        </section>
+
+        <!-- Passo 2 · notifiche -->
+        <section data-fm-onboard-push class="d-none">
+          <div class="fm-label">2 · Attiva le notifiche</div>
+
+          <div data-fm-push-cta class="d-none">
+            <p class="mb-2">Ricevi un avviso quando muore un personaggio della tua squadra.</p>
+            <button type="button" class="btn btn-primary" data-fm-push-trigger>Abilita le notifiche</button>
+          </div>
+
+          <div data-fm-push-ios-hint class="d-none">
+            <p class="mb-0 text-body-secondary">Su iPhone le notifiche funzionano solo dopo aver
+              installato l'app dalla schermata Home (iOS 16.4+). Completa prima il passo 1, poi
+              riapri l'app e attivale dal <a href="{% url 'profile' %}">profilo</a>.</p>
+          </div>
+
+          <div data-fm-push-blocked class="d-none">
+            <p class="mb-0 text-body-secondary">Le notifiche risultano bloccate nelle impostazioni
+              del browser per questo sito: riattivale da lì per poterle ricevere.</p>
+          </div>
+        </section>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-fm-onboard-dismiss>Non mostrare più</button>
+        <button type="button" class="btn btn-outline-secondary" data-fm-dismiss="modal">Più tardi</button>
+      </div>
     </div>
-    <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-fm-onboard-dismiss>Non mostrare più</button><button type="button" class="btn btn-outline-secondary" data-fm-dismiss="modal">Più tardi</button></div>
-  </div></div>
+  </div>
 </div>
 {% endif %}
 
-<template id="fmPersonSkeleton"><div class="row placeholder-glow" aria-busy="true" aria-label="Caricamento dettagli persona"><div class="col-md-4"><div class="ratio ratio-1x1 rounded bg-body-secondary placeholder"></div></div><div class="col-md-8"><p class="mb-2"><span class="placeholder col-8"></span></p><p class="mb-1"><span class="placeholder col-5"></span></p><p class="mb-1"><span class="placeholder col-6"></span></p><p class="mb-3"><span class="placeholder col-4"></span></p><p class="mb-0"><span class="placeholder col-12"></span><span class="placeholder col-10"></span><span class="placeholder col-7"></span></p></div></div></template>
+<!-- Skeleton del modal persona: clonato da fmShowPerson a ogni apertura. -->
+<template id="fmPersonSkeleton">
+  <div class="row placeholder-glow" aria-busy="true" aria-label="Caricamento dettagli persona">
+    <div class="col-md-4">
+      <div class="ratio ratio-1x1 rounded bg-body-secondary placeholder"></div>
+    </div>
+    <div class="col-md-8">
+      <p class="mb-2"><span class="placeholder col-8"></span></p>
+      <p class="mb-1"><span class="placeholder col-5"></span></p>
+      <p class="mb-1"><span class="placeholder col-6"></span></p>
+      <p class="mb-3"><span class="placeholder col-4"></span></p>
+      <p class="mb-0"><span class="placeholder col-12"></span><span class="placeholder col-10"></span><span class="placeholder col-7"></span></p>
+    </div>
+  </div>
+</template>
 
 <script src="{% static 'js/fantamorte.js' %}"></script>
 {% block extra_js %}{% endblock %}
