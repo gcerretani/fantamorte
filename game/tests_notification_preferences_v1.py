@@ -69,6 +69,12 @@ class PerEventPreferenceTest(TestCase):
         )
         self.assertEqual(bad.status_code, 400)
 
+    def test_running_version_is_rendered_in_footer(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse('profile'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'v1.0.0-dev')
+
 
 @override_settings(
     EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
