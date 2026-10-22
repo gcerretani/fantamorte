@@ -176,6 +176,7 @@
 <div class="row">
   <div class="col-lg-6 mb-4">
     <span class="fm-label mb-2">Il mio storico</span>
+    {% include 'game/_palmares.html' %}
     {% if my_history %}
       <ul class="list-group">
         {% for h in my_history %}

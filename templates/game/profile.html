@@ -114,6 +114,7 @@
     <div class="card">
       <div class="card-body">
         <h5 class="card-title">Le tue squadre</h5>
+        {% include 'game/_palmares.html' %}
         <div class="d-flex flex-wrap gap-2">
           {% for t in teams %}
             <a href="{% url 'team_edit' t.pk %}" class="btn btn-outline-secondary btn-sm">
