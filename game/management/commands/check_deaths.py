@@ -5,6 +5,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from game.models import League, SiteSettings, WikipediaPerson
+from game.monitoring import record_death_check_failure, record_death_check_success
 from game.person_sync import sync_person_from_entity
 from wikidata_api.client import WikidataClient
 
@@ -66,6 +67,10 @@ class Command(BaseCommand):
             f'Persone attive: {total_active} · controllate in questo run: {len(wikidata_ids)}'
         )
         if not wikidata_ids:
+            # Niente da controllare è comunque un run riuscito: senza rose
+            # attive il monitoraggio non deve segnalare i controlli come fermi.
+            if not dry_run:
+                record_death_check_success()
             return
 
         # `last_checked` means last successful check. A failed batch must fail
@@ -74,6 +79,8 @@ class Command(BaseCommand):
         try:
             dead_ids = set(client.check_deaths_batch(wikidata_ids))
         except Exception as e:
+            if not dry_run:
+                record_death_check_failure(f'Errore SPARQL: {e}')
             raise CommandError(f'Errore SPARQL: {e}') from e
 
         self.stdout.write(f'Decessi rilevati: {len(dead_ids)}')
@@ -113,4 +120,5 @@ class Command(BaseCommand):
             WikipediaPerson.objects.filter(pk__in=selected_pks).exclude(
                 wikidata_id__in=dead_ids
             ).update(last_checked=timezone.now())
+            record_death_check_success()
         self.stdout.write(self.style.SUCCESS('Controllo completato.'))

@@ -13,6 +13,8 @@ echo "Scheduler avviato (ciclo ${INTERVAL}s, job giornalieri dalle ${DAILY_HOUR}
 
 while :; do
     python manage.py check_deaths || echo "check_deaths fallito (ritento al prossimo ciclo)"
+    # Email allo staff se i controlli sono fermi o falliscono di continuo.
+    python manage.py monitor_death_checks || echo "monitor_death_checks fallito"
 
     hour=$(date +%H)
     day=$(date +%F)

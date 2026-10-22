@@ -2020,7 +2020,11 @@ class HealthCheckView(View):
         except Exception:
             logger.exception('Healthcheck DB fallito')
             return JsonResponse({'status': 'error', 'db': 'unreachable'}, status=503)
-        return JsonResponse({'status': 'ok'})
+        # Stato dei controlli decessi (game/monitoring.py): solo informativo.
+        # Non cambia lo status HTTP: un Wikidata giù non deve far riavviare il
+        # container web dal healthcheck del compose.
+        from .monitoring import death_check_health
+        return JsonResponse({'status': 'ok', 'death_check': death_check_health()['status']})
 
 
 # --- Push subscriptions API ---

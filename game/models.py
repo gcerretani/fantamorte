@@ -756,6 +756,14 @@ class SiteSettings(models.Model):
                   "la cadenza reale del cron/compose). Usato per dimensionare la fetta di "
                   "giocatori controllati a ogni run e distribuire il carico su Wikidata.",
     )
+    # Telemetria di check_deaths (game/monitoring.py): un decesso perso in
+    # silenzio è il guasto peggiore che il gioco possa avere, quindi l'ultimo
+    # esito si registra e un cron avvisa lo staff se i controlli si fermano.
+    death_check_last_success_at = models.DateTimeField(null=True, blank=True, editable=False)
+    death_check_last_failure_at = models.DateTimeField(null=True, blank=True, editable=False)
+    death_check_consecutive_failures = models.PositiveIntegerField(default=0, editable=False)
+    death_check_last_error = models.CharField(max_length=500, blank=True, editable=False)
+    death_check_alerted_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     class Meta:
         verbose_name = "Impostazioni sito"
