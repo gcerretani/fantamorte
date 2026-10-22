@@ -225,6 +225,12 @@ PWA_APP_SHORT_NAME = 'Fantamorte'
 PWA_APP_THEME_COLOR = '#171a20'
 PWA_APP_BACKGROUND_COLOR = '#111318'
 
+# Foto delle persone servite dal nostro dominio (game/person_images.py): la
+# prima richiesta scarica la thumbnail da Commons, le altre la leggono da qui.
+# PERSON_IMAGE_PROXY=False torna all'hotlink diretto a Commons.
+PERSON_IMAGE_PROXY = env.bool('PERSON_IMAGE_PROXY', default=True)
+PERSON_IMAGE_CACHE_DIR = env('PERSON_IMAGE_CACHE_DIR', default=str(BASE_DIR / 'media' / 'person_images'))
+
 WIKIDATA_USER_AGENT = env('WIKIDATA_USER_AGENT', default='Fantamorte/1.0 (fantamorte@example.com)')
 WIKIDATA_REQUEST_DELAY = env.float('WIKIDATA_REQUEST_DELAY', default=0.5)
 

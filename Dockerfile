@@ -25,6 +25,7 @@ RUN chmod +x entrypoint.sh && \
     SECRET_KEY=build-time-placeholder \
     DATABASE_URL=sqlite:////tmp/build.db \
     python manage.py collectstatic --noinput && \
+    mkdir -p /app/media/person_images && \
     chown -R app:app /app
 
 EXPOSE 8000

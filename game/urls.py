@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views
-from . import league_clone, team_import, v1_hardening_views
+from . import league_clone, person_images, team_import, v1_hardening_views
 from .hardened_views import (
     LeagueDeathsCSVView as HardenedLeagueDeathsCSVView,
     LeagueDeathsView as HardenedLeagueDeathsView,
@@ -46,6 +46,7 @@ urlpatterns = [
     path('squadra/<int:pk>/what-if/', views.TeamWhatIfView.as_view(), name='team_what_if'),
     path('persona/<int:pk>/', views.PersonDetailView.as_view(), name='person_detail'),
     path('morte/<int:pk>/', views.DeathDetailView.as_view(), name='death_detail'),
+    path('img/persona/<int:pk>/<int:width>/<str:digest>/', person_images.PersonImageView.as_view(), name='person_image'),
     path('api/persona/<int:pk>/', views.PersonInfoView.as_view(), name='person_info'),
     path('api/persona/<int:pk>/summary/', views.PersonSummaryView.as_view(), name='person_summary'),
     path('api/search-person/', views.PersonSearchView.as_view(), name='person_search'),

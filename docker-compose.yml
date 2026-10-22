@@ -43,6 +43,8 @@ services:
       - "127.0.0.1:${PORT:-8000}:8000"
     volumes:
       - static_files:/app/staticfiles
+      # Cache delle foto Commons (game/person_images.py): sopravvive ai deploy.
+      - person_images:/app/media/person_images
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz/', timeout=5)"]
       interval: 30s
@@ -115,6 +117,7 @@ volumes:
   db_data:
   db_backups:
   static_files:
+  person_images:
   letsencrypt:
   certbot_www:
   nginx_certs:

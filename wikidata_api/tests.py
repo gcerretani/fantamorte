@@ -417,6 +417,41 @@ class CheckDeathsBatchChunkingTest(TestCase):
         self.assertEqual(set(dead), {'Q0', ids[-1]})
 
 
+class ImageCreditsTest(TestCase):
+    """get_image_credits: autore/licenza da extmetadata, titoli normalizzati."""
+
+    def test_parsing(self):
+        client = WikidataClient()
+        client.delay = 0
+        data = {'query': {
+            'normalized': [{'from': 'File:Foo_bar.jpg', 'to': 'File:Foo bar.jpg'}],
+            'pages': {
+                '1': {'title': 'File:Foo bar.jpg', 'imageinfo': [{
+                    'descriptionurl': 'https://commons.wikimedia.org/wiki/File:Foo_bar.jpg',
+                    'extmetadata': {
+                        'Artist': {'value': '<a href="//x">Mario &amp; Co</a>\n'},
+                        'LicenseShortName': {'value': 'CC BY-SA 4.0'},
+                        'LicenseUrl': {'value': 'https://creativecommons.org/licenses/by-sa/4.0'},
+                    }}]},
+                '-1': {'title': 'File:Sparito.jpg', 'missing': ''},
+            }}}
+        with patch.object(client, '_get', return_value=data) as mock_get:
+            credits = client.get_image_credits(['Foo_bar.jpg', 'Sparito.jpg'])
+        self.assertEqual(mock_get.call_args.args[1]['titles'], 'File:Foo_bar.jpg|File:Sparito.jpg')
+        self.assertEqual(credits, {'Foo_bar.jpg': {
+            'author': 'Mario & Co', 'license': 'CC BY-SA 4.0',
+            'license_url': 'https://creativecommons.org/licenses/by-sa/4.0',
+            'page_url': 'https://commons.wikimedia.org/wiki/File:Foo_bar.jpg',
+        }})
+
+    def test_blocchi_da_50(self):
+        client = WikidataClient()
+        client.delay = 0
+        with patch.object(client, '_get', return_value={'query': {}}) as mock_get:
+            client.get_image_credits([f'F{i}.jpg' for i in range(51)])
+        self.assertEqual(mock_get.call_count, 2)
+
+
 class SearchFotoENascitaTest(TestCase):
     """La ricerca porta foto (P18) e anno di nascita per distinguere gli omonimi."""
 

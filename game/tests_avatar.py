@@ -1,5 +1,7 @@
 """Avatar persona: thumbnail Commons, fallback iniziali, uso nelle pagine (#98)."""
-from django.test import SimpleTestCase
+from unittest.mock import patch
+
+from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
 
 from ._views_test_cases import ViewsBaseTestCase
@@ -45,7 +47,11 @@ class PersonInitialsTest(SimpleTestCase):
         self.assertEqual(person_initials(''), '?')
 
 
+@override_settings(PERSON_IMAGE_PROXY=False)
+@patch('wikidata_api.client.WikidataClient.get_image_credits', return_value={})
 class AvatarNellePagineTest(ViewsBaseTestCase):
+    """Hotlink diretto (proxy spento): la riscrittura della larghezza è
+    visibile nell'URL. Il proxy ha i suoi test in tests_person_images."""
 
     def setUp(self):
         super().setUp()
@@ -53,31 +59,31 @@ class AvatarNellePagineTest(ViewsBaseTestCase):
         self.person.save()
         self.client.login(username='member', password='x')
 
-    def test_rosa_usa_la_thumbnail_piccola(self):
+    def test_rosa_usa_la_thumbnail_piccola(self, _credits):
         resp = self.client.get(reverse('team_detail', args=[self.private_team.pk]))
         self.assertContains(resp, 'class="fm-avatar fm-avatar-md')
         self.assertContains(resp, FILEPATH + '?width=120')
         self.assertNotContains(resp, FILEPATH + '?width=400')
 
-    def test_senza_foto_restano_le_iniziali(self):
+    def test_senza_foto_restano_le_iniziali(self, _credits):
         self.person.image_url = ''
         self.person.save()
         resp = self.client.get(reverse('team_detail', args=[self.private_team.pk]))
         self.assertContains(resp, '<span class="fm-avatar-initials">SB</span>', html=True)
         self.assertNotContains(resp, 'Special:FilePath')
 
-    def test_morto_in_bianco_e_nero(self):
+    def test_morto_in_bianco_e_nero(self, _credits):
         self.person.is_dead = True
         self.person.save()
         resp = self.client.get(reverse('team_detail', args=[self.private_team.pk]))
         self.assertContains(resp, 'fm-avatar-dead')
 
-    def test_pagina_persona_ritratto_xl(self):
+    def test_pagina_persona_ritratto_xl(self, _credits):
         resp = self.client.get(reverse('person_detail', args=[self.person.pk]))
         self.assertContains(resp, 'fm-avatar-xl')
         self.assertContains(resp, FILEPATH + '?width=500')
 
-    def test_api_modal_include_avatar_renderizzato(self):
+    def test_api_modal_include_avatar_renderizzato(self, _credits):
         resp = self.client.get(reverse('person_info', args=[self.person.pk]))
         data = resp.json()
         self.assertIn('fm-avatar-xl', data['avatar_html'])
