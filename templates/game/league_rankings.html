@@ -51,6 +51,7 @@
     <div class="list-group-item py-3{% if forloop.counter == 1 %} fm-rank-first{% endif %}{% if entry.team.manager == user %} fm-rank-me{% endif %}">
       <div class="d-flex align-items-center gap-2">
         <span class="fm-pos{% if forloop.counter == 1 %} fm-pos-first{% endif %}" aria-label="Posizione {{ forloop.counter }}">{{ forloop.counter }}</span>
+        {% user_avatar entry.team.manager 'sm' %}
         <div class="fm-row-main">
           <a href="{% url 'team_detail' entry.team.pk %}" class="fw-bold text-decoration-none">{{ entry.team.name }}</a>
           {% if entry.team.jolly_month %}<span class="badge text-bg-info" title="Mese jolly">J</span>{% endif %}

@@ -259,6 +259,32 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
   - `/manifest.webmanifest`, `/sw.js`, `/offline/`, `/favicon.ico`, `/robots.txt`
   - `/api/push/rotate/` (la chiama il service worker, che non può avere
     sessione né cookie CSRF: si autentica per capability, vedi "PWA + Push")
+- **Pagine allauth nel design system**: `templates/allauth/layouts/`
+  (`base` estende il nostro `base.html`; `manage` = colonna stretta sotto
+  Profilo; `entrance` = card centrata) + `templates/allauth/elements/`
+  (bottoni, campi via `{% fm_field %}`, badge, alert…). Così gestione email,
+  cambio/impostazione password, account collegati, recupero password,
+  verifica email e le pagine future di allauth escono già stilate. Le
+  pagine `/profilo/nome-utente/` ed `/profilo/elimina/`
+  (`game/account_settings.py`) coprono ciò che allauth non offre.
+  L'eliminazione **anonimizza** (via dati personali, squadre e piazzamenti
+  restano; bloccata per gli owner di leghe).
+- **Login social sempre in POST**: `security_policy.py` tiene
+  `SOCIALACCOUNT_LOGIN_ON_GET=False` (CSRF), quindi i bottoni dei provider
+  sono form POST (`socialaccount/_provider_buttons.html`, elemento
+  `provider.html`): con un link GET allauth mostrerebbe una pagina di
+  conferma intermedia («Accedi tramite Google» → Continua).
+- **OpenID Connect generico** (`openid_connect`: Authentik, Keycloak…) da
+  env `OIDC_*` o da SocialApp in admin, come Google/GitHub.
+  `PASSWORD_LOGIN_ENABLED=False` lascia solo i provider (form nascosto,
+  POST rifiutato in `game/forms.py`, signup via form chiuso), ma solo se ce
+  n'è almeno uno: `adapters.password_login_enabled`.
+- **Avatar dei manager** (`game/user_avatars.py`, `{% user_avatar user %}`,
+  stesso partial delle persone): scelta in `UserProfile.avatar_source`
+  (auto = foto dell'account collegato, altrimenti Gravatar; Gravatar; solo
+  iniziali). La foto social è copiata in `social_avatar_url` dai signal
+  allauth (niente query per manager nelle classifiche); Gravatar con
+  `d=404`, così senza Gravatar restano le iniziali.
 - `django-allauth` gestisce login + signup + reset + provider social.
   Le viste hanno il prefisso `account_` (`account_login`, `account_logout`,
   `account_signup`, `account_reset_password`). **Non** usare i nomi vecchi
@@ -517,7 +543,10 @@ Note di efficienza (importanti se tocchi il client):
 /api/search-person/             autocomplete Wikidata (accetta ?q=&league=<slug> per filtrare per lingua)
 /api/leghe/<slug>/wikidata-diff/    JSON POST: sync Wikidata + report differenze (admin, max 10 persone)
 
-/profilo/                       preferenze utente (push per-dispositivo, matrice canali, tema)
+/profilo/                       preferenze utente (push per-dispositivo, matrice canali, tema,
+                                immagine, account: nome utente/email/password/account collegati)
+/profilo/nome-utente/           cambio nome utente
+/profilo/elimina/               eliminazione (anonimizzazione) dell'account
 /api/profilo/preferenze/        POST JSON: autosave preferenze (tema + matrice notifiche)
 /notifiche/                     feed notifiche in-app (segna lette al load)
 /api/notifications/             JSON: lista notifiche (paginata; per live/native)
@@ -819,6 +848,9 @@ Altri file di test:
 - `game/tests_mourning.py`: card «lutto» (compare coi punti, una volta sola,
   non per chi non ha la persona, non con decesso revocato)
 - `game/tests_palmares.py`: palmarès (solo leghe concluse) in profilo e statistiche
+- `game/tests_account_settings.py`: card Account, pagine allauth stilate
+  (smoke), nome utente, eliminazione/anonimizzazione, bottoni social in
+  POST, OIDC, login solo SSO, avatar dei manager (Gravatar/social/iniziali)
 - `game/tests_middleware.py`: `LoginRequiredEverywhereMiddleware` (path
   pubblici vs protetti)
 - `game/tests_views.py`: permessi/integrazione delle view (in arrivo,

@@ -125,3 +125,54 @@ def mourning_overlay(context):
         'scored': scored,
         'total_points': sum(s['points'] for s in scored),
     }
+
+
+@register.simple_tag
+def fm_field(bound_field):
+    """Widget di un campo con le classi del design system (form-control,
+    form-select, form-check-input + is-invalid). Per i form che non passano
+    da game/forms.py, es. le pagine allauth renderizzate da
+    templates/allauth/elements/fields.html."""
+    from django.forms.widgets import CheckboxInput, RadioSelect, Select
+
+    widget = bound_field.field.widget
+    if isinstance(widget, CheckboxInput):
+        base = 'form-check-input'
+    elif isinstance(widget, RadioSelect):
+        base = ''
+    elif isinstance(widget, Select):
+        base = 'form-select'
+    else:
+        base = 'form-control'
+    classes = widget.attrs.get('class', '').split()
+    if base and base not in classes:
+        classes.append(base)
+    if bound_field.errors:
+        classes.append('is-invalid')
+    return bound_field.as_widget(attrs={'class': ' '.join(classes)} if classes else None)
+
+
+@register.simple_tag(takes_context=True)
+def password_login(context):
+    """True se il login con password è attivo (vedi adapters.password_login_enabled)."""
+    from game.adapters import password_login_enabled
+    return password_login_enabled(context.get('request'))
+
+
+@register.inclusion_tag('game/_person_avatar.html')
+def user_avatar(user, size='sm'):
+    """Avatar di un manager (game/user_avatars.py), stessa resa dell'avatar
+    persona: immagine sopra le iniziali, che restano se manca o non carica."""
+    from game.user_avatars import avatar_url
+    if size not in AVATAR_SIZES:
+        size = 'sm'
+    # Lato CSS ×2 per gli schermi retina: sm 2rem → 64 px, lg 4rem → 128 px.
+    px = {'xs': 48, 'sm': 64, 'md': 96, 'lg': 160, 'xl': 400}[size]
+    return {
+        'size': size,
+        'dead': False,
+        'src': avatar_url(user, px),
+        'src2x': '',
+        'initials': person_initials(getattr(user, 'username', '')),
+        'tint': (getattr(user, 'pk', 0) or 0) % 6,
+    }

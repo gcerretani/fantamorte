@@ -10,6 +10,7 @@ class GameConfig(AppConfig):
         # security boundary explicit while remaining part of the game app.
         from . import league_bonus_decisions  # noqa: F401
         from . import signals  # noqa: F401
+        from . import user_avatars  # noqa: F401  (signal allauth per la foto social)
         from . import league_bonus_signals  # noqa: F401
         from . import league_bonus_admin  # noqa: F401
         from . import phase_policy
