@@ -70,6 +70,27 @@ def _throttle(delay):
         _last_request_ts = time.monotonic()
 
 
+SEARCH_THUMB_WIDTH = 120
+
+
+def _search_thumb(uri):
+    """URI P18 restituito da WDQS (`http://commons…/Special:FilePath/X.jpg`)
+    → thumbnail https piccola per la lista dei risultati."""
+    if not uri or 'Special:FilePath/' not in uri:
+        return ''
+    if uri.startswith('http://'):
+        uri = 'https://' + uri[len('http://'):]
+    return f'{uri}?width={SEARCH_THUMB_WIDTH}'
+
+
+def _year_of(xsd_datetime):
+    match = re.match(r'^(-?\d{1,4})-', xsd_datetime or '')
+    if not match:
+        return None
+    year = int(match.group(1))
+    return year if year > 0 else None
+
+
 class WikidataClient:
     ENTITY_URL = 'https://www.wikidata.org/wiki/Special:EntityData/{}.json'
     SPARQL_URL = 'https://query.wikidata.org/sparql'
@@ -159,22 +180,28 @@ class WikidataClient:
             ]
             return fallback, True
 
-        human_map = {}  # qid -> itwiki_title
+        human_map = {}  # qid -> (itwiki_title, image_url, birth_year)
         for binding in sparql_data.get('results', {}).get('bindings', []):
             qid = binding['item']['value'].split('/')[-1]
-            human_map[qid] = binding.get('itwikiTitle', {}).get('value', '')
+            human_map[qid] = (
+                binding.get('itwikiTitle', {}).get('value', ''),
+                _search_thumb(binding.get('image', {}).get('value', '')),
+                _year_of(binding.get('birthDate', {}).get('value', '')),
+            )
 
         results = []
         for candidate in candidates:
             qid = candidate['id']
             if qid not in human_map:
                 continue
-            wiki_title = human_map[qid]
+            wiki_title, image_url, birth_year = human_map[qid]
             results.append({
                 'wikidata_id': qid,
                 'name_it': candidate.get('label', qid),
                 'description': candidate.get('description', ''),
                 'wikipedia_url_it': f'https://it.wikipedia.org/wiki/{wiki_title.replace(" ", "_")}' if wiki_title else '',
+                'image_url': image_url,
+                'birth_year': birth_year,
             })
         return results, False
 

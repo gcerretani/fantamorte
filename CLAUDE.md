@@ -587,7 +587,10 @@ Note di efficienza (importanti se tocchi il client):
 - La **ricerca persona** è un componente condiviso: partial
   `templates/game/_person_search.html` (elementi marcati `data-fm-role`)
   + `fmPersonSearch(rootEl, {onSelect})` (debounce 600 ms,
-  `AbortController`, errori inline; metodo `reset()`). Risultati cachati
+  `AbortController`, errori inline; metodo `reset()`). Ogni risultato ha
+  foto (P18, thumbnail 120 px) e anno di nascita, presi nella stessa
+  `HUMAN_SEARCH_QUERY` (`SAMPLE`/`GROUP BY`): servono a distinguere gli
+  omonimi; l'avatar JS replica il partial `_person_avatar.html`. Risultati cachati
   5 min lato Django. Usato da team_edit e substitute_member: non duplicare
   la logica nei template.
 - In team_edit l'aggiunta persona **non ricarica la pagina**: rifetch

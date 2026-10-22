@@ -417,6 +417,45 @@ class CheckDeathsBatchChunkingTest(TestCase):
         self.assertEqual(set(dead), {'Q0', ids[-1]})
 
 
+class SearchFotoENascitaTest(TestCase):
+    """La ricerca porta foto (P18) e anno di nascita per distinguere gli omonimi."""
+
+    def setUp(self):
+        client_module._reset_session_for_tests()
+
+    def tearDown(self):
+        client_module._reset_session_for_tests()
+
+    def test_risultati_con_thumbnail_e_anno(self):
+        client = WikidataClient()
+        client.delay = 0
+        search = {'search': [
+            {'id': 'Q1', 'label': 'Mario Rossi', 'description': 'calciatore'},
+            {'id': 'Q2', 'label': 'Mario Rossi', 'description': 'attore'},
+        ]}
+        sparql = {'results': {'bindings': [
+            {'item': {'value': 'http://www.wikidata.org/entity/Q1'},
+             'image': {'value': 'http://commons.wikimedia.org/wiki/Special:FilePath/Mario%20Rossi.jpg'},
+             'birthDate': {'value': '1950-03-01T00:00:00Z'}},
+            {'item': {'value': 'http://www.wikidata.org/entity/Q2'}},
+        ]}}
+        with patch.object(client, '_get', return_value=search), \
+                patch.object(client, '_sparql', return_value=sparql) as mock_sparql:
+            results, failed = client.search_by_italian_name('Mario Rossi')
+        self.assertFalse(failed)
+        self.assertIn('GROUP BY ?item', mock_sparql.call_args.args[0])
+        first, second = results
+        self.assertEqual(
+            first['image_url'],
+            'https://commons.wikimedia.org/wiki/Special:FilePath/Mario%20Rossi.jpg?width=120')
+        self.assertEqual(first['birth_year'], 1950)
+        self.assertEqual((second['image_url'], second['birth_year']), ('', None))
+
+    def test_anno_avanti_cristo_ignorato(self):
+        self.assertIsNone(client_module._year_of('-0063-09-23T00:00:00Z'))
+        self.assertIsNone(client_module._year_of('t123'))
+
+
 class QidsWithSitelinksTest(TestCase):
     """qids_with_sitelinks: filtro per wiki usato dall'import squadra."""
 
