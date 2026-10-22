@@ -67,6 +67,12 @@ def _send_user_event_push(user, kind, payload):
     return sent
 
 
+def send_user_event_push(user, kind, payload) -> int:
+    """Versione pubblica di _send_user_event_push per eventi senza helper
+    dedicato (es. invito a una nuova lega)."""
+    return _send_user_event_push(user, kind, payload)
+
+
 def send_preseason_death_push(team, person) -> int:
     league = team.league
     body_parts = [f"{person.name_it} è deceduto/a prima dell'inizio della lega."]

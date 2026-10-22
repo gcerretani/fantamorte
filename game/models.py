@@ -804,6 +804,7 @@ class Notification(models.Model):
     KIND_LEAGUE_STARTED = 'league_started'
     KIND_LEAGUE_ENDED = 'league_ended'
     KIND_TEAM_LOCKED = 'team_locked'
+    KIND_LEAGUE_INVITE = 'league_invite'
     KIND_CHOICES = [
         (KIND_DEATH, 'Decesso'),
         (KIND_DEATH_TEAM, 'Decesso nella tua squadra'),
@@ -813,6 +814,7 @@ class Notification(models.Model):
         (KIND_LEAGUE_STARTED, 'Lega iniziata'),
         (KIND_LEAGUE_ENDED, 'Lega conclusa'),
         (KIND_TEAM_LOCKED, 'Squadra bloccata'),
+        (KIND_LEAGUE_INVITE, 'Invito a una nuova lega'),
     ]
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')

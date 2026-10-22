@@ -332,6 +332,12 @@ channel)`) e helper badge (`unread_count`, `mark_all_read`).
   `LeagueMembership` (notifica l'owner); blocco squadra → signal `post_save`
   `Team` sulla transizione `is_locked` (pattern `_was_locked`, come
   `_was_confirmed`); inizio/fine lega → command `emit_league_lifecycle`.
+- **Nuova edizione di una lega** (`game/league_clone.py`): copia la
+  *configurazione* (`RULE_FIELDS`, bonus attivi con override, bonus
+  personalizzati **duplicati** sulla nuova lega) e mai il *gioco* (squadre,
+  iscritti, decessi). L'invito agli iscritti è l'evento
+  `league_invite` (`notify_league_invite`, dedup per utente+lega, link con
+  codice invito se privata), default push+email attivi.
 - **Canali per categoria**: `UserProfile.notification_prefs` è la matrice
   (categoria × canale). Il feed **non** è nella matrice (sempre attivo); push ed
   email si inviano solo se `wants()` è vero. Default: decessi+sostituzione su
@@ -466,6 +472,7 @@ Note di efficienza (importanti se tocchi il client):
 /leghe/<slug>/                  detail (top 3 + timeline eventi lega + regole + iscrizione)
 /leghe/<slug>/admin/            pannello admin (regole, bonus, membri, invito, danger zone)
 /leghe/<slug>/elimina/          POST: elimina la lega (owner o staff, richiede il nome digitato)
+/leghe/<slug>/duplica/          nuova edizione: lega nuova con regole+bonus di questa (admin di lega)
 /leghe/<slug>/regolamento/      riepilogo regole+bonus della lega (visibile a tutti i membri)
 /leghe/<slug>/classifica/       classifica completa
 /leghe/<slug>/decessi/          timeline decessi (con assegnazione manuale bonus per gli admin)
@@ -749,6 +756,8 @@ Altri file di test:
   zero query sul prefetch) e sezione Caduti nel dettaglio squadra
 - `game/tests_team_import.py`: import rosa (filtro wiki, morti, limiti rosa
   ed età, idempotenza, permessi, Wikidata giù)
+- `game/tests_league_clone.py`: nuova edizione di una lega (regole e bonus
+  copiati, personalizzati duplicati, inviti, date, permessi)
 - `game/tests_middleware.py`: `LoginRequiredEverywhereMiddleware` (path
   pubblici vs protetti)
 - `game/tests_views.py`: permessi/integrazione delle view (in arrivo,

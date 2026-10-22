@@ -1,0 +1,71 @@
+{% extends 'base.html' %}
+{% block title %}Nuova edizione — {{ league.name }}{% endblock %}
+{% block content %}
+
+<header class="fm-page-header">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'league_list' %}">Leghe</a></li>
+      <li class="breadcrumb-item"><a href="{% url 'league_detail' league.slug %}">{{ league.name }}</a></li>
+      <li class="breadcrumb-item"><a href="{% url 'league_admin' league.slug %}">Gestione</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Nuova edizione</li>
+    </ol>
+  </nav>
+  <h2>Nuova edizione</h2>
+  <div class="fm-facts">
+    <span class="fm-fact">Regole di {{ league.name }}</span>
+    <span class="fm-fact">{{ active_bonus_count }} bonus attiv{{ active_bonus_count|pluralize:"o,i" }}</span>
+    {% if custom_bonus_count %}<span class="fm-fact">{{ custom_bonus_count }} personalizzat{{ custom_bonus_count|pluralize:"o,i" }}</span>{% endif %}
+  </div>
+</header>
+
+<form method="post" class="row g-3">
+  {% csrf_token %}
+  <div class="col-md-8">
+    <label class="form-label" for="fmCloneName">Nome della nuova lega</label>
+    <input type="text" name="name" id="fmCloneName" class="form-control" value="{{ data.name }}" required>
+  </div>
+  <div class="col-md-4">
+    <label class="form-label" for="fmCloneVisibility">Visibilità</label>
+    <select name="visibility" id="fmCloneVisibility" class="form-select">
+      <option value="public"{% if data.visibility == 'public' %} selected{% endif %}>Pubblica</option>
+      <option value="private"{% if data.visibility == 'private' %} selected{% endif %}>Privata</option>
+    </select>
+  </div>
+  <div class="col-6 col-md-3">
+    <label class="form-label" for="fmCloneRegOpens">Apertura iscrizioni</label>
+    <input type="date" name="registration_opens" id="fmCloneRegOpens" class="form-control" value="{{ data.registration_opens }}" required>
+  </div>
+  <div class="col-6 col-md-3">
+    <label class="form-label" for="fmCloneRegCloses">Chiusura iscrizioni</label>
+    <input type="date" name="registration_closes" id="fmCloneRegCloses" class="form-control" value="{{ data.registration_closes }}" required>
+  </div>
+  <div class="col-6 col-md-3">
+    <label class="form-label" for="fmCloneStart">Inizio gioco</label>
+    <input type="date" name="start_date" id="fmCloneStart" class="form-control" value="{{ data.start_date }}" required>
+  </div>
+  <div class="col-6 col-md-3">
+    <label class="form-label" for="fmCloneEnd">Fine gioco</label>
+    <input type="date" name="end_date" id="fmCloneEnd" class="form-control" value="{{ data.end_date }}" required>
+  </div>
+  <div class="col-12">
+    <p class="small text-body-secondary mb-2">
+      Le date sono proposte spostando di un anno quelle di {{ league.name }}. La chiusura
+      delle iscrizioni non può essere successiva all'inizio del gioco.
+    </p>
+    {% if invitable_count %}
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="invite_members" value="1" id="fmCloneInvite"{% if data.invite_members %} checked{% endif %}>
+        <label class="form-check-label" for="fmCloneInvite">
+          Invita gli iscritti di {{ league.name }} ({{ invitable_count }})
+          <span class="text-body-secondary">(notifica in-app, più push/email secondo le loro preferenze)</span>
+        </label>
+      </div>
+    {% endif %}
+  </div>
+  <div class="col-12 d-flex gap-2">
+    <button class="btn btn-primary">Crea la lega</button>
+    <a href="{% url 'league_admin' league.slug %}" class="btn btn-outline-secondary">Annulla</a>
+  </div>
+</form>
+{% endblock %}
