@@ -1,0 +1,14 @@
+{% extends 'allauth/layouts/base.html' %}
+{# Pagine d'ingresso (recupero password, verifica email…): card centrata #}
+{# come login.html e signup.html.                                         #}
+{% block content_outer %}
+<div class="row justify-content-center">
+  <div class="col-md-6 col-lg-5">
+    <div class="card shadow-sm">
+      <div class="card-body p-4 fm-account-entrance">
+        {% block content %}{% endblock %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

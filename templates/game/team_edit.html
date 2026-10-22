@@ -75,6 +75,16 @@
       {% endif %}
     </div>
 
+    {% if has_import_sources %}
+    <div class="card card-body mb-3 d-flex flex-row align-items-center gap-2 flex-wrap">
+      <div class="fm-row-main">
+        <div class="fw-semibold">Riparti da una tua squadra</div>
+        <div class="small text-body-secondary">Importa la rosa di un'altra lega: entra solo chi rispetta le regole di questa.</div>
+      </div>
+      <a href="{% url 'team_import' team.pk %}" class="btn btn-outline-secondary btn-sm">Importa&hellip;</a>
+    </div>
+    {% endif %}
+
     {% if can_edit %}
     <div class="collapse mb-3" id="addForm">
       <div class="card card-body">
@@ -103,8 +113,8 @@
     <div id="fmRosterRegion">
     {% if active_count %}
     <ul class="list-group mb-3">
-      {% for member in members %}
-        {% if member.is_active %}
+      {% for slot in slots %}
+        {% with member=slot.current %}
         <li class="list-group-item py-3{% if member.person.is_dead %} fm-row-dead{% endif %}">
           <div class="d-flex align-items-center gap-2">
             {% person_avatar member.person %}
@@ -116,7 +126,10 @@
                 <span class="badge text-bg-primary">C</span>
               {% endif %}
               {% if member.is_original %}
-                <span class="badge text-bg-info" title="Giocata originale">★</span>
+                <span class="badge text-bg-info" title="Giocata originale"><svg class="fm-ico" aria-hidden="true"><use href="#fmIcoStar"/></svg><span class="visually-hidden">originale</span></span>
+              {% endif %}
+              {% if slot.replaced %}
+                <span class="badge text-bg-info" title="Subentrato/a a {{ slot.replaced.person.name_it }} il {{ member.added_at|date:'d/m/Y' }}">subentrato/a</span>
               {% endif %}
               <div class="small text-body-secondary">
                 {% if member.person.birth_date %}n. {{ member.person.birth_date.year }}{% elif member.person.birth_year %}n. {{ member.person.birth_year }}{% endif %}
@@ -126,6 +139,7 @@
                   &middot; <span class="text-success">Vivo/a</span>
                 {% endif %}
               </div>
+              {% include 'game/_slot_history.html' %}
               {% if member.person.is_dead and member.died_before_season and not league.has_started %}
                 {# In composizione niente sostituzione: va rimosso dalla rosa #}
                 {# (bottone × qui a fianco). Dall'inizio della lega in poi     #}
@@ -178,11 +192,11 @@
             {% endif %}
           </div>
         </li>
-        {% endif %}
+        {% endwith %}
       {% endfor %}
     </ul>
     {% else %}
-    <p class="text-body-secondary">La rosa è vuota: cerca un personaggio qui sopra per aggiungerlo.</p>
+    {% include 'game/_empty_state.html' with icon='User' title='La rosa è vuota' text='Usa «+ Aggiungi» qui sopra per cercare i tuoi morituri su Wikidata, oppure importa la rosa di una tua squadra.' %}
     {% endif %}
 
     {% if can_edit %}

@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views
-from . import v1_hardening_views
+from . import account_settings, league_clone, person_images, team_import, v1_hardening_views
 from .hardened_views import (
     LeagueDeathsCSVView as HardenedLeagueDeathsCSVView,
     LeagueDeathsView as HardenedLeagueDeathsView,
@@ -17,6 +17,7 @@ urlpatterns = [
     path('leghe/<slug:slug>/iscriviti/', views.LeagueJoinView.as_view(), name='league_join'),
     path('leghe/<slug:slug>/abbandona/', v1_hardening_views.LeagueLeaveView.as_view(), name='league_leave'),
     path('leghe/<slug:slug>/elimina/', views.LeagueDeleteView.as_view(), name='league_delete'),
+    path('leghe/<slug:slug>/duplica/', league_clone.LeagueCloneView.as_view(), name='league_clone'),
     path('leghe/<slug:slug>/admin/', v1_hardening_views.LeagueAdminView.as_view(), name='league_admin'),
     path('leghe/<slug:slug>/admin/giocatori/', views.LeaguePlayersRefreshView.as_view(), name='league_players_refresh'),
     path('leghe/<slug:slug>/regolamento/', views.LeagueScoringView.as_view(), name='league_scoring'),
@@ -29,6 +30,8 @@ urlpatterns = [
     path('leghe/<slug:slug>/decessi.csv', HardenedLeagueDeathsCSVView.as_view(), name='league_deaths_csv'),
     path('regolamento/', views.RulesView.as_view(), name='rules'),
     path('profilo/', views.ProfileView.as_view(), name='profile'),
+    path('profilo/nome-utente/', account_settings.UsernameChangeView.as_view(), name='account_username'),
+    path('profilo/elimina/', account_settings.AccountDeleteView.as_view(), name='account_delete'),
     path('api/profilo/preferenze/', v1_hardening_views.ProfilePreferencesView.as_view(), name='profile_preferences'),
     path('statistiche/', views.StatsView.as_view(), name='stats'),
     path('notifiche/', v1_hardening_views.NotificationListView.as_view(), name='notifications'),
@@ -38,12 +41,14 @@ urlpatterns = [
     path('squadra/<int:pk>/', views.TeamDetailView.as_view(), name='team_detail'),
     path('squadra/<int:pk>/modifica/', v1_hardening_views.TeamEditView.as_view(), name='team_edit'),
     path('squadra/<int:pk>/elimina/', views.TeamDeleteView.as_view(), name='team_delete'),
+    path('squadra/<int:pk>/importa/', team_import.TeamImportView.as_view(), name='team_import'),
     path('squadra/<int:pk>/aggiungi/', v1_hardening_views.AddPersonView.as_view(), name='add_person'),
     path('squadra/<int:pk>/rimuovi/<int:member_pk>/', views.RemovePersonView.as_view(), name='remove_person'),
     path('squadra/<int:pk>/sostituisci/<int:member_pk>/', v1_hardening_views.SubstituteMemberView.as_view(), name='substitute_member'),
     path('squadra/<int:pk>/what-if/', views.TeamWhatIfView.as_view(), name='team_what_if'),
     path('persona/<int:pk>/', views.PersonDetailView.as_view(), name='person_detail'),
     path('morte/<int:pk>/', views.DeathDetailView.as_view(), name='death_detail'),
+    path('img/persona/<int:pk>/<int:width>/<str:digest>/', person_images.PersonImageView.as_view(), name='person_image'),
     path('api/persona/<int:pk>/', views.PersonInfoView.as_view(), name='person_info'),
     path('api/persona/<int:pk>/summary/', views.PersonSummaryView.as_view(), name='person_summary'),
     path('api/search-person/', views.PersonSearchView.as_view(), name='person_search'),

@@ -24,10 +24,11 @@ from django.views.decorators.cache import cache_control
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import TemplateView, DetailView, View
 
+from allauth.account.models import EmailAddress
 from wikidata_api.client import WikidataClient
 
-from . import charts, person_sync, scoring, timeline
-from .templatetags.fantamorte_tags import person_avatar
+from . import charts, person_images, person_sync, scoring, timeline
+from .templatetags.fantamorte_tags import person_avatar, user_avatar
 from .models import (
     MONTHS_IT, BonusType, Death, DeathBonus, League, LeagueBonus,
     LeagueMembership, Notification, PushSubscription, SiteSettings, Team,
@@ -62,9 +63,12 @@ class HomeView(LoginRequiredMixin, TemplateView):
                      'score': None, 'next_deadline': None}
             if team:
                 # La classifica è già cachata (scoring): costo ammortizzato.
-                for row in scoring.compute_league_rankings(m.league):
+                rankings = scoring.compute_league_rankings(m.league)
+                for position, row in enumerate(rankings, 1):
                     if row['team'].pk == team.pk:
                         entry['score'] = row['score']
+                        entry['position'] = position
+                        entry['teams_count'] = len(rankings)
                         break
                 # Prossima scadenza di sostituzione tra i membri morti attivi.
                 deadlines = [
@@ -82,7 +86,73 @@ class HomeView(LoginRequiredMixin, TemplateView):
         # (l'ordinamento -start_date delle membership vale per entrambe).
         ctx['active_leagues'] = [e for e in my_leagues if not e['league'].is_finished()]
         ctx['past_leagues'] = [e for e in my_leagues if e['league'].is_finished()]
+        ctx.update(_home_hero(ctx['active_leagues']))
         return ctx
+
+
+def _home_hero(active_entries):
+    """Il riquadro in cima alla home: l'ultimo decesso che riguarda le tue
+    leghe in corso (con i punti che ha portato alle tue squadre) e la
+    scadenza di sostituzione più vicina. Vuoto se non c'è niente da dire."""
+    hero = {'hero_death': None, 'hero_points': [], 'hero_deadline': None}
+    with_deadline = [e for e in active_entries if e['next_deadline']]
+    if with_deadline:
+        hero['hero_deadline'] = min(with_deadline, key=lambda e: e['next_deadline'])
+    league_ids = [e['league'].pk for e in active_entries]
+    if not league_ids:
+        return hero
+    death = (
+        Death.objects.filter(
+            is_confirmed=True,
+            person__team_members__team__league_id__in=league_ids,
+        )
+        .select_related('person').defer('person__claims_cache')
+        .order_by('-death_date', '-pk').first()
+    )
+    if death is None:
+        return hero
+    hero['hero_death'] = death
+    for e in active_entries:
+        if e['team']:
+            points = scoring.compute_team_points_for_death(e['team'], death)
+            if points:
+                hero['hero_points'].append({'team': e['team'], 'points': points})
+    return hero
+
+
+def palmares(history):
+    """Riepilogo dei piazzamenti finali nelle leghe **concluse** (#107).
+
+    `history`: righe {league, position, score, ...} come `my_history` delle
+    statistiche. Le leghe in corso non contano: una vittoria provvisoria non
+    è un titolo. Vince chi è primo con almeno un punto (stessa regola dei
+    `wins` della leaderboard all-time).
+    """
+    finished = [h for h in history if h['league'].is_finished()]
+    if not finished:
+        return None
+    return {
+        'played': len(finished),
+        'wins': sum(1 for h in finished if h['position'] == 1 and h['score'] > 0),
+        'podiums': sum(1 for h in finished if h['position'] <= 3 and h['score'] > 0),
+        'best': min(h['position'] for h in finished),
+        'points': sum(h['score'] for h in finished),
+    }
+
+
+def user_league_history(user):
+    """Piazzamento dell'utente in ogni lega dove ha una squadra (classifiche
+    cachate dello scoring, nessun ricalcolo)."""
+    history = []
+    teams = Team.objects.filter(manager=user, league__isnull=False).select_related('league')
+    for team in teams:
+        rankings = scoring.compute_league_rankings(team.league)
+        for pos, entry in enumerate(rankings, start=1):
+            if entry['team'].pk == team.pk:
+                history.append({'league': team.league, 'team': team, 'score': entry['score'],
+                                'position': pos, 'teams_count': len(rankings)})
+                break
+    return history
 
 
 class StatsView(LoginRequiredMixin, TemplateView):
@@ -152,6 +222,7 @@ class StatsView(LoginRequiredMixin, TemplateView):
                     pp['teams'] += 1
 
         ctx['my_history'] = my_history
+        ctx['palmares'] = palmares(my_history)
         ctx['albo_doro'] = albo_doro
         ctx['all_time'] = sorted(totals.values(), key=lambda a: -a['points'])[:50]
         ctx['top_scorers'] = sorted(
@@ -662,11 +733,32 @@ class LeagueRankingsView(LoginRequiredMixin, View):
         league = get_object_or_404(League, slug=slug)
         if not league.can_user_view(request.user):
             return redirect('league_list')
+        rankings = scoring.compute_league_rankings(league)
         return render(request, 'game/league_rankings.html', {
             'league': league,
-            'rankings': scoring.compute_league_rankings(league),
+            'rankings': rankings,
             'is_admin': league.is_admin(request.user),
+            'points_chart': _league_points_chart(league, rankings, request.user),
         })
+
+
+CHART_TOP_TEAMS = 5
+
+
+def _league_points_chart(league, rankings, user):
+    """Andamento punti delle prime squadre più la propria (#105)."""
+    shown = list(rankings[:CHART_TOP_TEAMS])
+    mine = next((r for r in rankings if r['team'].manager_id == user.pk), None)
+    if mine is not None and mine not in shown:
+        shown.append(mine)
+    series = [{
+        'label': r['team'].name,
+        'events': [(d['death'].death_date, d['points']) for d in r['deaths']],
+        'base': r['team'].score_adjustment,
+        'highlight': r is mine,
+    } for r in shown]
+    return charts.step_chart(series, league.start_date, league.end_date,
+                             timezone.localdate())
 
 
 class LeagueScoringView(LoginRequiredMixin, View):
@@ -1010,10 +1102,12 @@ class TeamDetailView(LoginRequiredMixin, DetailView):
     def get_queryset(self):
         # I membri prefetchati vengono riusati da _find_member nello scoring.
         # `claims_cache` (blob JSON pesante) non serve qui: deferito.
-        return Team.objects.select_related('league', 'manager').prefetch_related(
+        return Team.objects.select_related('league', 'manager', 'manager__profile').prefetch_related(
             Prefetch(
                 'members',
-                queryset=TeamMember.objects.select_related('person').defer('person__claims_cache'),
+                queryset=TeamMember.objects.select_related(
+                    'person', 'person__death',
+                ).defer('person__claims_cache'),
             )
         )
 
@@ -1031,11 +1125,65 @@ class TeamDetailView(LoginRequiredMixin, DetailView):
             return ctx
         details = scoring.compute_team_death_details(team)
         ctx['death_details'] = details
+        if team.league_id:
+            ctx['points_chart'] = charts.step_chart(
+                [{'label': team.name, 'base': team.score_adjustment, 'highlight': True,
+                  'events': [(d['death'].death_date, d['points']) for d in details]}],
+                team.league.start_date, team.league.end_date, timezone.localdate())
         ctx['score'] = sum(d['points'] for d in details) + team.score_adjustment
         ctx['score_adjustment'] = team.score_adjustment
         ctx['score_adjustment_reason'] = team.score_adjustment_reason
-        ctx['active_members'] = [m for m in team.members.all() if m.is_active()]
+        members = list(team.members.all())
+        ctx['slots'] = team.roster_slots(members)
+        ctx['substitutions_count'] = sum(1 for m in members if m.replaced_by_id)
+        ctx['fallen'] = _team_fallen(team, members, details)
         return ctx
+
+
+def _team_fallen(team, members, details):
+    """I «caduti» della squadra: ogni membro morto, sostituito o no, con i
+    punti portati e, se non ne ha portati, il perché.
+
+    Prima i punti erano l'unica traccia di un morto sostituito, e un decesso
+    fuori periodo o non confermato non compariva da nessuna parte.
+    """
+    by_pk = {m.pk: m for m in members}
+    replaced_ids = {m.replaced_by_id for m in members if m.replaced_by_id}
+    detail_by_member = {d['member'].pk: d for d in details}
+    league = team.league
+    fallen = []
+    for m in members:
+        person = m.person
+        if not person.is_dead:
+            continue
+        death = getattr(person, 'death', None)
+        death_date = death.death_date if death else person.death_date
+        reason = ''
+        detail = detail_by_member.get(m.pk)
+        if detail is None:
+            if death is None or not death.is_confirmed:
+                reason = 'Decesso in attesa di conferma'
+            elif league and death_date < league.start_date:
+                reason = "Prima dell'inizio della lega"
+            elif league and death_date > league.end_date:
+                reason = 'Dopo la fine della lega'
+            elif (m.pk in replaced_ids and m.added_at
+                  and timezone.localtime(m.added_at).date() > death_date):
+                # Stessa regola dello scoring (_member_was_eligible_on_death):
+                # un subentrato già morto quando è stato scelto non vale.
+                reason = 'Già deceduto/a quando è subentrato/a'
+            else:
+                reason = 'Nessun punto'
+        fallen.append({
+            'member': m,
+            'person': person,
+            'death_date': death_date,
+            'detail': detail,
+            'reason': reason,
+            'successor': by_pk.get(m.replaced_by_id),
+        })
+    fallen.sort(key=lambda f: (f['death_date'] is None, f['death_date'] or date.min))
+    return fallen
 
 
 class DeathDetailView(LoginRequiredMixin, View):
@@ -1191,6 +1339,10 @@ class TeamEditView(LoginRequiredMixin, View):
             'team': team,
             'league': league,
             'members': members,
+            'slots': team.roster_slots(members),
+            # Card «Importa da una tua squadra» (team_import.TeamImportView).
+            'has_import_sources': can_edit and Team.objects.filter(
+                manager=request.user).exclude(pk=team.pk).exists(),
             'active_count': active_count,
             'total_age': team.get_active_total_age(),
             'dead_members': dead_members,
@@ -1497,6 +1649,11 @@ class PersonDetailView(LoginRequiredMixin, DetailView):
         # guardia su summary_it lo lascerebbe stale per sempre oltre i 30 gg.
         if person.wikipedia_url_it:
             _refresh_person_summary(person)
+        # Attribuzione della foto: una richiesta a Commons solo se manca o è
+        # di una foto precedente (di norma la fa già il cron giornaliero).
+        if person_images.credit_is_stale(person):
+            person_images.refresh_image_credits([person], client=_interactive_client())
+        ctx['image_credit'] = person_images.credit_for_display(person)
 
         # Il reverse one-to-one solleva un'eccezione che eredita da
         # AttributeError, quindi getattr con default è la via pulita.
@@ -1593,6 +1750,16 @@ def _summary_is_stale(person):
     return True
 
 
+def _interactive_client():
+    """Client Wikidata per chiamate dentro una richiesta utente: niente
+    throttle, timeout brevi."""
+    client = WikidataClient()
+    client.delay = 0
+    client.timeout = 5
+    client.sparql_timeout = 8
+    return client
+
+
 def _refresh_person_summary(person):
     """Aggiorna `summary_it` da Wikipedia se mancante o piu' vecchio di 30 giorni."""
     if not _summary_is_stale(person):
@@ -1687,7 +1854,9 @@ class PersonInfoView(LoginRequiredMixin, View):
             # Stesso renderer delle pagine (partial _person_avatar.html):
             # il modal non ricostruisce in JS foto, crop e fallback.
             'avatar_html': render_to_string(
-                'game/_person_avatar.html', person_avatar(person, 'xl')),
+                'game/_person_avatar.html', person_avatar(person, 'xl'))
+            + render_to_string('game/_image_credit.html', {
+                'credit': person_images.credit_for_display(person)}),
             'wikipedia_url_it': person.wikipedia_url_it,
             'summary_it': person.summary_it,
             'summary_stale': _summary_is_stale(person),
@@ -1765,6 +1934,18 @@ class RulesView(TemplateView):
     template_name = 'game/rules.html'
 
 
+def _account_email(user):
+    """L'email da mostrare nel profilo: la primaria di allauth, altrimenti
+    la prima registrata (utenti creati prima di allauth o da shell, che non
+    hanno un indirizzo marcato primario), altrimenti `user.email` come non
+    verificata."""
+    address = (EmailAddress.objects.get_primary(user)
+               or EmailAddress.objects.filter(user=user).order_by('-verified', 'pk').first())
+    if address is None and user.email:
+        address = EmailAddress(user=user, email=user.email, verified=False)
+    return address
+
+
 class ProfileView(LoginRequiredMixin, View):
     template_name = 'game/profile.html'
 
@@ -1776,6 +1957,14 @@ class ProfileView(LoginRequiredMixin, View):
         # del browser e il badge "questo dispositivo" appare.
         devices = push_device_rows(request.user)
         teams = request.user.teams.select_related('league').order_by('-league__start_date')
+        user_palmares = palmares(user_league_history(request.user))
+        social_accounts = list(request.user.socialaccount_set.all())
+        if social_accounts and not profile.social_avatar_url:
+            # Account collegati prima che esistesse la copia della foto: la
+            # si recupera qui una volta (poi la tengono aggiornata i signal).
+            from .user_avatars import sync_social_avatar
+            sync_social_avatar(request.user)
+            profile.refresh_from_db()
         # Righe della matrice preferenze (categoria × canale) con stato corrente.
         pref_rows = [
             {
@@ -1792,6 +1981,11 @@ class ProfileView(LoginRequiredMixin, View):
             'devices': devices,
             'teams': teams,
             'pref_rows': pref_rows,
+            'palmares': user_palmares,
+            # Card Account (#121): stato di email, password e social.
+            'primary_email': _account_email(request.user),
+            'social_accounts': social_accounts,
+            'avatar_choices': UserProfile.AVATAR_CHOICES,
         })
 
 
@@ -1839,9 +2033,23 @@ class ProfilePreferencesView(LoginRequiredMixin, View):
             profile.notification_prefs = current
             changed = True
 
+        avatar_source = data.get('avatar_source')
+        avatar_changed = False
+        if avatar_source is not None:
+            if not isinstance(avatar_source, str) or avatar_source not in dict(UserProfile.AVATAR_CHOICES):
+                return JsonResponse({'status': 'error', 'error': 'Immagine non valida'}, status=400)
+            profile.avatar_source = avatar_source
+            changed = avatar_changed = True
+
         if changed:
             profile.save()
-        return JsonResponse({'status': 'ok'})
+        response = {'status': 'ok'}
+        if avatar_changed:
+            # Anteprima già renderizzata: il JS non ricostruisce l'avatar.
+            request.user.profile = profile
+            response['avatar_html'] = render_to_string(
+                'game/_person_avatar.html', user_avatar(request.user, 'lg'))
+        return JsonResponse(response)
 
 
 # --- PWA: manifest, service worker, offline ---
@@ -1914,7 +2122,11 @@ class HealthCheckView(View):
         except Exception:
             logger.exception('Healthcheck DB fallito')
             return JsonResponse({'status': 'error', 'db': 'unreachable'}, status=503)
-        return JsonResponse({'status': 'ok'})
+        # Stato dei controlli decessi (game/monitoring.py): solo informativo.
+        # Non cambia lo status HTTP: un Wikidata giù non deve far riavviare il
+        # container web dal healthcheck del compose.
+        from .monitoring import death_check_health
+        return JsonResponse({'status': 'ok', 'death_check': death_check_health()['status']})
 
 
 # --- Push subscriptions API ---

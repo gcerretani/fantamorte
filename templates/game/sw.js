@@ -4,6 +4,7 @@ const PRECACHE = [
   '/offline/',
   '{% static "css/fantamorte.css" %}',
   '{% static "js/fantamorte.js" %}',
+  '{% static "fonts/fraunces-latin-wght-normal.woff2" %}',
   '{% static "pwa/icon.svg" %}',
   '{% static "pwa/icon-192.png" %}',
   '{% static "pwa/icon-512.png" %}',
@@ -37,8 +38,11 @@ self.addEventListener('fetch', function (event) {
   // Cache only immutable/public assets. Authenticated HTML is deliberately
   // never persisted: a shared device or a later account must not receive a
   // page cached under a previous session.
+  // Le foto delle persone (/img/persona/…) sono contenuto pubblico di
+  // Commons, uguale per tutti gli utenti, con URL immutabile: asset.
   const isAsset = url.pathname.startsWith('/static/')
-    || url.pathname.startsWith('/media/');
+    || url.pathname.startsWith('/media/')
+    || url.pathname.startsWith('/img/persona/');
   if (isAsset) {
     event.respondWith(
       caches.match(req).then(function (cached) {

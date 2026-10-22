@@ -1,0 +1,18 @@
+{% load fantamorte_tags %}
+{# Storia di uno slot della rosa: chi ha occupato questo posto prima del #}
+{# titolare, dal predecessore diretto al più vecchio (Team.roster_slots). #}
+{# Richiede `slot` e `team` in contesto; usato da team_detail e team_edit. #}
+{% if slot.predecessors %}
+  <ul class="fm-slot-history" aria-label="Sostituzioni in questo posto della rosa">
+    {% for pred in slot.predecessors %}
+      <li>
+        {% person_avatar pred.person 'xs' %}
+        <span class="text-truncate">
+          al posto di
+          <a href="{% url 'person_detail' pred.person.pk %}{% if team.league %}?league={{ team.league.slug }}{% endif %}#decesso" class="text-decoration-none" data-fm-person-pk="{{ pred.person.pk }}">{{ pred.person.name_it }}</a>{% if pred.is_captain %} <span class="badge text-bg-primary" title="Era capitano">C</span>{% endif %}
+          &middot; sostituito/a il {{ pred.replaced_by.added_at|date:"d/m/Y" }}
+        </span>
+      </li>
+    {% endfor %}
+  </ul>
+{% endif %}

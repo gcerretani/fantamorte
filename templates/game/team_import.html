@@ -1,0 +1,91 @@
+{% extends 'base.html' %}
+{% load fantamorte_tags %}
+{% block title %}Importa rosa — {{ team.name }} — Fantamorte{% endblock %}
+
+{% block content %}
+<header class="fm-page-header">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+      {% if league %}
+        <li class="breadcrumb-item"><a href="{% url 'league_list' %}">Leghe</a></li>
+        <li class="breadcrumb-item"><a href="{% url 'league_detail' league.slug %}">{{ league.name }}</a></li>
+      {% endif %}
+      <li class="breadcrumb-item"><a href="{% url 'team_edit' team.pk %}">{{ team.name }}</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Importa rosa</li>
+    </ol>
+  </nav>
+  <h2>Importa da una tua squadra</h2>
+  <p class="text-body-secondary mb-0">
+    Entrano solo i personaggi vivi che rispettano le regole di questa lega
+    {% if wikis_label %}(pagina Wikipedia in: {{ wikis_label }}){% endif %}{% if league.max_total_age %}, limite d'età {{ league.max_total_age }}{% endif %}
+    e finché c'è posto in rosa. Chi è già in rosa resta com'è.
+  </p>
+</header>
+
+{% if not sources %}
+  <p class="text-body-secondary">Non hai altre squadre da cui importare.</p>
+{% else %}
+  <form method="get" class="d-flex gap-2 align-items-end flex-wrap mb-4">
+    <div>
+      <label class="form-label" for="fmImportSource">Squadra di origine</label>
+      <select name="da" id="fmImportSource" class="form-select">
+        {% for s in sources %}
+          <option value="{{ s.pk }}"{% if source and s.pk == source.pk %} selected{% endif %}>{{ s.name }}{% if s.league %} — {{ s.league.name }}{% endif %}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn btn-outline-secondary">Anteprima</button>
+  </form>
+{% endif %}
+
+{% if wiki_error %}
+  <div class="alert alert-warning">
+    Non è stato possibile verificare le pagine Wikipedia dei personaggi (Wikidata non risponde).
+    Questa lega ammette solo chi ha una pagina in {{ wikis_label }}: riprova tra poco.
+  </div>
+{% elif source %}
+  <span class="fm-label">Anteprima &middot; {{ importable_count }} da importare{% if skipped_count %}, {{ skipped_count }} scartat{{ skipped_count|pluralize:"o,i" }}{% endif %}</span>
+  {% if rows %}
+    <ul class="list-group mb-3">
+      {% for r in rows %}
+        <li class="list-group-item py-3{% if not r.importable %} text-body-secondary{% endif %}">
+          <div class="d-flex align-items-center gap-2">
+            {% person_avatar r.person 'sm' %}
+            <div class="fm-row-main">
+              <span class="fw-semibold">{{ r.person.name_it }}</span>
+              {% if r.as_captain %}<span class="badge text-bg-primary" title="Capitano">C</span>{% endif %}
+              {% if r.importable %}
+                {% if r.note %}<div class="small">{{ r.note }}</div>{% endif %}
+              {% else %}
+                <div class="small">{{ r.reason }}</div>
+              {% endif %}
+            </div>
+            {% if r.importable %}
+              <span class="badge text-bg-success">importa</span>
+            {% else %}
+              <span class="badge text-bg-secondary">scartato/a</span>
+            {% endif %}
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="text-body-secondary">La squadra di origine non ha personaggi in rosa.</p>
+  {% endif %}
+
+  {% if importable_count or can_copy_jolly %}
+    <form method="post" class="d-flex gap-3 align-items-center flex-wrap">
+      {% csrf_token %}
+      <input type="hidden" name="da" value="{{ source.pk }}">
+      {% if can_copy_jolly %}
+        <div class="form-check mb-0">
+          <input class="form-check-input" type="checkbox" name="copy_jolly" value="1" id="fmCopyJolly"{% if not team.jolly_month %} checked{% endif %}>
+          <label class="form-check-label" for="fmCopyJolly">Copia anche il mese jolly ({{ source.get_jolly_month_display }})</label>
+        </div>
+      {% endif %}
+      <button class="btn btn-primary">Importa {{ importable_count }} personagg{{ importable_count|pluralize:"io,i" }}</button>
+      <a href="{% url 'team_edit' team.pk %}" class="btn btn-outline-secondary">Annulla</a>
+    </form>
+  {% endif %}
+{% endif %}
+{% endblock %}

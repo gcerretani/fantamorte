@@ -1,0 +1,7 @@
+{# Provider (es. «Aggiungi un account» in Account collegati): form POST e  #}
+{# non link, come _provider_buttons.html, così non passa dalla pagina di  #}
+{# conferma intermedia di allauth.                                        #}
+<form method="post" action="{{ attrs.href }}" class="d-grid">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-outline-secondary" title="{{ attrs.name }}">{{ attrs.name }}</button>
+</form>

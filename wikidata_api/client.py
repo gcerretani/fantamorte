@@ -70,6 +70,27 @@ def _throttle(delay):
         _last_request_ts = time.monotonic()
 
 
+SEARCH_THUMB_WIDTH = 120
+
+
+def _search_thumb(uri):
+    """URI P18 restituito da WDQS (`http://commons…/Special:FilePath/X.jpg`)
+    → thumbnail https piccola per la lista dei risultati."""
+    if not uri or 'Special:FilePath/' not in uri:
+        return ''
+    if uri.startswith('http://'):
+        uri = 'https://' + uri[len('http://'):]
+    return f'{uri}?width={SEARCH_THUMB_WIDTH}'
+
+
+def _year_of(xsd_datetime):
+    match = re.match(r'^(-?\d{1,4})-', xsd_datetime or '')
+    if not match:
+        return None
+    year = int(match.group(1))
+    return year if year > 0 else None
+
+
 class WikidataClient:
     ENTITY_URL = 'https://www.wikidata.org/wiki/Special:EntityData/{}.json'
     SPARQL_URL = 'https://query.wikidata.org/sparql'
@@ -159,22 +180,28 @@ class WikidataClient:
             ]
             return fallback, True
 
-        human_map = {}  # qid -> itwiki_title
+        human_map = {}  # qid -> (itwiki_title, image_url, birth_year)
         for binding in sparql_data.get('results', {}).get('bindings', []):
             qid = binding['item']['value'].split('/')[-1]
-            human_map[qid] = binding.get('itwikiTitle', {}).get('value', '')
+            human_map[qid] = (
+                binding.get('itwikiTitle', {}).get('value', ''),
+                _search_thumb(binding.get('image', {}).get('value', '')),
+                _year_of(binding.get('birthDate', {}).get('value', '')),
+            )
 
         results = []
         for candidate in candidates:
             qid = candidate['id']
             if qid not in human_map:
                 continue
-            wiki_title = human_map[qid]
+            wiki_title, image_url, birth_year = human_map[qid]
             results.append({
                 'wikidata_id': qid,
                 'name_it': candidate.get('label', qid),
                 'description': candidate.get('description', ''),
                 'wikipedia_url_it': f'https://it.wikipedia.org/wiki/{wiki_title.replace(" ", "_")}' if wiki_title else '',
+                'image_url': image_url,
+                'birth_year': birth_year,
             })
         return results, False
 
@@ -261,6 +288,51 @@ class WikidataClient:
             if extract:
                 return extract.strip()
         return ''
+
+    COMMONS_API = 'https://commons.wikimedia.org/w/api.php'
+    COMMONS_BATCH = 50  # limite di `titles` per richiesta dell'API MediaWiki
+
+    def get_image_credits(self, filenames):
+        """Autore, licenza e pagina di una lista di file Commons.
+
+        Ritorna `{filename: {author, license, license_url, page_url}}`, in
+        blocchi da 50 titoli per richiesta. I file inesistenti mancano dal
+        dict. `Artist` in extmetadata è HTML: si tiene solo il testo.
+        """
+        from django.utils.html import strip_tags
+        import html as html_lib
+
+        credits = {}
+        names = [f for f in dict.fromkeys(filenames) if f]
+        for i in range(0, len(names), self.COMMONS_BATCH):
+            chunk = names[i:i + self.COMMONS_BATCH]
+            data = self._get(self.COMMONS_API, {
+                'action': 'query',
+                'titles': '|'.join(f'File:{n}' for n in chunk),
+                'prop': 'imageinfo',
+                'iiprop': 'extmetadata|url',
+                'iiextmetadatafilter': 'Artist|LicenseShortName|LicenseUrl',
+                'format': 'json',
+            })
+            query = data.get('query', {})
+            # L'API normalizza i titoli (underscore → spazio, iniziale
+            # maiuscola): si rimappa sul nome richiesto.
+            back = {n['to']: n['from'] for n in query.get('normalized', [])}
+            for page in query.get('pages', {}).values():
+                info = (page.get('imageinfo') or [None])[0]
+                if not info:
+                    continue
+                title = back.get(page.get('title', ''), page.get('title', ''))
+                name = title.split(':', 1)[-1]
+                meta = info.get('extmetadata', {})
+                author = html_lib.unescape(strip_tags(meta.get('Artist', {}).get('value', ''))).strip()
+                credits[name] = {
+                    'author': ' '.join(author.split())[:200],
+                    'license': meta.get('LicenseShortName', {}).get('value', '')[:100],
+                    'license_url': meta.get('LicenseUrl', {}).get('value', ''),
+                    'page_url': info.get('descriptionurl', ''),
+                }
+        return credits
 
     def _build_commons_image_url(self, claim_list):
         if not claim_list:
@@ -364,6 +436,28 @@ class WikidataClient:
                 if qid:
                     dead.append(qid)
         return dead
+
+    def qids_with_sitelinks(self, wikidata_ids, wikis):
+        """QID, tra quelli passati, con una pagina in almeno una delle wiki
+        (codici `itwiki`, `enwiki`…). Stesso spezzamento in lotti di
+        `check_deaths_batch`."""
+        qids = [q for q in wikidata_ids if re.fullmatch(r'Q\d+', str(q))]
+        langs = [w[:-4] for w in wikis if re.fullmatch(r'[a-z_]+wiki', w)]
+        if not qids or not langs:
+            return set()
+        sites = ' '.join(
+            f'<https://{lang.replace("_", "-")}.wikipedia.org/>' for lang in langs)
+        found = set()
+        for i in range(0, len(qids), self.DEATH_CHECK_CHUNK_SIZE):
+            chunk = qids[i:i + self.DEATH_CHECK_CHUNK_SIZE]
+            values = ' '.join(f'wd:{qid}' for qid in chunk)
+            query = sparql_templates.SITELINK_FILTER_QUERY.format(values=values, sites=sites)
+            data = self._sparql(query)
+            for binding in data.get('results', {}).get('bindings', []):
+                qid = binding.get('item', {}).get('value', '').split('/')[-1]
+                if qid:
+                    found.add(qid)
+        return found
 
     def detect_bonuses(self, wikidata_id, claims_cache, bonus_types):
         detected = []

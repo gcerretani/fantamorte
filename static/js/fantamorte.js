@@ -793,6 +793,60 @@
     window.fmShowPerson(t.dataset.fmPersonPk, leagueEl ? leagueEl.dataset.fmLeague : '');
   });
 
+  // -------- Card «lutto» (#106) --------
+  // Il server la include solo se c'è un decesso nella tua rosa non ancora
+  // visto (notifica death_team non letta). Chiuderla, in qualunque modo,
+  // segna letta quella notifica: si vede una volta sola.
+  (function () {
+    const el = document.getElementById('fmMourning');
+    if (!el) return;
+    const id = parseInt(el.dataset.fmNotificationId, 10);
+    let closed = false;
+    function markRead() {
+      return fetch('/api/notifications/mark-read/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+        body: JSON.stringify({ ids: [id] }),
+        keepalive: true,
+      }).then(function () { window.fmUpdateNotifBadge && window.fmUpdateNotifBadge(); })
+        .catch(function () { /* riproverà al prossimo caricamento */ });
+    }
+    function close() {
+      if (closed) return;
+      closed = true;
+      markRead();
+      el.classList.remove('show');
+      document.body.classList.remove('fm-mourning-open');
+      setTimeout(function () { el.remove(); }, 250);
+    }
+    el.querySelectorAll('[data-fm-mourning-close]').forEach(function (btn) {
+      btn.addEventListener('click', close);
+    });
+    el.addEventListener('click', function (e) { if (e.target === el) close(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+
+    el.hidden = false;
+    document.body.classList.add('fm-mourning-open');
+    requestAnimationFrame(function () { el.classList.add('show'); });
+    const focusTarget = el.querySelector('.fm-mourning-close');
+    if (focusTarget) focusTarget.focus();
+
+    // Contatore animato dei punti, solo se l'utente non chiede meno movimento.
+    const counter = el.querySelector('[data-fm-count-to]');
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (counter && !reduce) {
+      const target = parseInt(counter.dataset.fmCountTo, 10) || 0;
+      const t0 = performance.now();
+      const duration = 1100;
+      counter.textContent = '0';
+      (function tick(now) {
+        const k = Math.min(1, (now - t0) / duration);
+        counter.textContent = String(Math.round(target * (1 - Math.pow(1 - k, 3))));
+        if (k < 1) requestAnimationFrame(tick);
+      })(t0);
+    }
+  })();
+
   // -------- Countdown sostituzioni --------
   // Riutilizzabile su un sottoalbero: chiamata di nuovo dopo il replace di
   // una regione del DOM (es. la rosa dopo un'aggiunta senza reload).
@@ -899,6 +953,16 @@
   // caratteri, AbortController per annullare le richieste obsolete,
   // warning/errori inline. onSelect({wikidata_id, name_it}) al click su
   // un risultato. Ritorna { reset() }.
+  // Iniziali come person_initials() in fantamorte_tags.py.
+  function personInitials(name) {
+    const words = (name || '').replace(/-/g, ' ').split(/\s+/)
+      .map(w => w.replace(/^[()[\]"'.,]+|[()[\]"'.,]+$/g, ''))
+      .filter(w => /^\p{L}/u.test(w));
+    if (!words.length) return '?';
+    if (words.length === 1) return words[0][0].toUpperCase();
+    return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+  }
+
   window.fmPersonSearch = function (root, opts) {
     const options = opts || {};
     const input = root.querySelector('[data-fm-role="input"]');
@@ -943,9 +1007,42 @@
           results.innerHTML = '';
           (data.results || []).forEach(r => {
             const a = document.createElement('a');
-            a.className = 'list-group-item list-group-item-action';
+            a.className = 'list-group-item list-group-item-action d-flex align-items-center gap-2';
             a.href = '#';
-            a.textContent = r.name_it + (r.description ? ' — ' + r.description : '');
+            // Stessa resa del partial _person_avatar.html: iniziali sotto,
+            // foto sopra (il listener 'error' globale la toglie se non carica).
+            const avatar = document.createElement('span');
+            avatar.className = 'fm-avatar fm-avatar-sm';
+            avatar.setAttribute('aria-hidden', 'true');
+            const initials = document.createElement('span');
+            initials.className = 'fm-avatar-initials';
+            initials.textContent = personInitials(r.name_it);
+            avatar.appendChild(initials);
+            if (r.image_url) {
+              const img = document.createElement('img');
+              img.src = r.image_url;
+              img.alt = '';
+              img.loading = 'lazy';
+              img.decoding = 'async';
+              img.referrerPolicy = 'no-referrer';
+              avatar.appendChild(img);
+            }
+            const text = document.createElement('span');
+            text.className = 'fm-row-main';
+            const name = document.createElement('span');
+            name.className = 'fw-semibold';
+            name.textContent = r.name_it;
+            text.appendChild(name);
+            const meta = [r.birth_year ? 'n. ' + r.birth_year : '', r.description || '']
+              .filter(Boolean).join(' · ');
+            if (meta) {
+              const small = document.createElement('span');
+              small.className = 'd-block small text-body-secondary text-truncate';
+              small.textContent = meta;
+              text.appendChild(small);
+            }
+            a.appendChild(avatar);
+            a.appendChild(text);
             a.addEventListener('click', e => {
               e.preventDefault();
               results.innerHTML = '';

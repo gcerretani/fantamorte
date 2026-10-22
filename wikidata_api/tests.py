@@ -417,6 +417,111 @@ class CheckDeathsBatchChunkingTest(TestCase):
         self.assertEqual(set(dead), {'Q0', ids[-1]})
 
 
+class ImageCreditsTest(TestCase):
+    """get_image_credits: autore/licenza da extmetadata, titoli normalizzati."""
+
+    def test_parsing(self):
+        client = WikidataClient()
+        client.delay = 0
+        data = {'query': {
+            'normalized': [{'from': 'File:Foo_bar.jpg', 'to': 'File:Foo bar.jpg'}],
+            'pages': {
+                '1': {'title': 'File:Foo bar.jpg', 'imageinfo': [{
+                    'descriptionurl': 'https://commons.wikimedia.org/wiki/File:Foo_bar.jpg',
+                    'extmetadata': {
+                        'Artist': {'value': '<a href="//x">Mario &amp; Co</a>\n'},
+                        'LicenseShortName': {'value': 'CC BY-SA 4.0'},
+                        'LicenseUrl': {'value': 'https://creativecommons.org/licenses/by-sa/4.0'},
+                    }}]},
+                '-1': {'title': 'File:Sparito.jpg', 'missing': ''},
+            }}}
+        with patch.object(client, '_get', return_value=data) as mock_get:
+            credits = client.get_image_credits(['Foo_bar.jpg', 'Sparito.jpg'])
+        self.assertEqual(mock_get.call_args.args[1]['titles'], 'File:Foo_bar.jpg|File:Sparito.jpg')
+        self.assertEqual(credits, {'Foo_bar.jpg': {
+            'author': 'Mario & Co', 'license': 'CC BY-SA 4.0',
+            'license_url': 'https://creativecommons.org/licenses/by-sa/4.0',
+            'page_url': 'https://commons.wikimedia.org/wiki/File:Foo_bar.jpg',
+        }})
+
+    def test_blocchi_da_50(self):
+        client = WikidataClient()
+        client.delay = 0
+        with patch.object(client, '_get', return_value={'query': {}}) as mock_get:
+            client.get_image_credits([f'F{i}.jpg' for i in range(51)])
+        self.assertEqual(mock_get.call_count, 2)
+
+
+class SearchFotoENascitaTest(TestCase):
+    """La ricerca porta foto (P18) e anno di nascita per distinguere gli omonimi."""
+
+    def setUp(self):
+        client_module._reset_session_for_tests()
+
+    def tearDown(self):
+        client_module._reset_session_for_tests()
+
+    def test_risultati_con_thumbnail_e_anno(self):
+        client = WikidataClient()
+        client.delay = 0
+        search = {'search': [
+            {'id': 'Q1', 'label': 'Mario Rossi', 'description': 'calciatore'},
+            {'id': 'Q2', 'label': 'Mario Rossi', 'description': 'attore'},
+        ]}
+        sparql = {'results': {'bindings': [
+            {'item': {'value': 'http://www.wikidata.org/entity/Q1'},
+             'image': {'value': 'http://commons.wikimedia.org/wiki/Special:FilePath/Mario%20Rossi.jpg'},
+             'birthDate': {'value': '1950-03-01T00:00:00Z'}},
+            {'item': {'value': 'http://www.wikidata.org/entity/Q2'}},
+        ]}}
+        with patch.object(client, '_get', return_value=search), \
+                patch.object(client, '_sparql', return_value=sparql) as mock_sparql:
+            results, failed = client.search_by_italian_name('Mario Rossi')
+        self.assertFalse(failed)
+        self.assertIn('GROUP BY ?item', mock_sparql.call_args.args[0])
+        first, second = results
+        self.assertEqual(
+            first['image_url'],
+            'https://commons.wikimedia.org/wiki/Special:FilePath/Mario%20Rossi.jpg?width=120')
+        self.assertEqual(first['birth_year'], 1950)
+        self.assertEqual((second['image_url'], second['birth_year']), ('', None))
+
+    def test_anno_avanti_cristo_ignorato(self):
+        self.assertIsNone(client_module._year_of('-0063-09-23T00:00:00Z'))
+        self.assertIsNone(client_module._year_of('t123'))
+
+
+class QidsWithSitelinksTest(TestCase):
+    """qids_with_sitelinks: filtro per wiki usato dall'import squadra."""
+
+    def setUp(self):
+        client_module._reset_session_for_tests()
+
+    def tearDown(self):
+        client_module._reset_session_for_tests()
+
+    def test_query_con_siti_e_risultato(self):
+        client = WikidataClient()
+        client.delay = 0
+        resp = {'results': {'bindings': [
+            {'item': {'value': 'http://www.wikidata.org/entity/Q2'}},
+        ]}}
+        with patch.object(client, '_sparql', return_value=resp) as mock_sparql:
+            found = client.qids_with_sitelinks(['Q1', 'Q2'], ['itwiki', 'enwiki'])
+        self.assertEqual(found, {'Q2'})
+        query = mock_sparql.call_args.args[0]
+        self.assertIn('<https://it.wikipedia.org/>', query)
+        self.assertIn('<https://en.wikipedia.org/>', query)
+        self.assertIn('wd:Q1 wd:Q2', query)
+
+    def test_input_non_valido_scartato_senza_rete(self):
+        client = WikidataClient()
+        with patch.object(client, '_sparql') as mock_sparql:
+            self.assertEqual(client.qids_with_sitelinks(['Q1 }'], ['itwiki']), set())
+            self.assertEqual(client.qids_with_sitelinks(['Q1'], ['it> }']), set())
+        mock_sparql.assert_not_called()
+
+
 class MulLabelFallbackTest(TestCase):
     """Fallback label it → mul → en → QID.
 

@@ -13,6 +13,8 @@ echo "Scheduler avviato (ciclo ${INTERVAL}s, job giornalieri dalle ${DAILY_HOUR}
 
 while :; do
     python manage.py check_deaths || echo "check_deaths fallito (ritento al prossimo ciclo)"
+    # Email allo staff se i controlli sono fermi o falliscono di continuo.
+    python manage.py monitor_death_checks || echo "monitor_death_checks fallito"
 
     hour=$(date +%H)
     day=$(date +%F)
@@ -27,6 +29,8 @@ while :; do
             echo "emit_league_lifecycle fallito"
             daily_ok=0
         }
+        # Best-effort: un'attribuzione mancante non deve far ripetere i job.
+        python manage.py refresh_image_credits || echo "refresh_image_credits fallito"
         if [ "$daily_ok" -eq 1 ]; then
             last_daily="$day"
         else

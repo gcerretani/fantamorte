@@ -1,9 +1,17 @@
 {% extends 'base.html' %}
+{% load socialaccount fantamorte_tags %}
 {% block title %}Profilo — Fantamorte{% endblock %}
 {% block content %}
 
-<h2>Profilo di {{ user.username }}</h2>
-<p class="text-body-secondary">{{ user.email|default:'(email non impostata)' }}</p>
+<header class="fm-page-header d-flex align-items-center gap-3">
+  <span id="fmProfileAvatar">{% user_avatar user 'lg' %}</span>
+  <div>
+  <h2>Profilo di {{ user.username }}</h2>
+  <div class="fm-facts">
+    <span class="fm-fact"><span class="fm-fact-icon"><svg class="fm-ico" aria-hidden="true"><use href="#fmIcoCalendar"/></svg></span>Iscritto dal {{ user.date_joined|date:"j F Y" }}</span>
+  </div>
+  </div>
+</header>
 
 <div class="row g-4">
   <div class="col-12">
@@ -105,6 +113,22 @@
             <label class="form-check-label" for="themeDark">Scuro</label>
           </div>
         </fieldset>
+        <fieldset class="mt-3">
+          <legend class="form-label fs-6 mb-2">Immagine del profilo</legend>
+          {% for value, label in avatar_choices %}
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="avatar_source" id="avatar_{{ value }}"
+                value="{{ value }}" {% if profile.avatar_source == value %}checked{% endif %}>
+              <label class="form-check-label" for="avatar_{{ value }}">{{ label }}</label>
+            </div>
+          {% endfor %}
+          <div class="form-text">
+            L'immagine compare accanto al tuo nome in classifiche e squadre.
+            <a href="https://gravatar.com" target="_blank" rel="noopener">Gravatar</a> è un servizio
+            esterno legato all'email{% if primary_email %} ({{ primary_email.email }}){% endif %}: se non hai
+            un Gravatar restano le iniziali.
+          </div>
+        </fieldset>
       </div>
     </div>
   </div>
@@ -114,6 +138,7 @@
     <div class="card">
       <div class="card-body">
         <h5 class="card-title">Le tue squadre</h5>
+        {% include 'game/_palmares.html' %}
         <div class="d-flex flex-wrap gap-2">
           {% for t in teams %}
             <a href="{% url 'team_edit' t.pk %}" class="btn btn-outline-secondary btn-sm">
@@ -126,16 +151,63 @@
   </div>
   {% endif %}
 
-  {# Su mobile la top bar non ha più il menu: manuale, admin e logout vivono qui. #}
-  <div class="col-12">
+  <div class="col-12" id="account">
     <div class="card">
       <div class="card-body">
         <h5 class="card-title">Account</h5>
+        <ul class="list-group mb-3">
+          <li class="list-group-item d-flex align-items-center gap-2 flex-wrap">
+            <div class="fm-row-main">
+              <div class="small text-body-secondary">Nome utente</div>
+              <div class="fw-semibold">{{ user.username }}</div>
+            </div>
+            <a href="{% url 'account_username' %}" class="btn btn-outline-secondary btn-sm">Modifica</a>
+          </li>
+          <li class="list-group-item d-flex align-items-center gap-2 flex-wrap">
+            <div class="fm-row-main">
+              <div class="small text-body-secondary">Email</div>
+              <div class="fw-semibold text-break">
+                {% if primary_email %}{{ primary_email.email }}
+                  {% if primary_email.verified %}<span class="badge text-bg-success">verificata</span>{% else %}<span class="badge text-bg-warning">da verificare</span>{% endif %}
+                {% else %}<span class="text-body-secondary">nessuna</span>{% endif %}
+              </div>
+            </div>
+            <a href="{% url 'account_email' %}" class="btn btn-outline-secondary btn-sm">Gestisci</a>
+          </li>
+          {% password_login as password_on %}
+          {% if password_on %}
+          <li class="list-group-item d-flex align-items-center gap-2 flex-wrap">
+            <div class="fm-row-main">
+              <div class="small text-body-secondary">Password</div>
+              <div class="fw-semibold">{% if user.has_usable_password %}impostata{% else %}<span class="text-body-secondary">non impostata: accedi solo con un account collegato</span>{% endif %}</div>
+            </div>
+            {% if user.has_usable_password %}
+              <a href="{% url 'account_change_password' %}" class="btn btn-outline-secondary btn-sm">Cambia</a>
+            {% else %}
+              <a href="{% url 'account_set_password' %}" class="btn btn-outline-secondary btn-sm">Imposta</a>
+            {% endif %}
+          </li>
+          {% endif %}
+          {% get_providers as socialaccount_providers %}
+          {% if socialaccount_providers or social_accounts %}
+          <li class="list-group-item d-flex align-items-center gap-2 flex-wrap">
+            <div class="fm-row-main">
+              <div class="small text-body-secondary">Account collegati</div>
+              <div class="fw-semibold">
+                {% for acc in social_accounts %}<span class="badge text-bg-secondary">{{ acc.get_provider.name }}</span> {% empty %}<span class="text-body-secondary">nessuno</span>{% endfor %}
+              </div>
+            </div>
+            <a href="{% url 'socialaccount_connections' %}" class="btn btn-outline-secondary btn-sm">Gestisci</a>
+          </li>
+          {% endif %}
+        </ul>
+        {# Su mobile la top bar non ha più il menu: manuale, admin e logout vivono qui. #}
         <div class="d-flex flex-wrap gap-2 align-items-center">
           <a href="{% url 'rules' %}" class="btn btn-outline-secondary btn-sm">Come funziona</a>
           {% if user.is_staff %}
             <a href="{% url 'admin:index' %}" class="btn btn-outline-secondary btn-sm">Django admin</a>
           {% endif %}
+          <a href="{% url 'account_delete' %}" class="btn btn-link btn-sm text-danger">Elimina account</a>
           <form method="post" action="{% url 'account_logout' %}" class="d-inline ms-auto">
             {% csrf_token %}
             <button type="submit" class="btn btn-outline-danger btn-sm">Esci</button>
@@ -207,6 +279,28 @@
         if (!this.checked) return;
         if (window.fmSetThemePreference) window.fmSetThemePreference(this.value);
         if (window.fmSavePreference) window.fmSavePreference({ theme_preference: this.value });
+      });
+    });
+
+    // Immagine del profilo: salva e sostituisce l'anteprima con quella che
+    // il server rende (stesso partial degli avatar nelle classifiche).
+    document.querySelectorAll('input[name="avatar_source"]').forEach(function (radio) {
+      radio.addEventListener('change', async function () {
+        if (!this.checked) return;
+        const csrf = (document.cookie.match(/(?:^|; )csrftoken=([^;]+)/) || [])[1] || '';
+        try {
+          const resp = await fetch('/api/profilo/preferenze/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': decodeURIComponent(csrf) },
+            body: JSON.stringify({ avatar_source: this.value }),
+          });
+          const data = await resp.json();
+          if (!resp.ok || data.status !== 'ok') throw new Error();
+          const box = document.getElementById('fmProfileAvatar');
+          if (box && data.avatar_html) box.innerHTML = data.avatar_html;
+        } catch (err) {
+          if (window.fmToast) window.fmToast('Errore nel salvataggio.', 'danger');
+        }
       });
     });
   })();

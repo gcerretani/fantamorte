@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     'allauth.socialaccount',
     'allauth.socialaccount.providers.google',
     'allauth.socialaccount.providers.github',
+    'allauth.socialaccount.providers.openid_connect',
     'game',
     'wikidata_api',
 ]
@@ -202,6 +203,27 @@ if env('GITHUB_OAUTH_CLIENT_ID', default=''):
             'key': '',
         },
     }
+# OpenID Connect generico (Authentik, Keycloak, Authelia, Zitadel, Entra ID…).
+# Stessa regola di Google/GitHub: o le env qui, o un SocialApp da admin con
+# provider "openid_connect", mai entrambi. Callback da registrare sul
+# provider: https://<dominio>/accounts/oidc/<OIDC_PROVIDER_ID>/login/callback/
+if env('OIDC_CLIENT_ID', default=''):
+    SOCIALACCOUNT_PROVIDERS['openid_connect'] = {
+        'OAUTH_PKCE_ENABLED': True,
+        'APPS': [{
+            'provider_id': env('OIDC_PROVIDER_ID', default='oidc'),
+            'name': env('OIDC_PROVIDER_NAME', default='SSO'),
+            'client_id': env('OIDC_CLIENT_ID'),
+            'secret': env('OIDC_CLIENT_SECRET', default=''),
+            'settings': {'server_url': env('OIDC_SERVER_URL')},
+        }],
+    }
+
+# Login con nome utente/email + password. A False restano solo i provider
+# social/OIDC: il form sparisce da login e registrazione e un POST di login
+# con password viene rifiutato (game/forms.py). Ignorato se nessun provider
+# è configurato, per non chiudere fuori tutti.
+PASSWORD_LOGIN_ENABLED = env.bool('PASSWORD_LOGIN_ENABLED', default=True)
 
 # --- Email ---
 EMAIL_BACKEND = env(
@@ -227,6 +249,12 @@ PWA_APP_SHORT_NAME = 'Fantamorte'
 # static/css/fantamorte.css (theme = top bar, background = fondo pagina dark).
 PWA_APP_THEME_COLOR = '#171a20'
 PWA_APP_BACKGROUND_COLOR = '#111318'
+
+# Foto delle persone servite dal nostro dominio (game/person_images.py): la
+# prima richiesta scarica la thumbnail da Commons, le altre la leggono da qui.
+# PERSON_IMAGE_PROXY=False torna all'hotlink diretto a Commons.
+PERSON_IMAGE_PROXY = env.bool('PERSON_IMAGE_PROXY', default=True)
+PERSON_IMAGE_CACHE_DIR = env('PERSON_IMAGE_CACHE_DIR', default=str(BASE_DIR / 'media' / 'person_images'))
 
 WIKIDATA_USER_AGENT = env('WIKIDATA_USER_AGENT', default='Fantamorte/1.0 (fantamorte@example.com)')
 WIKIDATA_REQUEST_DELAY = env.float('WIKIDATA_REQUEST_DELAY', default=0.5)

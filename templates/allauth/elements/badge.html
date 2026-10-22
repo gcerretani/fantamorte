@@ -1,0 +1,1 @@
+{% load allauth %}<span class="badge {% if "success" in attrs.tags or "verified" in attrs.tags %}text-bg-success{% elif "warning" in attrs.tags or "unverified" in attrs.tags %}text-bg-warning{% elif "primary" in attrs.tags %}text-bg-primary{% else %}text-bg-secondary{% endif %}"{% if attrs.title %} title="{{ attrs.title }}"{% endif %}>{% slot %}{% endslot %}</span>

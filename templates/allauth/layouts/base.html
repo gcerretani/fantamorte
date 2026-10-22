@@ -1,7 +1,9 @@
 {% extends 'base.html' %}
 {% comment %}
-Layout delle pagine allauth senza override dedicato: il nostro base.html
-invece dell'HTML grezzo di default (che dava la «pagina bianca» della
-conferma di login social).
+Layout di tutte le pagine allauth (gestione email/password/account collegati,
+recupero password, verifica email, logout…): il nostro base.html invece
+dell'HTML grezzo di default. Gli elementi ({% element %}) hanno le classi del
+design system in templates/allauth/elements/. login.html e signup.html sono
+override completi a parte (templates/account/).
 {% endcomment %}
 {% block title %}{% block head_title %}{% endblock %} — Fantamorte{% endblock %}

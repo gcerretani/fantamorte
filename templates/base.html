@@ -1,4 +1,4 @@
-{% load static %}<!DOCTYPE html>
+{% load static fantamorte_tags %}<!DOCTYPE html>
 <html lang="it" data-profile-theme="{{ theme_preference|default:'auto' }}">
 <head>
   <meta charset="UTF-8">
@@ -17,6 +17,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="Fantamorte">
   <title>{% block title %}Fantamorte{% endblock %}</title>
+  <link rel="preload" href="{% static 'fonts/fraunces-latin-wght-normal.woff2' %}" as="font" type="font/woff2" crossorigin>
   <link href="{% static 'css/fantamorte.css' %}" rel="stylesheet">
   {% block extra_head %}{% endblock %}
   <script>
@@ -49,6 +50,15 @@
   <symbol id="fmIcoBell" viewBox="0 0 24 24"><path d="M12 3a5 5 0 0 0-5 5c0 5-2 6-2 8h14c0-2-2-3-2-8a5 5 0 0 0-5-5zM10 20a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></symbol>
   <symbol id="fmIcoGitHub" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></symbol>
   <symbol id="fmIcoSkull" viewBox="0 0 512 512"><path fill="currentColor" d="M256 96c-79.5 0-144 60.4-144 134.9 0 41.4 19.6 78.4 50.5 103.4v33.4c0 14.4 11.7 26.1 26.1 26.1h12.5v33.6c0 9.4 7.6 17 17 17h75.8c9.4 0 17-7.6 17-17v-33.6h12.5c14.4 0 26.1-11.7 26.1-26.1v-33.4C380.4 309.3 400 272.3 400 230.9 400 156.4 335.5 96 256 96zm-52 184c-14.4 0-26-11.6-26-26s11.6-26 26-26 26 11.6 26 26-11.6 26-26 26zm104 0c-14.4 0-26-11.6-26-26s11.6-26 26-26 26 11.6 26 26-11.6 26-26 26zm-100 65l-13-26h130l-13 26h-26l-13-19-13 19h-26l-13-19-13 19h-26z"/></symbol>
+  {# Icone di contenuto (sostituiscono le emoji: resa identica su ogni device). #}
+  <symbol id="fmIcoCalendar" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></g></symbol>
+  <symbol id="fmIcoUsers" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="8.5" r="3.3"/><path d="M2.8 19.5a6.2 6.2 0 0 1 12.4 0M15.5 5.6a3.3 3.3 0 0 1 0 6.1M17.6 14.2a6.2 6.2 0 0 1 3.6 5.3"/></g></symbol>
+  <symbol id="fmIcoLock" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="10.5" width="15" height="10" rx="2.2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></g></symbol>
+  <symbol id="fmIcoJolly" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="6" y="3" width="12" height="18" rx="2"/><path d="m12 8 1.3 2.7 2.9.4-2.1 2 .5 2.9L12 14.6 9.4 16l.5-2.9-2.1-2 2.9-.4z"/></g></symbol>
+  <symbol id="fmIcoSwap" viewBox="0 0 24 24"><path d="M4 8h14m-4-4 4 4-4 4M20 16H6m4-4-4 4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="fmIcoStar" viewBox="0 0 24 24"><path fill="currentColor" d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.8l-5.2 2.8 1-5.8-4.3-4.1 5.9-.9z"/></symbol>
+  <symbol id="fmIcoCrown" viewBox="0 0 24 24"><path d="M3.5 8 8 12l4-6 4 6 4.5-4-1.8 10.5H5.3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+  <symbol id="fmIcoPen" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16zM13.5 6.5l4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
 </svg>
 
 {# fixed-top (non sticky): la barra resta inchiodata al viewport; l'overscroll #}
@@ -85,7 +95,7 @@
       <button id="fmThemeBtn" class="btn btn-icon" type="button"
         title="Cambia tema" aria-label="Cambia tema">◐</button>
       {% if user.is_authenticated %}
-        <span class="navbar-text d-none d-lg-inline ms-3 me-2">{{ user.username }}</span>
+        <a href="{% url 'profile' %}" class="navbar-text d-none d-lg-inline-flex align-items-center gap-2 ms-3 me-2 text-decoration-none">{% user_avatar user 'xs' %}{{ user.username }}</a>
         <form method="post" action="{% url 'account_logout' %}" class="d-none d-lg-inline ms-1">
           {% csrf_token %}
           <button type="submit" class="btn btn-outline-light btn-sm">Esci</button>
@@ -110,10 +120,13 @@
   {% endfor %}
   </div>
 
-  {% block content %}{% endblock %}
+  {# content_outer: i layout allauth lo ridefiniscono per incorniciare le #}
+  {# loro pagine (templates/allauth/layouts/) senza toccare `content`.     #}
+  {% block content_outer %}{% block content %}{% endblock %}{% endblock %}
 </main>
 
 {% include '_bottom_nav.html' %}
+{% mourning_overlay %}
 
 <footer class="fm-footer">
   <div class="container">

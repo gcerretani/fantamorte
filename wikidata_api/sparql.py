@@ -32,15 +32,35 @@ ASK {{
 }}
 """
 
+# Oltre al filtro umano/lingua porta anche foto (P18) e nascita (P569): nei
+# risultati della ricerca servono a distinguere gli omonimi, e stanno nella
+# stessa query. SAMPLE + GROUP BY: una riga per persona anche con più foto.
 HUMAN_SEARCH_QUERY = """
-SELECT ?item ?itwikiTitle WHERE {{
+SELECT ?item (SAMPLE(?title) AS ?itwikiTitle) (SAMPLE(?img) AS ?image)
+       (SAMPLE(?birth) AS ?birthDate) WHERE {{
   VALUES ?item {{ {values} }}
   ?item wdt:P31 wd:Q5 .
 {wiki_filter}
   OPTIONAL {{
     ?itwikiPage schema:about ?item ;
                schema:isPartOf <https://it.wikipedia.org/> ;
-               schema:name ?itwikiTitle .
+               schema:name ?title .
   }}
+  OPTIONAL {{ ?item wdt:P18 ?img . }}
+  OPTIONAL {{ ?item wdt:P569 ?birth . }}
+}}
+GROUP BY ?item
+"""
+
+# «Di questi, chi ha una pagina in almeno una delle wiki indicate?». Usata
+# dall'importazione di una squadra in una lega con `search_wikipedia_langs`:
+# la stessa regola della ricerca (HUMAN_SEARCH_QUERY), applicata a persone già
+# note. `{sites}` è una lista di `<https://xx.wikipedia.org/>`.
+SITELINK_FILTER_QUERY = """
+SELECT DISTINCT ?item WHERE {{
+  VALUES ?item {{ {values} }}
+  VALUES ?site {{ {sites} }}
+  ?article schema:about ?item ;
+           schema:isPartOf ?site .
 }}
 """

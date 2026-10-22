@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% load socialaccount %}
+{% load socialaccount fantamorte_tags %}
 {% block title %}Accedi — Fantamorte{% endblock %}
 {% block content %}
 <div class="row justify-content-center">
@@ -8,7 +8,9 @@
       <div class="card-body p-4">
         <h2 class="card-title mb-4 text-center">{% include '_logo.html' %} Accedi</h2>
 
-        {% include 'socialaccount/_provider_buttons.html' with label='Continua con' %}
+        {% password_login as password_on %}
+        {% include 'socialaccount/_provider_buttons.html' with label='Continua con' divider=password_on %}
+        {% if password_on %}
 
         <form method="post" action="{% url 'account_login' %}">
           {% csrf_token %}
@@ -44,6 +46,7 @@
         <p class="text-center small mb-0">
           <a href="{% url 'account_reset_password' %}">Hai dimenticato la password?</a>
         </p>
+        {% endif %}
       </div>
     </div>
   </div>

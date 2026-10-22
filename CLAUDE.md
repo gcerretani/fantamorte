@@ -134,6 +134,16 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
   `can_manage_league` (owner o staff) ai template. Lì il Django admin non
   è equivalente (delete con pulizia dei DeathBonus protetti, transfer
   coerente su owner+membership, validazione P/Q dei bonus custom).
+- **Import rosa** (`game/team_import.py`, `/squadra/<pk>/importa/`): il
+  manager, a iscrizioni aperte, riparte dalla rosa di una sua squadra di
+  un'altra lega. È **selettivo**: entrano solo i vivi che rispettano le
+  regole della lega di destinazione — wiki ammesse (`search_wikipedia_langs`,
+  verificate con `qids_with_sitelinks` in una SPARQL cachata; chi ha già
+  `wikipedia_url_it` passa senza rete se `itwiki` è ammessa), stessa
+  validazione di `AddPersonView` (`_validate_roster_person`), limiti di rosa
+  ed età riempiti in ordine capitani→nome. Il piano (`plan_import`) si
+  ricalcola al POST sotto lo stesso lock di riga di `AddPersonView`; se la
+  verifica wiki non risponde non si importa nessuno.
 - **`TeamMember.can_be_substituted()`** governa la sostituzione. Il discrimine
   è **quando siamo**, non quando è avvenuta la morte: prima di `start_date`
   (composizione) non si sostituisce nessuno — il deceduto si toglie dalla rosa
@@ -158,6 +168,13 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
   persona in rosa e solo per la *sua* lega
   (`notifications.affected_manager_leagues`, `push._substitution_hint`): un
   tempo si pescava una lega qualsiasi tra quelle che contenevano la data.
+- **`Team.roster_slots()`** ricostruisce la rosa come *slot*: titolare attivo
+  + catena dei predecessori (`replaced_by`), in memoria sul prefetch. È la
+  vista che usano `team_detail` e `team_edit` (partial `_slot_history.html`
+  «al posto di X · sostituito/a il …», badge «subentrato/a»). Il dettaglio
+  squadra ha poi la sezione **Caduti** (`_team_fallen` in `views.py`): ogni
+  membro morto, sostituito o no, con punti e — se non ne ha portati — il
+  motivo (non confermato, fuori periodo, già morto quando è subentrato).
 - **`TeamMember.is_original`** flag che abilita il bonus "giocata originale".
   Calcolato a inizio stagione dal command `mark_originals`. Il campo
   `replaced_by` crea una catena per tracciare le sostituzioni (solo
@@ -196,7 +213,15 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
   automatici successivi occorre anche impostare `data_frozen=True` sulla
   `WikipediaPerson`.
 - **`SiteSettings`** è un singleton (via Django admin) per configurazione
-  globale, ad es. `wikidata_check_interval_hours`.
+  globale, ad es. `wikidata_check_interval_hours`. Tiene anche la
+  **telemetria di `check_deaths`** (`death_check_*`, sola lettura in admin):
+  ogni run registra successo o fallimento (`game/monitoring.py`), `/healthz/`
+  espone lo stato (`ok|never|stale|failing`, senza mai cambiare lo status
+  HTTP: un Wikidata giù non deve far riavviare il web) e il command
+  `monitor_death_checks`, lanciato dallo scheduler dopo ogni `check_deaths`,
+  manda un'email allo staff se i controlli sono fermi (> 3 cicli, min 2 h)
+  o falliscono 3 volte di fila — al massimo una al giorno, riarmata alla
+  ripresa. Un decesso perso in silenzio è il guasto peggiore del gioco.
 - **`UserProfile`** tiene le preferenze per-utente: `theme_preference`
   (`auto|light|dark`) e `notification_prefs` (JSON), la **matrice canali per
   categoria** `{categoria: {push: bool, email: bool}}`. Le categorie e i default
@@ -234,6 +259,32 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
   - `/manifest.webmanifest`, `/sw.js`, `/offline/`, `/favicon.ico`, `/robots.txt`
   - `/api/push/rotate/` (la chiama il service worker, che non può avere
     sessione né cookie CSRF: si autentica per capability, vedi "PWA + Push")
+- **Pagine allauth nel design system**: `templates/allauth/layouts/`
+  (`base` estende il nostro `base.html`; `manage` = colonna stretta sotto
+  Profilo; `entrance` = card centrata) + `templates/allauth/elements/`
+  (bottoni, campi via `{% fm_field %}`, badge, alert…). Così gestione email,
+  cambio/impostazione password, account collegati, recupero password,
+  verifica email e le pagine future di allauth escono già stilate. Le
+  pagine `/profilo/nome-utente/` ed `/profilo/elimina/`
+  (`game/account_settings.py`) coprono ciò che allauth non offre.
+  L'eliminazione **anonimizza** (via dati personali, squadre e piazzamenti
+  restano; bloccata per gli owner di leghe).
+- **Login social sempre in POST**: `security_policy.py` tiene
+  `SOCIALACCOUNT_LOGIN_ON_GET=False` (CSRF), quindi i bottoni dei provider
+  sono form POST (`socialaccount/_provider_buttons.html`, elemento
+  `provider.html`): con un link GET allauth mostrerebbe una pagina di
+  conferma intermedia («Accedi tramite Google» → Continua).
+- **OpenID Connect generico** (`openid_connect`: Authentik, Keycloak…) da
+  env `OIDC_*` o da SocialApp in admin, come Google/GitHub.
+  `PASSWORD_LOGIN_ENABLED=False` lascia solo i provider (form nascosto,
+  POST rifiutato in `game/forms.py`, signup via form chiuso), ma solo se ce
+  n'è almeno uno: `adapters.password_login_enabled`.
+- **Avatar dei manager** (`game/user_avatars.py`, `{% user_avatar user %}`,
+  stesso partial delle persone): scelta in `UserProfile.avatar_source`
+  (auto = foto dell'account collegato, altrimenti Gravatar; Gravatar; solo
+  iniziali). La foto social è copiata in `social_avatar_url` dai signal
+  allauth (niente query per manager nelle classifiche); Gravatar con
+  `d=404`, così senza Gravatar restano le iniziali.
 - `django-allauth` gestisce login + signup + reset + provider social.
   Le viste hanno il prefisso `account_` (`account_login`, `account_logout`,
   `account_signup`, `account_reset_password`). **Non** usare i nomi vecchi
@@ -315,10 +366,22 @@ channel)`) e helper badge (`unread_count`, `mark_all_read`).
   `LeagueMembership` (notifica l'owner); blocco squadra → signal `post_save`
   `Team` sulla transizione `is_locked` (pattern `_was_locked`, come
   `_was_confirmed`); inizio/fine lega → command `emit_league_lifecycle`.
+- **Nuova edizione di una lega** (`game/league_clone.py`): copia la
+  *configurazione* (`RULE_FIELDS`, bonus attivi con override, bonus
+  personalizzati **duplicati** sulla nuova lega) e mai il *gioco* (squadre,
+  iscritti, decessi). L'invito agli iscritti è l'evento
+  `league_invite` (`notify_league_invite`, dedup per utente+lega, link con
+  codice invito se privata), default push+email attivi.
 - **Canali per categoria**: `UserProfile.notification_prefs` è la matrice
   (categoria × canale). Il feed **non** è nella matrice (sempre attivo); push ed
   email si inviano solo se `wants()` è vero. Default: decessi+sostituzione su
   push+email, eventi lega solo in-app.
+- **Card «lutto»** (`{% mourning_overlay %}` in `base.html`, partial
+  `_mourning.html`): al primo caricamento dopo un decesso confermato nella
+  tua rosa, overlay con ritratto, date e punti portati (contatore animato,
+  fermo con `prefers-reduced-motion`). Sorgente = la `Notification`
+  `death_team` non letta più recente: chiuderla la segna letta, quindi si
+  vede una volta sola. Nessuno stato nuovo; mai sulla pagina `/notifiche/`.
 - **Feed UI**: campanella `fixed-top` (base.html, badge `unread_notifications_count`
   dal context processor) → pagina `/notifiche/` (segna lette al load). Il badge
   si aggiorna senza reload su `visibilitychange` (`fmUpdateNotifBadge`).
@@ -449,6 +512,7 @@ Note di efficienza (importanti se tocchi il client):
 /leghe/<slug>/                  detail (top 3 + timeline eventi lega + regole + iscrizione)
 /leghe/<slug>/admin/            pannello admin (regole, bonus, membri, invito, danger zone)
 /leghe/<slug>/elimina/          POST: elimina la lega (owner o staff, richiede il nome digitato)
+/leghe/<slug>/duplica/          nuova edizione: lega nuova con regole+bonus di questa (admin di lega)
 /leghe/<slug>/regolamento/      riepilogo regole+bonus della lega (visibile a tutti i membri)
 /leghe/<slug>/classifica/       classifica completa
 /leghe/<slug>/decessi/          timeline decessi (con assegnazione manuale bonus per gli admin)
@@ -458,6 +522,7 @@ Note di efficienza (importanti se tocchi il client):
 /squadra/<pk>/                  dettaglio squadra
 /squadra/<pk>/modifica/         edit squadra (rosa, capitano, jolly)
 /squadra/<pk>/aggiungi/         POST AJAX: aggiunge persona (Wikidata)
+/squadra/<pk>/importa/          import selettivo da un'altra squadra del manager (?da=<pk>)
 /squadra/<pk>/rimuovi/<member_pk>/        POST AJAX: rimuove persona (solo fase composizione, mai morti/subentrati)
 /squadra/<pk>/sostituisci/<member_pk>/    flusso sostituzione
 /squadra/<pk>/what-if/          simulatore punti (capitano/jolly + bonus automatici di lega)
@@ -474,19 +539,24 @@ Note di efficienza (importanti se tocchi il client):
 /api/persona/<pk>/              JSON per il modal (solo dati in DB + summary_stale; con
                                 ?league=<slug> aggiunge i bonus automatici "se morisse oggi")
 /api/persona/<pk>/summary/      refresh sincrono del summary Wikipedia (lazy dal modal)
+/img/persona/<pk>/<w>/<hash>/   thumbnail della foto servita dalla cache locale
 /api/search-person/             autocomplete Wikidata (accetta ?q=&league=<slug> per filtrare per lingua)
 /api/leghe/<slug>/wikidata-diff/    JSON POST: sync Wikidata + report differenze (admin, max 10 persone)
 
-/profilo/                       preferenze utente (push per-dispositivo, matrice canali, tema)
+/profilo/                       preferenze utente (push per-dispositivo, matrice canali, tema,
+                                immagine, account: nome utente/email/password/account collegati)
+/profilo/nome-utente/           cambio nome utente
+/profilo/elimina/               eliminazione (anonimizzazione) dell'account
 /api/profilo/preferenze/        POST JSON: autosave preferenze (tema + matrice notifiche)
 /notifiche/                     feed notifiche in-app (segna lette al load)
 /api/notifications/             JSON: lista notifiche (paginata; per live/native)
 /api/notifications/unread-count/  JSON: conteggio non-lette (badge campanella)
 /api/notifications/mark-read/   POST: segna lette (tutte o lista ids)
 /statistiche/                   statistiche cross-lega (morituri più giocati/redditizi,
-                                record decessi, bonus frequenti, storico + leaderboard all-time)
+                                record decessi, bonus frequenti, storico + palmarès +
+                                leaderboard all-time; palmarès anche nel profilo)
 /regolamento/                   manuale generico del portale (nessun punteggio: quelli sono per-lega)
-/healthz/                       healthcheck (pubblico, verifica anche il DB)
+/healthz/                       healthcheck (pubblico, verifica anche il DB; riporta lo stato di check_deaths)
 
 /api/push/{subscribe,unsubscribe,test,devices}/    (devices = elenco live: JSON + frammento HTML)
 /api/push/devices/<pk>/revoca/  POST: revoca un dispositivo dell'utente (404 se non è suo)
@@ -562,7 +632,10 @@ Note di efficienza (importanti se tocchi il client):
 - La **ricerca persona** è un componente condiviso: partial
   `templates/game/_person_search.html` (elementi marcati `data-fm-role`)
   + `fmPersonSearch(rootEl, {onSelect})` (debounce 600 ms,
-  `AbortController`, errori inline; metodo `reset()`). Risultati cachati
+  `AbortController`, errori inline; metodo `reset()`). Ogni risultato ha
+  foto (P18, thumbnail 120 px) e anno di nascita, presi nella stessa
+  `HUMAN_SEARCH_QUERY` (`SAMPLE`/`GROUP BY`): servono a distinguere gli
+  omonimi; l'avatar JS replica il partial `_person_avatar.html`. Risultati cachati
   5 min lato Django. Usato da team_edit e substitute_member: non duplicare
   la logica nei template.
 - In team_edit l'aggiunta persona **non ricarica la pagina**: rifetch
@@ -612,6 +685,20 @@ Note di efficienza (importanti se tocchi il client):
   jolly…) come chips `.fm-facts`/`.fm-fact`; numeri-chiave delle regole come
   tile `.fm-stat` via partial `_league_rules_summary.html` (usato da
   league_detail e league_scoring: non duplicare le regole nei template).
+- **Foto persone: cache locale + attribuzione** (`game/person_images.py`):
+  l'avatar punta a `/img/persona/<pk>/<w>/<hash>/` (whitelist 120/250/500;
+  `hash` = sha256 di `image_url`, quindi URL immutabile e cache lunga
+  anche nel SW). Primo accesso: download da Commons (solo
+  `Special:FilePath`, redirect solo verso `*.wikimedia.org`, solo raster —
+  mai SVG dal nostro dominio —, max 3 MB), salvataggio atomico in
+  `PERSON_IMAGE_CACHE_DIR` (volume `person_images` nel compose); errori →
+  404 `no-store` + 10 minuti senza ritentare. `PERSON_IMAGE_PROXY=False`
+  torna all'hotlink. L'**attribuzione** (autore/licenza/pagina, da
+  `extmetadata`) sta in `WikipediaPerson.image_credit` con il `file` a cui
+  si riferisce: la rinnova il cron `refresh_image_credits` (blocchi da 50)
+  e, se manca, la pagina persona; partial `_image_credit.html` sotto il
+  ritratto e nel modal. I risultati della ricerca (persone non ancora in
+  DB) restano in hotlink.
 - **Avatar persona**: sempre `{% load fantamorte_tags %}` +
   `{% person_avatar person 'sm|md|lg|xl' %}` (partial `_person_avatar.html`,
   classi `.fm-avatar*`), mai un `<img src="{{ person.image_url }}">` a mano.
@@ -627,6 +714,24 @@ Note di efficienza (importanti se tocchi il client):
   un replace del DOM).
 - Animazioni: minime (fade modal/toast, hover liste); le transizioni non
   essenziali vanno dentro `@media (prefers-reduced-motion: no-preference)`.
+- **Font da titolo**: Fraunces variabile self-hosted (`static/fonts/`, OFL,
+  sottoinsiemi latin/latin-ext) via token `--fm-font-display`, solo su
+  `h1-h3`, `.display-5`, `.fm-display` e i numeri-vetrina (hero, podio): il
+  resto dell'UI resta sans. Preload in `base.html`, precache nel SW.
+- **Niente emoji nei template** (resa diversa per device, come per il logo):
+  icone di contenuto dallo sprite di `base.html` (`fmIcoCalendar/Users/Lock/
+  Jolly/Swap/Star/Crown/Pen` oltre a quelle di navigazione).
+- **Stati vuoti**: partial `_empty_state.html` (icona sprite + titolo +
+  testo + azioni opzionali), mai un `<p>` grigio isolato.
+- **Home**: hero (`_home_hero` in `views.py`) con l'ultimo decesso nelle
+  leghe in corso e la sostituzione più urgente; la lista leghe mostra la
+  posizione in classifica. **Classifica**: podio `.fm-podium` sopra la lista.
+- **Andamento punti**: `charts.step_chart` (linee a gradini, coordinate SVG
+  calcolate in Python, numeri come stringhe col punto) + partial
+  `_step_chart.html` (SVG `preserveAspectRatio="none"` +
+  `vector-effect="non-scaling-stroke"`, etichette fuori dall'SVG, colori
+  `.fm-tone-N` dai token). Nel dettaglio squadra e in classifica (prime 5 +
+  la tua, evidenziata). Si ferma a oggi per le leghe in corso.
 - **Etichette di sezione**: usa `.fm-label` (overline monospace uppercase)
   per i titoli di lista/sezione dentro le pagine (Le mie leghe, Classifica,
   Ultimi decessi…), non un `<h4>`/`<h5>` nudo.
@@ -727,6 +832,25 @@ Altri file di test:
   decorre dall'avvio
 - `game/tests_avatar.py`: avatar persona (thumbnail Commons, iniziali,
   uso in rosa/pagina persona/modal)
+- `game/tests_roster_slots.py`: rosa a slot (catena sostituzioni, ordine,
+  zero query sul prefetch) e sezione Caduti nel dettaglio squadra
+- `game/tests_team_import.py`: import rosa (filtro wiki, morti, limiti rosa
+  ed età, idempotenza, permessi, Wikidata giù)
+- `game/tests_league_clone.py`: nuova edizione di una lega (regole e bonus
+  copiati, personalizzati duplicati, inviti, date, permessi)
+- `game/tests_restyle.py`: hero home, podio, divieto di emoji nei template
+- `game/tests_person_images.py`: proxy foto (download una volta, hash,
+  sicurezza del download, errori) e attribuzione Commons
+- `game/tests_monitoring.py`: telemetria di `check_deaths`, stati di salute,
+  `/healthz/`, avvisi email allo staff (dedup 24 h, reset alla ripresa)
+- `game/tests_points_chart.py`: grafico andamento punti (gradini, scala,
+  stop a oggi, prime squadre + la mia)
+- `game/tests_mourning.py`: card «lutto» (compare coi punti, una volta sola,
+  non per chi non ha la persona, non con decesso revocato)
+- `game/tests_palmares.py`: palmarès (solo leghe concluse) in profilo e statistiche
+- `game/tests_account_settings.py`: card Account, pagine allauth stilate
+  (smoke), nome utente, eliminazione/anonimizzazione, bottoni social in
+  POST, OIDC, login solo SSO, avatar dei manager (Gravatar/social/iniziali)
 - `game/tests_middleware.py`: `LoginRequiredEverywhereMiddleware` (path
   pubblici vs protetti)
 - `game/tests_views.py`: permessi/integrazione delle view (in arrivo,
@@ -789,6 +913,8 @@ python manage.py mark_originals            # a inizio stagione di una lega
 python manage.py send_substitution_reminders             # reminder feed+push+email per sostituzioni (T-3, T-1)
 python manage.py send_substitution_reminders --dry-run   # solo log, niente invio
 python manage.py emit_league_lifecycle     # notifiche feed di inizio/fine lega (idempotente, da cron)
+python manage.py monitor_death_checks      # email allo staff se check_deaths è fermo o fallisce (da cron)
+python manage.py refresh_image_credits     # autore/licenza delle foto Commons (solo le mancanti, da cron)
 
 # Docker
 docker compose up -d
@@ -815,7 +941,4 @@ docker compose exec web python manage.py migrate
 - Inviti via email per leghe private (oggi codice condiviso + link invito
   diretto; le email transazionali di decesso/reminder sono già implementate
   in `game/email.py`)
-- Coprire le admin actions con test
-- Indici DB su `Death.death_date`, `Team.league`, `LeagueMembership.user`
-  se le leghe diventano numerose
 - API REST con DRF se serve un'app mobile nativa

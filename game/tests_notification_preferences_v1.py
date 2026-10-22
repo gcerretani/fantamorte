@@ -21,7 +21,7 @@ class PerEventPreferenceTest(TestCase):
 
     def test_matrix_has_exactly_one_row_per_notification_kind(self):
         keys = [row['key'] for row in notif.NOTIFICATION_CATEGORIES]
-        self.assertEqual(len(keys), 8)
+        self.assertEqual(len(keys), len(set(keys)))
         self.assertEqual(set(keys), {choice[0] for choice in Notification.KIND_CHOICES})
 
     def test_new_profile_has_expanded_event_preferences(self):

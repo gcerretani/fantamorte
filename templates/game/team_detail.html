@@ -18,13 +18,19 @@
       <h2>{{ team.name }}</h2>
       <div class="fm-facts">
         <span class="fm-fact" title="Gestore della squadra">
-          <span class="fm-fact-icon" aria-hidden="true">&#128100;</span>
+          {% user_avatar team.manager 'xs' %}
           {{ team.manager.username }}
         </span>
         {% if team.jolly_month %}
           <span class="fm-fact" title="Mese jolly: i punti del mese valgono ×{{ team.league.jolly_multiplier|default:2 }}">
-            <span class="fm-fact-icon" aria-hidden="true">&#127183;</span>
+            <span class="fm-fact-icon"><svg class="fm-ico" aria-hidden="true"><use href="#fmIcoJolly"/></svg></span>
             Jolly: {{ team.get_jolly_month_display }}
+          </span>
+        {% endif %}
+        {% if substitutions_count and not roster_hidden %}
+          <span class="fm-fact" title="Sostituzioni fatte in questa lega">
+            <span class="fm-fact-icon"><svg class="fm-ico" aria-hidden="true"><use href="#fmIcoSwap"/></svg></span>
+            {{ substitutions_count }} sostituzion{{ substitutions_count|pluralize:"e,i" }}
           </span>
         {% endif %}
       </div>
@@ -45,66 +51,89 @@
 {% if roster_hidden %}
 <div class="card">
   <div class="card-body text-center py-5">
-    <p class="display-6 mb-2" aria-hidden="true">&#128274;</p>
+    <p class="mb-2 text-body-secondary"><svg class="fm-ico fm-ico-lg" aria-hidden="true"><use href="#fmIcoLock"/></svg></p>
     <p class="fw-semibold mb-1">Rosa segreta</p>
     <p class="text-body-secondary mb-0">Le rose di questa lega restano segrete fino all'inizio del gioco ({{ team.league.start_date|date:"d/m/Y" }}).</p>
   </div>
 </div>
 {% else %}
+{% if points_chart %}
+  <span class="fm-label">Andamento punti</span>
+  {% include 'game/_step_chart.html' with chart=points_chart %}
+{% endif %}
 <div class="row">
   <div class="col-md-6">
-    <span class="fm-label">Rosa attiva</span>
+    <span class="fm-label">Rosa</span>
     <ul class="list-group mb-4">
-      {% for member in active_members %}
-        <li class="list-group-item d-flex justify-content-between align-items-center gap-2">
-          <div class="d-flex align-items-center gap-2 fm-row-main">
+      {% for slot in slots %}
+        {% with member=slot.current %}
+        <li class="list-group-item py-3{% if member.person.is_dead %} fm-row-dead{% endif %}">
+          <div class="d-flex align-items-center gap-2">
             {% person_avatar member.person %}
-            <div>
-            {% if member.is_captain %}<span class="badge text-bg-primary me-1">C</span>{% endif %}
-            {% if member.is_original %}<span class="badge text-bg-info me-1" title="Giocata originale">★</span>{% endif %}
-            <a href="{% url 'person_detail' member.person.pk %}{% if team.league %}?league={{ team.league.slug }}{% endif %}" class="text-decoration-none" data-fm-person-pk="{{ member.person.pk }}">
-              {{ member.person.name_it }}
-            </a>
-            {% if member.person.birth_date %}
-              <small class="text-body-secondary">(n. {{ member.person.birth_date.year }})</small>
-            {% elif member.person.birth_year %}
-              <small class="text-body-secondary">(n. {{ member.person.birth_year }})</small>
-            {% endif %}
+            <div class="fm-row-main">
+              <a href="{% url 'person_detail' member.person.pk %}{% if team.league %}?league={{ team.league.slug }}{% endif %}" class="fw-semibold text-decoration-none" data-fm-person-pk="{{ member.person.pk }}">{{ member.person.name_it }}</a>
+              {% if member.is_captain %}<span class="badge text-bg-primary" title="Capitano">C</span>{% endif %}
+              {% if member.is_original %}<span class="badge text-bg-info" title="Giocata originale"><svg class="fm-ico" aria-hidden="true"><use href="#fmIcoStar"/></svg><span class="visually-hidden">originale</span></span>{% endif %}
+              {% if slot.replaced %}
+                <span class="badge text-bg-info" title="Subentrato/a a {{ slot.replaced.person.name_it }} il {{ member.added_at|date:'d/m/Y' }}">subentrato/a</span>
+              {% endif %}
+              <div class="small text-body-secondary">
+                {% if member.person.birth_date %}n. {{ member.person.birth_date.year }}{% elif member.person.birth_year %}n. {{ member.person.birth_year }}{% endif %}
+                {% if member.person.is_dead %}
+                  &middot; <span class="text-danger">&dagger; {{ member.person.death_date|date:"d/m/Y" }}</span>
+                {% endif %}
+              </div>
+              {% include 'game/_slot_history.html' %}
+            </div>
+            <div class="text-end flex-shrink-0">
+              {% if member.person.is_dead %}
+                {% if user == team.manager and member.can_be_substituted %}
+                  <a href="{% url 'substitute_member' team.pk member.pk %}" class="btn btn-primary btn-sm">Sostituisci</a>
+                {% else %}
+                  <span class="badge text-bg-danger">Deceduto/a</span>
+                {% endif %}
+              {% else %}
+                <span class="badge text-bg-success">Vivo/a</span>
+              {% endif %}
             </div>
           </div>
-          <div>
-            {% if member.person.is_dead %}
-              <span class="badge text-bg-danger">&#9760; {{ member.person.death_date|date:"d/m/Y" }}</span>
-              {% if user == team.manager and member.can_be_substituted %}
-                <a href="{% url 'substitute_member' team.pk member.pk %}" class="btn btn-primary btn-sm ms-1">Sostituisci</a>
-              {% endif %}
-            {% else %}
-              <span class="badge text-bg-success">Vivo/a</span>
-            {% endif %}
-          </div>
         </li>
+        {% endwith %}
+      {% empty %}
+        <li class="list-group-item text-body-secondary">Rosa ancora vuota.</li>
       {% endfor %}
     </ul>
   </div>
 
   <div class="col-md-6">
-    <span class="fm-label">Punti guadagnati</span>
-    {% if death_details or score_adjustment %}
+    <span class="fm-label">Caduti</span>
+    {% if fallen or score_adjustment %}
       <ul class="list-group mb-4">
-        {% for d in death_details %}
+        {% for f in fallen %}
           <li class="list-group-item py-3">
             <div class="d-flex align-items-center gap-2">
-              {% person_avatar d.death.person 'sm' %}
+              {% person_avatar f.person %}
               <div class="fm-row-main">
-                <a href="{% url 'person_detail' d.death.person.pk %}{% if team.league %}?league={{ team.league.slug }}{% endif %}#decesso" class="fw-semibold text-decoration-none">{{ d.death.person.name_it }}</a>
-                {% if d.is_captain %}<span class="badge text-bg-primary">C</span>{% endif %}
-                {% if d.jolly %}<span class="badge text-bg-info" title="Mese jolly">J</span>{% endif %}
+                <a href="{% url 'person_detail' f.person.pk %}{% if team.league %}?league={{ team.league.slug }}{% endif %}#decesso" class="fw-semibold text-decoration-none" data-fm-person-pk="{{ f.person.pk }}">{{ f.person.name_it }}</a>
+                {% if f.member.is_captain %}<span class="badge text-bg-primary" title="Capitano">C</span>{% endif %}
+                {% if f.detail.jolly %}<span class="badge text-bg-info" title="Mese jolly">J</span>{% endif %}
                 <div class="small text-body-secondary">
-                  {{ d.death.death_date|date:"d/m/Y" }} &middot; base {{ d.base }}{% for b in d.bonus_lines %} &middot; {{ b.name }} +{{ b.points }}{% endfor %}{% if d.multiplier != 1 %} &middot; &times;{{ d.multiplier }}{% endif %}
+                  &dagger; {{ f.death_date|date:"d/m/Y" }}{% if f.detail %} &middot; base {{ f.detail.base }}{% for b in f.detail.bonus_lines %} &middot; {{ b.name }} +{{ b.points }}{% endfor %}{% if f.detail.multiplier != 1 %} &middot; &times;{{ f.detail.multiplier }}{% endif %}{% else %} &middot; {{ f.reason }}{% endif %}
+                </div>
+                <div class="small text-body-secondary">
+                  {% if f.successor %}
+                    <svg class="fm-ico" aria-hidden="true"><use href="#fmIcoSwap"/></svg> sostituito/a da
+                    <a href="{% url 'person_detail' f.successor.person.pk %}{% if team.league %}?league={{ team.league.slug }}{% endif %}" class="text-decoration-none" data-fm-person-pk="{{ f.successor.person.pk }}">{{ f.successor.person.name_it }}</a>
+                    il {{ f.successor.added_at|date:"d/m/Y" }}
+                  {% elif f.member.can_be_substituted %}
+                    ancora in rosa: da sostituire
+                  {% else %}
+                    ancora in rosa
+                  {% endif %}
                 </div>
               </div>
               <div class="fm-metric">
-                <span class="fm-metric-value">{{ d.points }}</span>
+                <span class="fm-metric-value">{% if f.detail %}{{ f.detail.points }}{% else %}&ndash;{% endif %}</span>
                 <span class="fm-metric-unit">punti</span>
               </div>
             </div>
@@ -128,7 +157,7 @@
         {% endif %}
       </ul>
     {% else %}
-      <p class="text-body-secondary">Nessun punto ancora.</p>
+      <p class="text-body-secondary">Nessun caduto, per ora.</p>
     {% endif %}
   </div>
 </div>
