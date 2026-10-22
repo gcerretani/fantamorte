@@ -183,12 +183,61 @@ class Team(models.Model):
     def get_active_non_captain_count(self):
         return self.members.filter(is_captain=False, replaced_by=None).count()
 
+    def roster_slots(self, members=None):
+        """La rosa come *slot*: ogni membro attivo con la catena di chi ha
+        sostituito, dal predecessore diretto al più vecchio.
+
+        La catena è già nel DB (`replaced_by`): un morto sostituito non è
+        "uscito" dalla rosa, occupa lo stesso posto del subentrato. Senza
+        questa vista dal dettaglio squadra le sostituzioni sparivano.
+
+        Lavora in memoria sulla lista passata (o su ``members.all()``, che
+        riusa il prefetch se c'è): nessuna query per anello della catena.
+        Ordine: capitano prima, poi per nome, come in team_edit.
+        """
+        if members is None:
+            members = self.members.all()
+        members = list(members)
+        by_successor = {m.replaced_by_id: m for m in members if m.replaced_by_id}
+        slots = []
+        for member in members:
+            if member.replaced_by_id is not None:
+                continue
+            chain = []
+            prev = by_successor.get(member.pk)
+            successor = member
+            while prev is not None and len(chain) < len(members):
+                # Cache della FK in memoria: il template legge la data della
+                # sostituzione da `pred.replaced_by.added_at` senza query.
+                prev.replaced_by = successor
+                chain.append(prev)
+                successor, prev = prev, by_successor.get(prev.pk)
+            slots.append(RosterSlot(member, chain))
+        slots.sort(key=lambda s: (not s.current.is_captain, s.current.person.name_it.lower()))
+        return slots
+
     def get_active_total_age(self):
         """Somma delle età attuali dei membri attivi (0 per chi non ha dati di nascita)."""
         return sum(
             m.person.get_current_age() or 0
             for m in self.get_active_members().select_related('person')
         )
+
+
+class RosterSlot:
+    """Un posto in rosa: il titolare attuale e chi lo ha preceduto."""
+
+    __slots__ = ('current', 'predecessors')
+
+    def __init__(self, current, predecessors):
+        self.current = current
+        # Dal predecessore diretto (sostituito da `current`) al più vecchio.
+        self.predecessors = predecessors
+
+    @property
+    def replaced(self):
+        """Il membro sostituito direttamente da `current`, se c'è."""
+        return self.predecessors[0] if self.predecessors else None
 
 
 class TeamMember(models.Model):

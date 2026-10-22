@@ -158,6 +158,13 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
   persona in rosa e solo per la *sua* lega
   (`notifications.affected_manager_leagues`, `push._substitution_hint`): un
   tempo si pescava una lega qualsiasi tra quelle che contenevano la data.
+- **`Team.roster_slots()`** ricostruisce la rosa come *slot*: titolare attivo
+  + catena dei predecessori (`replaced_by`), in memoria sul prefetch. È la
+  vista che usano `team_detail` e `team_edit` (partial `_slot_history.html`
+  «al posto di X · sostituito/a il …», badge «subentrato/a»). Il dettaglio
+  squadra ha poi la sezione **Caduti** (`_team_fallen` in `views.py`): ogni
+  membro morto, sostituito o no, con punti e — se non ne ha portati — il
+  motivo (non confermato, fuori periodo, già morto quando è subentrato).
 - **`TeamMember.is_original`** flag che abilita il bonus "giocata originale".
   Calcolato a inizio stagione dal command `mark_originals`. Il campo
   `replaced_by` crea una catena per tracciare le sostituzioni (solo
@@ -727,6 +734,8 @@ Altri file di test:
   decorre dall'avvio
 - `game/tests_avatar.py`: avatar persona (thumbnail Commons, iniziali,
   uso in rosa/pagina persona/modal)
+- `game/tests_roster_slots.py`: rosa a slot (catena sostituzioni, ordine,
+  zero query sul prefetch) e sezione Caduti nel dettaglio squadra
 - `game/tests_middleware.py`: `LoginRequiredEverywhereMiddleware` (path
   pubblici vs protetti)
 - `game/tests_views.py`: permessi/integrazione delle view (in arrivo,

@@ -1013,7 +1013,9 @@ class TeamDetailView(LoginRequiredMixin, DetailView):
         return Team.objects.select_related('league', 'manager').prefetch_related(
             Prefetch(
                 'members',
-                queryset=TeamMember.objects.select_related('person').defer('person__claims_cache'),
+                queryset=TeamMember.objects.select_related(
+                    'person', 'person__death',
+                ).defer('person__claims_cache'),
             )
         )
 
@@ -1034,8 +1036,57 @@ class TeamDetailView(LoginRequiredMixin, DetailView):
         ctx['score'] = sum(d['points'] for d in details) + team.score_adjustment
         ctx['score_adjustment'] = team.score_adjustment
         ctx['score_adjustment_reason'] = team.score_adjustment_reason
-        ctx['active_members'] = [m for m in team.members.all() if m.is_active()]
+        members = list(team.members.all())
+        ctx['slots'] = team.roster_slots(members)
+        ctx['substitutions_count'] = sum(1 for m in members if m.replaced_by_id)
+        ctx['fallen'] = _team_fallen(team, members, details)
         return ctx
+
+
+def _team_fallen(team, members, details):
+    """I «caduti» della squadra: ogni membro morto, sostituito o no, con i
+    punti portati e, se non ne ha portati, il perché.
+
+    Prima i punti erano l'unica traccia di un morto sostituito, e un decesso
+    fuori periodo o non confermato non compariva da nessuna parte.
+    """
+    by_pk = {m.pk: m for m in members}
+    replaced_ids = {m.replaced_by_id for m in members if m.replaced_by_id}
+    detail_by_member = {d['member'].pk: d for d in details}
+    league = team.league
+    fallen = []
+    for m in members:
+        person = m.person
+        if not person.is_dead:
+            continue
+        death = getattr(person, 'death', None)
+        death_date = death.death_date if death else person.death_date
+        reason = ''
+        detail = detail_by_member.get(m.pk)
+        if detail is None:
+            if death is None or not death.is_confirmed:
+                reason = 'Decesso in attesa di conferma'
+            elif league and death_date < league.start_date:
+                reason = "Prima dell'inizio della lega"
+            elif league and death_date > league.end_date:
+                reason = 'Dopo la fine della lega'
+            elif (m.pk in replaced_ids and m.added_at
+                  and timezone.localtime(m.added_at).date() > death_date):
+                # Stessa regola dello scoring (_member_was_eligible_on_death):
+                # un subentrato già morto quando è stato scelto non vale.
+                reason = 'Già deceduto/a quando è subentrato/a'
+            else:
+                reason = 'Nessun punto'
+        fallen.append({
+            'member': m,
+            'person': person,
+            'death_date': death_date,
+            'detail': detail,
+            'reason': reason,
+            'successor': by_pk.get(m.replaced_by_id),
+        })
+    fallen.sort(key=lambda f: (f['death_date'] is None, f['death_date'] or date.min))
+    return fallen
 
 
 class DeathDetailView(LoginRequiredMixin, View):
@@ -1191,6 +1242,7 @@ class TeamEditView(LoginRequiredMixin, View):
             'team': team,
             'league': league,
             'members': members,
+            'slots': team.roster_slots(members),
             'active_count': active_count,
             'total_age': team.get_active_total_age(),
             'dead_members': dead_members,
