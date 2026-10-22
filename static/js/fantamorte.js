@@ -645,6 +645,18 @@
     }
   };
 
+  // -------- Avatar persona: fallback alle iniziali --------
+  // Una foto Commons può sparire (file cancellato/rinominato) o non caricare
+  // offline: si toglie l'<img> e restano le iniziali che ha sotto. L'evento
+  // error non risale il DOM, quindi listener in fase di cattura.
+  document.addEventListener('error', function (e) {
+    const el = e.target;
+    if (el && el.tagName === 'IMG' && el.parentElement &&
+        el.parentElement.classList.contains('fm-avatar')) {
+      el.remove();
+    }
+  }, true);
+
   // -------- Pannello dettagli persona --------
   function escapeHtml(s) {
     return (s || '').replace(/[&<>"']/g, function (c) {
@@ -715,9 +727,8 @@
       else if (!p.is_dead) meta.push('<li><span class="badge text-bg-success">Vivo/a</span></li>');
       if (p.occupation) meta.push(`<li><strong>Attività</strong>: ${escapeHtml(p.occupation)}</li>`);
       if (p.nationality) meta.push(`<li><strong>Cittadinanza</strong>: ${escapeHtml(p.nationality)}</li>`);
-      const img = p.image_url
-        ? `<img src="${escapeHtml(p.image_url)}" alt="Foto di ${escapeHtml(p.name_it || '')}" loading="lazy" decoding="async" class="img-fluid rounded shadow-sm">`
-        : `<div class="bg-secondary text-light text-center rounded p-4" aria-hidden="true"><span class="fs-1">&#128100;</span></div>`;
+      // Markup dell'avatar renderizzato dal server (partial unico).
+      const img = p.avatar_html || '';
       // Biografia: se il dato in cache è assente/scaduto, mostra un
       // placeholder e caricala in un secondo momento senza bloccare il modal.
       const summary = p.summary_stale

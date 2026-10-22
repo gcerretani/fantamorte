@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load fantamorte_tags %}
 {% block title %}{{ person.name_it }} — Fantamorte{% endblock %}
 {% block content %}
 
@@ -54,14 +55,7 @@
 
 <div class="row">
   <div class="col-md-4 mb-3">
-    {% if person.image_url %}
-      <img src="{{ person.image_url }}" alt="Foto di {{ person.name_it }}"
-        loading="lazy" decoding="async" class="img-fluid rounded shadow-sm">
-    {% else %}
-      <div class="bg-body-secondary text-body-secondary text-center rounded p-5" aria-hidden="true">
-        <span class="fs-1">&#128100;</span>
-      </div>
-    {% endif %}
+    {% person_avatar person 'xl' %}
   </div>
   <div class="col-md-8">
     {% if person.summary_it %}

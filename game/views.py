@@ -27,6 +27,7 @@ from django.views.generic import TemplateView, DetailView, View
 from wikidata_api.client import WikidataClient
 
 from . import charts, person_sync, scoring, timeline
+from .templatetags.fantamorte_tags import person_avatar
 from .models import (
     MONTHS_IT, BonusType, Death, DeathBonus, League, LeagueBonus,
     LeagueMembership, Notification, PushSubscription, SiteSettings, Team,
@@ -1683,6 +1684,10 @@ class PersonInfoView(LoginRequiredMixin, View):
             'occupation': person.occupation,
             'nationality': person.nationality,
             'image_url': person.image_url,
+            # Stesso renderer delle pagine (partial _person_avatar.html):
+            # il modal non ricostruisce in JS foto, crop e fallback.
+            'avatar_html': render_to_string(
+                'game/_person_avatar.html', person_avatar(person, 'xl')),
             'wikipedia_url_it': person.wikipedia_url_it,
             'summary_it': person.summary_it,
             'summary_stale': _summary_is_stale(person),
