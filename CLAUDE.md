@@ -350,6 +350,12 @@ channel)`) e helper badge (`unread_count`, `mark_all_read`).
   (categoria × canale). Il feed **non** è nella matrice (sempre attivo); push ed
   email si inviano solo se `wants()` è vero. Default: decessi+sostituzione su
   push+email, eventi lega solo in-app.
+- **Card «lutto»** (`{% mourning_overlay %}` in `base.html`, partial
+  `_mourning.html`): al primo caricamento dopo un decesso confermato nella
+  tua rosa, overlay con ritratto, date e punti portati (contatore animato,
+  fermo con `prefers-reduced-motion`). Sorgente = la `Notification`
+  `death_team` non letta più recente: chiuderla la segna letta, quindi si
+  vede una volta sola. Nessuno stato nuovo; mai sulla pagina `/notifiche/`.
 - **Feed UI**: campanella `fixed-top` (base.html, badge `unread_notifications_count`
   dal context processor) → pagina `/notifiche/` (segna lette al load). Il badge
   si aggiorna senza reload su `visibilitychange` (`fmUpdateNotifBadge`).
@@ -809,6 +815,8 @@ Altri file di test:
   `/healthz/`, avvisi email allo staff (dedup 24 h, reset alla ripresa)
 - `game/tests_points_chart.py`: grafico andamento punti (gradini, scala,
   stop a oggi, prime squadre + la mia)
+- `game/tests_mourning.py`: card «lutto» (compare coi punti, una volta sola,
+  non per chi non ha la persona, non con decesso revocato)
 - `game/tests_middleware.py`: `LoginRequiredEverywhereMiddleware` (path
   pubblici vs protetti)
 - `game/tests_views.py`: permessi/integrazione delle view (in arrivo,
