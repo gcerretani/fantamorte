@@ -899,6 +899,16 @@
   // caratteri, AbortController per annullare le richieste obsolete,
   // warning/errori inline. onSelect({wikidata_id, name_it}) al click su
   // un risultato. Ritorna { reset() }.
+  // Iniziali come person_initials() in fantamorte_tags.py.
+  function personInitials(name) {
+    const words = (name || '').replace(/-/g, ' ').split(/\s+/)
+      .map(w => w.replace(/^[()[\]"'.,]+|[()[\]"'.,]+$/g, ''))
+      .filter(w => /^\p{L}/u.test(w));
+    if (!words.length) return '?';
+    if (words.length === 1) return words[0][0].toUpperCase();
+    return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+  }
+
   window.fmPersonSearch = function (root, opts) {
     const options = opts || {};
     const input = root.querySelector('[data-fm-role="input"]');
@@ -943,9 +953,42 @@
           results.innerHTML = '';
           (data.results || []).forEach(r => {
             const a = document.createElement('a');
-            a.className = 'list-group-item list-group-item-action';
+            a.className = 'list-group-item list-group-item-action d-flex align-items-center gap-2';
             a.href = '#';
-            a.textContent = r.name_it + (r.description ? ' — ' + r.description : '');
+            // Stessa resa del partial _person_avatar.html: iniziali sotto,
+            // foto sopra (il listener 'error' globale la toglie se non carica).
+            const avatar = document.createElement('span');
+            avatar.className = 'fm-avatar fm-avatar-sm';
+            avatar.setAttribute('aria-hidden', 'true');
+            const initials = document.createElement('span');
+            initials.className = 'fm-avatar-initials';
+            initials.textContent = personInitials(r.name_it);
+            avatar.appendChild(initials);
+            if (r.image_url) {
+              const img = document.createElement('img');
+              img.src = r.image_url;
+              img.alt = '';
+              img.loading = 'lazy';
+              img.decoding = 'async';
+              img.referrerPolicy = 'no-referrer';
+              avatar.appendChild(img);
+            }
+            const text = document.createElement('span');
+            text.className = 'fm-row-main';
+            const name = document.createElement('span');
+            name.className = 'fw-semibold';
+            name.textContent = r.name_it;
+            text.appendChild(name);
+            const meta = [r.birth_year ? 'n. ' + r.birth_year : '', r.description || '']
+              .filter(Boolean).join(' · ');
+            if (meta) {
+              const small = document.createElement('span');
+              small.className = 'd-block small text-body-secondary text-truncate';
+              small.textContent = meta;
+              text.appendChild(small);
+            }
+            a.appendChild(avatar);
+            a.appendChild(text);
             a.addEventListener('click', e => {
               e.preventDefault();
               results.innerHTML = '';
