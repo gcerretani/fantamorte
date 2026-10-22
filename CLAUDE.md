@@ -213,7 +213,15 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
   automatici successivi occorre anche impostare `data_frozen=True` sulla
   `WikipediaPerson`.
 - **`SiteSettings`** è un singleton (via Django admin) per configurazione
-  globale, ad es. `wikidata_check_interval_hours`.
+  globale, ad es. `wikidata_check_interval_hours`. Tiene anche la
+  **telemetria di `check_deaths`** (`death_check_*`, sola lettura in admin):
+  ogni run registra successo o fallimento (`game/monitoring.py`), `/healthz/`
+  espone lo stato (`ok|never|stale|failing`, senza mai cambiare lo status
+  HTTP: un Wikidata giù non deve far riavviare il web) e il command
+  `monitor_death_checks`, lanciato dallo scheduler dopo ogni `check_deaths`,
+  manda un'email allo staff se i controlli sono fermi (> 3 cicli, min 2 h)
+  o falliscono 3 volte di fila — al massimo una al giorno, riarmata alla
+  ripresa. Un decesso perso in silenzio è il guasto peggiore del gioco.
 - **`UserProfile`** tiene le preferenze per-utente: `theme_preference`
   (`auto|light|dark`) e `notification_prefs` (JSON), la **matrice canali per
   categoria** `{categoria: {push: bool, email: bool}}`. Le categorie e i default
@@ -512,7 +520,7 @@ Note di efficienza (importanti se tocchi il client):
 /statistiche/                   statistiche cross-lega (morituri più giocati/redditizi,
                                 record decessi, bonus frequenti, storico + leaderboard all-time)
 /regolamento/                   manuale generico del portale (nessun punteggio: quelli sono per-lega)
-/healthz/                       healthcheck (pubblico, verifica anche il DB)
+/healthz/                       healthcheck (pubblico, verifica anche il DB; riporta lo stato di check_deaths)
 
 /api/push/{subscribe,unsubscribe,test,devices}/    (devices = elenco live: JSON + frammento HTML)
 /api/push/devices/<pk>/revoca/  POST: revoca un dispositivo dell'utente (404 se non è suo)
@@ -791,6 +799,8 @@ Altri file di test:
 - `game/tests_restyle.py`: hero home, podio, divieto di emoji nei template
 - `game/tests_person_images.py`: proxy foto (download una volta, hash,
   sicurezza del download, errori) e attribuzione Commons
+- `game/tests_monitoring.py`: telemetria di `check_deaths`, stati di salute,
+  `/healthz/`, avvisi email allo staff (dedup 24 h, reset alla ripresa)
 - `game/tests_middleware.py`: `LoginRequiredEverywhereMiddleware` (path
   pubblici vs protetti)
 - `game/tests_views.py`: permessi/integrazione delle view (in arrivo,
@@ -853,6 +863,7 @@ python manage.py mark_originals            # a inizio stagione di una lega
 python manage.py send_substitution_reminders             # reminder feed+push+email per sostituzioni (T-3, T-1)
 python manage.py send_substitution_reminders --dry-run   # solo log, niente invio
 python manage.py emit_league_lifecycle     # notifiche feed di inizio/fine lega (idempotente, da cron)
+python manage.py monitor_death_checks      # email allo staff se check_deaths è fermo o fallisce (da cron)
 python manage.py refresh_image_credits     # autore/licenza delle foto Commons (solo le mancanti, da cron)
 
 # Docker
@@ -880,7 +891,4 @@ docker compose exec web python manage.py migrate
 - Inviti via email per leghe private (oggi codice condiviso + link invito
   diretto; le email transazionali di decesso/reminder sono già implementate
   in `game/email.py`)
-- Coprire le admin actions con test
-- Indici DB su `Death.death_date`, `Team.league`, `LeagueMembership.user`
-  se le leghe diventano numerose
 - API REST con DRF se serve un'app mobile nativa

@@ -236,7 +236,20 @@ class PushSubscriptionAdmin(admin.ModelAdmin):
 
 @admin.register(SiteSettings)
 class SiteSettingsAdmin(admin.ModelAdmin):
-    fields = ('wikidata_check_interval_hours', 'wikidata_check_schedule_hours')
+    fields = (
+        'wikidata_check_interval_hours', 'wikidata_check_schedule_hours',
+        'death_check_status', 'death_check_last_success_at', 'death_check_last_failure_at',
+        'death_check_consecutive_failures', 'death_check_last_error',
+    )
+    readonly_fields = (
+        'death_check_status', 'death_check_last_success_at', 'death_check_last_failure_at',
+        'death_check_consecutive_failures', 'death_check_last_error',
+    )
+
+    @admin.display(description='Stato controlli decessi')
+    def death_check_status(self, obj):
+        from .monitoring import death_check_health
+        return death_check_health(obj)['status']
 
     def has_add_permission(self, request):
         return not SiteSettings.objects.exists()
