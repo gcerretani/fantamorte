@@ -524,7 +524,8 @@ Note di efficienza (importanti se tocchi il client):
 /api/notifications/unread-count/  JSON: conteggio non-lette (badge campanella)
 /api/notifications/mark-read/   POST: segna lette (tutte o lista ids)
 /statistiche/                   statistiche cross-lega (morituri più giocati/redditizi,
-                                record decessi, bonus frequenti, storico + leaderboard all-time)
+                                record decessi, bonus frequenti, storico + palmarès +
+                                leaderboard all-time; palmarès anche nel profilo)
 /regolamento/                   manuale generico del portale (nessun punteggio: quelli sono per-lega)
 /healthz/                       healthcheck (pubblico, verifica anche il DB; riporta lo stato di check_deaths)
 
@@ -817,6 +818,7 @@ Altri file di test:
   stop a oggi, prime squadre + la mia)
 - `game/tests_mourning.py`: card «lutto» (compare coi punti, una volta sola,
   non per chi non ha la persona, non con decesso revocato)
+- `game/tests_palmares.py`: palmarès (solo leghe concluse) in profilo e statistiche
 - `game/tests_middleware.py`: `LoginRequiredEverywhereMiddleware` (path
   pubblici vs protetti)
 - `game/tests_views.py`: permessi/integrazione delle view (in arrivo,

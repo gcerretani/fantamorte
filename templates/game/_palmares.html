@@ -1,0 +1,9 @@
+{# Palmarès dell'utente nelle leghe concluse (views.palmares). Tile .fm-stat. #}
+{% if palmares %}
+<div class="row row-cols-2 row-cols-md-4 g-2 mb-3">
+  <div class="col"><div class="fm-stat"><div class="fm-stat-value fm-display">{{ palmares.wins }}</div><div class="fm-stat-label">vittori{{ palmares.wins|pluralize:"a,e" }}</div></div></div>
+  <div class="col"><div class="fm-stat"><div class="fm-stat-value fm-display">{{ palmares.podiums }}</div><div class="fm-stat-label">podi{{ palmares.podiums|pluralize:"o," }}</div></div></div>
+  <div class="col"><div class="fm-stat"><div class="fm-stat-value fm-display">{{ palmares.best }}°</div><div class="fm-stat-label">miglior piazzamento</div></div></div>
+  <div class="col"><div class="fm-stat"><div class="fm-stat-value fm-display">{{ palmares.played }}</div><div class="fm-stat-label">leg{{ palmares.played|pluralize:"a conclusa,he concluse" }}</div></div></div>
+</div>
+{% endif %}

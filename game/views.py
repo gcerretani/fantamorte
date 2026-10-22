@@ -119,6 +119,41 @@ def _home_hero(active_entries):
     return hero
 
 
+def palmares(history):
+    """Riepilogo dei piazzamenti finali nelle leghe **concluse** (#107).
+
+    `history`: righe {league, position, score, ...} come `my_history` delle
+    statistiche. Le leghe in corso non contano: una vittoria provvisoria non
+    è un titolo. Vince chi è primo con almeno un punto (stessa regola dei
+    `wins` della leaderboard all-time).
+    """
+    finished = [h for h in history if h['league'].is_finished()]
+    if not finished:
+        return None
+    return {
+        'played': len(finished),
+        'wins': sum(1 for h in finished if h['position'] == 1 and h['score'] > 0),
+        'podiums': sum(1 for h in finished if h['position'] <= 3 and h['score'] > 0),
+        'best': min(h['position'] for h in finished),
+        'points': sum(h['score'] for h in finished),
+    }
+
+
+def user_league_history(user):
+    """Piazzamento dell'utente in ogni lega dove ha una squadra (classifiche
+    cachate dello scoring, nessun ricalcolo)."""
+    history = []
+    teams = Team.objects.filter(manager=user, league__isnull=False).select_related('league')
+    for team in teams:
+        rankings = scoring.compute_league_rankings(team.league)
+        for pos, entry in enumerate(rankings, start=1):
+            if entry['team'].pk == team.pk:
+                history.append({'league': team.league, 'team': team, 'score': entry['score'],
+                                'position': pos, 'teams_count': len(rankings)})
+                break
+    return history
+
+
 class StatsView(LoginRequiredMixin, TemplateView):
     """Statistiche cross-lega: morituri più giocati e più redditizi, record
     sui decessi, bonus più frequenti, storico personale e leaderboard all-time.
@@ -186,6 +221,7 @@ class StatsView(LoginRequiredMixin, TemplateView):
                     pp['teams'] += 1
 
         ctx['my_history'] = my_history
+        ctx['palmares'] = palmares(my_history)
         ctx['albo_doro'] = albo_doro
         ctx['all_time'] = sorted(totals.values(), key=lambda a: -a['points'])[:50]
         ctx['top_scorers'] = sorted(
@@ -1908,6 +1944,7 @@ class ProfileView(LoginRequiredMixin, View):
         # del browser e il badge "questo dispositivo" appare.
         devices = push_device_rows(request.user)
         teams = request.user.teams.select_related('league').order_by('-league__start_date')
+        user_palmares = palmares(user_league_history(request.user))
         # Righe della matrice preferenze (categoria × canale) con stato corrente.
         pref_rows = [
             {
@@ -1924,6 +1961,7 @@ class ProfileView(LoginRequiredMixin, View):
             'devices': devices,
             'teams': teams,
             'pref_rows': pref_rows,
+            'palmares': user_palmares,
         })
 
 
