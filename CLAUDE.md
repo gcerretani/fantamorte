@@ -770,6 +770,7 @@ Altri file di test:
   ed età, idempotenza, permessi, Wikidata giù)
 - `game/tests_league_clone.py`: nuova edizione di una lega (regole e bonus
   copiati, personalizzati duplicati, inviti, date, permessi)
+- `game/tests_restyle.py`: hero home, podio, divieto di emoji nei template
 - `game/tests_middleware.py`: `LoginRequiredEverywhereMiddleware` (path
   pubblici vs protetti)
 - `game/tests_views.py`: permessi/integrazione delle view (in arrivo,
