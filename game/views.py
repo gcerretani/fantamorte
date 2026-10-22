@@ -62,9 +62,12 @@ class HomeView(LoginRequiredMixin, TemplateView):
                      'score': None, 'next_deadline': None}
             if team:
                 # La classifica è già cachata (scoring): costo ammortizzato.
-                for row in scoring.compute_league_rankings(m.league):
+                rankings = scoring.compute_league_rankings(m.league)
+                for position, row in enumerate(rankings, 1):
                     if row['team'].pk == team.pk:
                         entry['score'] = row['score']
+                        entry['position'] = position
+                        entry['teams_count'] = len(rankings)
                         break
                 # Prossima scadenza di sostituzione tra i membri morti attivi.
                 deadlines = [
@@ -82,7 +85,38 @@ class HomeView(LoginRequiredMixin, TemplateView):
         # (l'ordinamento -start_date delle membership vale per entrambe).
         ctx['active_leagues'] = [e for e in my_leagues if not e['league'].is_finished()]
         ctx['past_leagues'] = [e for e in my_leagues if e['league'].is_finished()]
+        ctx.update(_home_hero(ctx['active_leagues']))
         return ctx
+
+
+def _home_hero(active_entries):
+    """Il riquadro in cima alla home: l'ultimo decesso che riguarda le tue
+    leghe in corso (con i punti che ha portato alle tue squadre) e la
+    scadenza di sostituzione più vicina. Vuoto se non c'è niente da dire."""
+    hero = {'hero_death': None, 'hero_points': [], 'hero_deadline': None}
+    with_deadline = [e for e in active_entries if e['next_deadline']]
+    if with_deadline:
+        hero['hero_deadline'] = min(with_deadline, key=lambda e: e['next_deadline'])
+    league_ids = [e['league'].pk for e in active_entries]
+    if not league_ids:
+        return hero
+    death = (
+        Death.objects.filter(
+            is_confirmed=True,
+            person__team_members__team__league_id__in=league_ids,
+        )
+        .select_related('person').defer('person__claims_cache')
+        .order_by('-death_date', '-pk').first()
+    )
+    if death is None:
+        return hero
+    hero['hero_death'] = death
+    for e in active_entries:
+        if e['team']:
+            points = scoring.compute_team_points_for_death(e['team'], death)
+            if points:
+                hero['hero_points'].append({'team': e['team'], 'points': points})
+    return hero
 
 
 class StatsView(LoginRequiredMixin, TemplateView):

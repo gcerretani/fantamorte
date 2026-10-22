@@ -48,7 +48,7 @@
         <div class="fm-row-main">
           <a href="{% url 'person_detail' r.person.pk %}{% if team.league %}?league={{ team.league.slug }}{% endif %}" data-fm-person-pk="{{ r.person.pk }}">{{ r.person.name_it }}</a>
           {% if r.member.is_captain %}<span class="badge text-bg-primary">C</span>{% endif %}
-          {% if r.member.is_original %}<span class="badge text-bg-info" title="Giocata originale">★</span>{% endif %}
+          {% if r.member.is_original %}<span class="badge text-bg-info" title="Giocata originale"><svg class="fm-ico" aria-hidden="true"><use href="#fmIcoStar"/></svg><span class="visually-hidden">originale</span></span>{% endif %}
           {% if r.is_jolly_month %}<span class="badge text-bg-info">jolly</span>{% endif %}
           <div class="small text-body-secondary">Età stimata: {{ r.simulated_age }}</div>
           {% if r.bonuses %}

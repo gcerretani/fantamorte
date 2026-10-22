@@ -10,7 +10,7 @@
           {% if muted %}<span class="badge text-bg-secondary">conclusa</span>{% endif %}
           <div class="small text-body-secondary">
             {{ entry.league.start_date|date:"Y" }}
-            {% if entry.team %}&middot; {{ entry.team.name }}{% else %}&middot; nessuna squadra{% endif %}
+            {% if entry.team %}&middot; {{ entry.team.name }}{% if entry.position %} &middot; <span class="fw-semibold">{{ entry.position }}° su {{ entry.teams_count }}</span>{% endif %}{% else %}&middot; nessuna squadra{% endif %}
           </div>
           {% if entry.next_deadline %}
             <div class="small text-danger">

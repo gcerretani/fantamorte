@@ -4,6 +4,7 @@ const PRECACHE = [
   '/offline/',
   '{% static "css/fantamorte.css" %}',
   '{% static "js/fantamorte.js" %}',
+  '{% static "fonts/fraunces-latin-wght-normal.woff2" %}',
   '{% static "pwa/icon.svg" %}',
   '{% static "pwa/icon-192.png" %}',
   '{% static "pwa/icon-512.png" %}',

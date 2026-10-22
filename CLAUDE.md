@@ -652,6 +652,18 @@ Note di efficienza (importanti se tocchi il client):
   un replace del DOM).
 - Animazioni: minime (fade modal/toast, hover liste); le transizioni non
   essenziali vanno dentro `@media (prefers-reduced-motion: no-preference)`.
+- **Font da titolo**: Fraunces variabile self-hosted (`static/fonts/`, OFL,
+  sottoinsiemi latin/latin-ext) via token `--fm-font-display`, solo su
+  `h1-h3`, `.display-5`, `.fm-display` e i numeri-vetrina (hero, podio): il
+  resto dell'UI resta sans. Preload in `base.html`, precache nel SW.
+- **Niente emoji nei template** (resa diversa per device, come per il logo):
+  icone di contenuto dallo sprite di `base.html` (`fmIcoCalendar/Users/Lock/
+  Jolly/Swap/Star/Crown/Pen` oltre a quelle di navigazione).
+- **Stati vuoti**: partial `_empty_state.html` (icona sprite + titolo +
+  testo + azioni opzionali), mai un `<p>` grigio isolato.
+- **Home**: hero (`_home_hero` in `views.py`) con l'ultimo decesso nelle
+  leghe in corso e la sostituzione più urgente; la lista leghe mostra la
+  posizione in classifica. **Classifica**: podio `.fm-podium` sopra la lista.
 - **Etichette di sezione**: usa `.fm-label` (overline monospace uppercase)
   per i titoli di lista/sezione dentro le pagine (Le mie leghe, Classifica,
   Ultimi decessi…), non un `<h4>`/`<h5>` nudo.

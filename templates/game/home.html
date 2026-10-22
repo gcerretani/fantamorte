@@ -1,8 +1,38 @@
 {% extends 'base.html' %}
+{% load fantamorte_tags %}
 {% block title %}Dashboard — Fantamorte{% endblock %}
 {% block content %}
 
-<h1 class="mb-4">Ciao, {{ user.username }}</h1>
+<h1 class="mb-3">Ciao, {{ user.username }}</h1>
+
+{% if hero_death or hero_deadline %}
+<section class="fm-hero mb-4" aria-label="In evidenza">
+  {% if hero_death %}
+    <a href="{% url 'person_detail' hero_death.person.pk %}#decesso" class="fm-hero-death" data-fm-person-pk="{{ hero_death.person.pk }}">
+      {% person_avatar hero_death.person 'lg' %}
+      <div class="fm-row-main">
+        <span class="fm-label mb-1">Ultimo decesso nelle tue leghe</span>
+        <span class="fm-hero-name">{{ hero_death.person.name_it }}</span>
+        <span class="small text-body-secondary">
+          &dagger; {{ hero_death.death_date|date:"j F Y" }}{% if hero_death.death_age %} &middot; {{ hero_death.death_age }} anni{% endif %}
+        </span>
+        {% if hero_points %}
+          <span class="d-flex flex-wrap gap-1 mt-1">
+            {% for hp in hero_points %}<span class="badge text-bg-success">{{ hp.team.name }} +{{ hp.points }}</span>{% endfor %}
+          </span>
+        {% endif %}
+      </div>
+    </a>
+  {% endif %}
+  {% if hero_deadline %}
+    <a href="{% url 'team_edit' hero_deadline.team.pk %}" class="fm-hero-deadline">
+      <span class="fm-label mb-1">Sostituzione da fare</span>
+      <span class="fm-hero-name fm-countdown" data-fm-countdown="{{ hero_deadline.next_deadline|date:'U' }}">…</span>
+      <span class="small text-body-secondary">{{ hero_deadline.team.name }} &middot; {{ hero_deadline.league.name }}</span>
+    </a>
+  {% endif %}
+</section>
+{% endif %}
 
 <div class="mb-4">
   <div class="d-flex justify-content-between align-items-center mb-2">
@@ -17,13 +47,8 @@
   {% elif past_leagues %}
     <p class="text-body-secondary">Nessuna lega in corso. Le tue leghe concluse sono qui sotto.</p>
   {% else %}
-    <div class="card">
-      <div class="card-body text-center text-body-secondary">
-        <p class="mb-2">Non sei iscritto a nessuna lega.</p>
-        <a href="{% url 'league_list' %}" class="btn btn-primary">Esplora leghe</a>
-        <a href="{% url 'league_create' %}" class="btn btn-outline-secondary">Crea la tua</a>
-      </div>
-    </div>
+    {% url 'league_list' as explore_url %}{% url 'league_create' as create_url %}
+    {% include 'game/_empty_state.html' with icon='Leagues' title='Non sei ancora in nessuna lega' text='Iscriviti a una lega pubblica, entra con un codice invito o creane una tua con le regole che preferisci.' action_url=explore_url action_label='Esplora leghe' alt_url=create_url alt_label='Crea la tua' %}
   {% endif %}
 </div>
 
