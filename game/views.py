@@ -696,11 +696,32 @@ class LeagueRankingsView(LoginRequiredMixin, View):
         league = get_object_or_404(League, slug=slug)
         if not league.can_user_view(request.user):
             return redirect('league_list')
+        rankings = scoring.compute_league_rankings(league)
         return render(request, 'game/league_rankings.html', {
             'league': league,
-            'rankings': scoring.compute_league_rankings(league),
+            'rankings': rankings,
             'is_admin': league.is_admin(request.user),
+            'points_chart': _league_points_chart(league, rankings, request.user),
         })
+
+
+CHART_TOP_TEAMS = 5
+
+
+def _league_points_chart(league, rankings, user):
+    """Andamento punti delle prime squadre più la propria (#105)."""
+    shown = list(rankings[:CHART_TOP_TEAMS])
+    mine = next((r for r in rankings if r['team'].manager_id == user.pk), None)
+    if mine is not None and mine not in shown:
+        shown.append(mine)
+    series = [{
+        'label': r['team'].name,
+        'events': [(d['death'].death_date, d['points']) for d in r['deaths']],
+        'base': r['team'].score_adjustment,
+        'highlight': r is mine,
+    } for r in shown]
+    return charts.step_chart(series, league.start_date, league.end_date,
+                             timezone.localdate())
 
 
 class LeagueScoringView(LoginRequiredMixin, View):
@@ -1067,6 +1088,11 @@ class TeamDetailView(LoginRequiredMixin, DetailView):
             return ctx
         details = scoring.compute_team_death_details(team)
         ctx['death_details'] = details
+        if team.league_id:
+            ctx['points_chart'] = charts.step_chart(
+                [{'label': team.name, 'base': team.score_adjustment, 'highlight': True,
+                  'events': [(d['death'].death_date, d['points']) for d in details]}],
+                team.league.start_date, team.league.end_date, timezone.localdate())
         ctx['score'] = sum(d['points'] for d in details) + team.score_adjustment
         ctx['score_adjustment'] = team.score_adjustment
         ctx['score_adjustment_reason'] = team.score_adjustment_reason

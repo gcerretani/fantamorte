@@ -1669,6 +1669,73 @@ a.list-group-item,
 @media (prefers-reduced-motion: reduce) {
   .fm-chart-fill { transition: none; }
 }
+
+/* ---- Andamento punti a gradini (_step_chart.html) ---- */
+.fm-stepchart { margin: 0 0 1rem; }
+.fm-stepchart-plot {
+  position: relative;
+  padding: 0.25rem 0 1.4rem 2.2rem;
+}
+.fm-stepchart svg {
+  display: block;
+  width: 100%;
+  height: 11rem;
+  overflow: visible;
+}
+.fm-stepchart-ymax {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2rem;
+  text-align: right;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--fm-muted);
+}
+.fm-stepchart-grid { stroke: var(--fm-line); stroke-width: 1; stroke-dasharray: 3 4; }
+.fm-stepchart-tick { stroke: var(--fm-line); stroke-width: 1; opacity: 0.5; }
+.fm-stepchart-axis { stroke: var(--fm-faint); stroke-width: 1; }
+.fm-stepchart-line {
+  fill: none;
+  stroke: var(--fm-tone);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  opacity: 0.75;
+}
+.fm-stepchart-line.fm-stepchart-me { stroke-width: 3.5; opacity: 1; }
+.fm-stepchart-xlabels {
+  position: absolute;
+  left: 2.2rem;
+  right: 0;
+  bottom: 0;
+  height: 1.2rem;
+  font-size: 0.68rem;
+  color: var(--fm-muted);
+}
+.fm-stepchart-xlabels span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.fm-stepchart-legend {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1rem;
+  font-size: 0.8rem;
+}
+.fm-stepchart-legend li { display: inline-flex; align-items: center; gap: 0.35rem; }
+.fm-stepchart-swatch {
+  width: 0.9rem;
+  height: 0.2rem;
+  border-radius: 1px;
+  background: var(--fm-tone);
+}
+/* Colori delle serie: i token semantici del tema, così il grafico segue
+   chiaro/scuro come ogni altro componente. */
+.fm-tone-0 { --fm-tone: var(--fm-accent); }
+.fm-tone-1 { --fm-tone: var(--fm-info); }
+.fm-tone-2 { --fm-tone: var(--fm-success); }
+.fm-tone-3 { --fm-tone: var(--fm-danger); }
+.fm-tone-4 { --fm-tone: var(--fm-warning); }
 @media (max-width: 575.98px) {
   .fm-chart-row { grid-template-columns: 5.5rem 1fr auto; }
 }

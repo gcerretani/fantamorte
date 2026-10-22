@@ -1,0 +1,31 @@
+{# Andamento punti a gradini (game/charts.step_chart): SVG server-side,     #}
+{# niente librerie. preserveAspectRatio="none" + non-scaling-stroke: il     #}
+{# grafico si stira sulla larghezza disponibile senza ingrossare le linee;  #}
+{# le etichette stanno fuori dall'SVG per non deformarsi.                    #}
+<figure class="fm-stepchart">
+  <div class="fm-stepchart-plot">
+    <span class="fm-stepchart-ymax">{{ chart.top }}</span>
+    <svg viewBox="0 0 {{ chart.width }} {{ chart.height }}" preserveAspectRatio="none" role="img"
+         aria-label="Punti nel tempo dal {{ chart.start|date:'j F' }} al {{ chart.stop|date:'j F Y' }}{% for l in chart.lines %}; {{ l.label }}: {{ l.total }}{% endfor %}">
+      {% for t in chart.ticks %}<line class="fm-stepchart-tick" x1="{{ t.x }}" x2="{{ t.x }}" y1="0" y2="{{ chart.height }}" vector-effect="non-scaling-stroke"/>{% endfor %}
+      <line class="fm-stepchart-grid" x1="0" x2="{{ chart.width }}" y1="{{ chart.top_y }}" y2="{{ chart.top_y }}" vector-effect="non-scaling-stroke"/>
+      <line class="fm-stepchart-grid" x1="0" x2="{{ chart.width }}" y1="{{ chart.mid_y }}" y2="{{ chart.mid_y }}" vector-effect="non-scaling-stroke"/>
+      <line class="fm-stepchart-axis" x1="0" x2="{{ chart.width }}" y1="{{ chart.height }}" y2="{{ chart.height }}" vector-effect="non-scaling-stroke"/>
+      {% for l in chart.lines reversed %}
+        <polyline class="fm-stepchart-line fm-tone-{{ l.tone }}{% if l.highlight %} fm-stepchart-me{% endif %}" points="{{ l.points }}" vector-effect="non-scaling-stroke"/>
+      {% endfor %}
+    </svg>
+    <div class="fm-stepchart-xlabels" aria-hidden="true">
+      {% for t in chart.ticks %}<span style="left: {{ t.pct }}%">{{ t.label }}</span>{% endfor %}
+    </div>
+  </div>
+  {% if chart.lines|length > 1 %}
+    <figcaption>
+      <ul class="fm-stepchart-legend">
+        {% for l in chart.lines %}
+          <li class="fm-tone-{{ l.tone }}{% if l.highlight %} fw-semibold{% endif %}"><span class="fm-stepchart-swatch" aria-hidden="true"></span>{{ l.label }} <span class="text-body-secondary">{{ l.total }}</span></li>
+        {% endfor %}
+      </ul>
+    </figcaption>
+  {% endif %}
+</figure>

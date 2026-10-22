@@ -57,6 +57,10 @@
   </div>
 </div>
 {% else %}
+{% if points_chart %}
+  <span class="fm-label">Andamento punti</span>
+  {% include 'game/_step_chart.html' with chart=points_chart %}
+{% endif %}
 <div class="row">
   <div class="col-md-6">
     <span class="fm-label">Rosa</span>
