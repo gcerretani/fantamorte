@@ -793,6 +793,60 @@
     window.fmShowPerson(t.dataset.fmPersonPk, leagueEl ? leagueEl.dataset.fmLeague : '');
   });
 
+  // -------- Card «lutto» (#106) --------
+  // Il server la include solo se c'è un decesso nella tua rosa non ancora
+  // visto (notifica death_team non letta). Chiuderla, in qualunque modo,
+  // segna letta quella notifica: si vede una volta sola.
+  (function () {
+    const el = document.getElementById('fmMourning');
+    if (!el) return;
+    const id = parseInt(el.dataset.fmNotificationId, 10);
+    let closed = false;
+    function markRead() {
+      return fetch('/api/notifications/mark-read/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+        body: JSON.stringify({ ids: [id] }),
+        keepalive: true,
+      }).then(function () { window.fmUpdateNotifBadge && window.fmUpdateNotifBadge(); })
+        .catch(function () { /* riproverà al prossimo caricamento */ });
+    }
+    function close() {
+      if (closed) return;
+      closed = true;
+      markRead();
+      el.classList.remove('show');
+      document.body.classList.remove('fm-mourning-open');
+      setTimeout(function () { el.remove(); }, 250);
+    }
+    el.querySelectorAll('[data-fm-mourning-close]').forEach(function (btn) {
+      btn.addEventListener('click', close);
+    });
+    el.addEventListener('click', function (e) { if (e.target === el) close(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+
+    el.hidden = false;
+    document.body.classList.add('fm-mourning-open');
+    requestAnimationFrame(function () { el.classList.add('show'); });
+    const focusTarget = el.querySelector('.fm-mourning-close');
+    if (focusTarget) focusTarget.focus();
+
+    // Contatore animato dei punti, solo se l'utente non chiede meno movimento.
+    const counter = el.querySelector('[data-fm-count-to]');
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (counter && !reduce) {
+      const target = parseInt(counter.dataset.fmCountTo, 10) || 0;
+      const t0 = performance.now();
+      const duration = 1100;
+      counter.textContent = '0';
+      (function tick(now) {
+        const k = Math.min(1, (now - t0) / duration);
+        counter.textContent = String(Math.round(target * (1 - Math.pow(1 - k, 3))));
+        if (k < 1) requestAnimationFrame(tick);
+      })(t0);
+    }
+  })();
+
   // -------- Countdown sostituzioni --------
   // Riutilizzabile su un sottoalbero: chiamata di nuovo dopo il replace di
   // una regione del DOM (es. la rosa dopo un'aggiunta senza reload).

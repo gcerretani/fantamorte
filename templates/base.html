@@ -1,4 +1,4 @@
-{% load static %}<!DOCTYPE html>
+{% load static fantamorte_tags %}<!DOCTYPE html>
 <html lang="it" data-profile-theme="{{ theme_preference|default:'auto' }}">
 <head>
   <meta charset="UTF-8">
@@ -124,6 +124,7 @@
 </main>
 
 {% include '_bottom_nav.html' %}
+{% mourning_overlay %}
 
 <footer class="fm-footer">
   <div class="container">

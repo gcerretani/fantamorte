@@ -75,3 +75,53 @@ def person_avatar(person, size='md', dead=None):
         # su ogni pagina (6 varianti definite in fantamorte.css).
         'tint': (person.pk or 0) % 6,
     }
+
+
+# Pagine dove la card «lutto» non si mostra: il feed (la notifica è lì) e
+# le pagine tecniche.
+MOURNING_SKIP_URLS = {'notifications'}
+
+
+@register.inclusion_tag('game/_mourning.html', takes_context=True)
+def mourning_overlay(context):
+    """Card a tutto schermo per il decesso più recente nella tua rosa (#106).
+
+    Si appoggia al feed persist-first: la sorgente è la `Notification`
+    `death_team` non letta più recente; chiudere la card la segna come letta,
+    quindi compare una volta sola e su un solo dispositivo. Nessuno stato
+    nuovo nel DB.
+    """
+    request = context.get('request')
+    user = getattr(request, 'user', None)
+    if user is None or not user.is_authenticated:
+        return {}
+    match = getattr(request, 'resolver_match', None)
+    if match and match.url_name in MOURNING_SKIP_URLS:
+        return {}
+    from game.models import Notification, Team
+    from game.scoring import compute_team_points_for_death
+
+    notification = (
+        Notification.objects.filter(
+            user=user, kind=Notification.KIND_DEATH_TEAM, is_read=False,
+            death__isnull=False, death__is_confirmed=True,
+        )
+        .select_related('death__person').order_by('-created_at').first()
+    )
+    if notification is None:
+        return {}
+    death = notification.death
+    teams = (Team.objects.filter(manager=user, members__person=death.person)
+             .select_related('league').distinct())
+    scored = []
+    for team in teams:
+        points = compute_team_points_for_death(team, death)
+        if points:
+            scored.append({'team': team, 'points': points})
+    return {
+        'notification': notification,
+        'death': death,
+        'person': death.person,
+        'scored': scored,
+        'total_points': sum(s['points'] for s in scored),
+    }

@@ -1,0 +1,32 @@
+{% load fantamorte_tags %}
+{# Card «lutto» (#106): renderizzata da {% mourning_overlay %} in base.html #}
+{# solo se c'è una notifica death_team non letta. fantamorte.js la apre,  #}
+{# anima il contatore e alla chiusura segna letta la notifica.           #}
+{% if notification %}
+<div class="fm-mourning" id="fmMourning" role="dialog" aria-modal="true" aria-labelledby="fmMourningName"
+     data-fm-notification-id="{{ notification.pk }}" hidden>
+  <div class="fm-mourning-card">
+    <button type="button" class="btn-close fm-mourning-close" data-fm-mourning-close aria-label="Chiudi"></button>
+    <span class="fm-label">È morto un tuo personaggio</span>
+    {% person_avatar person 'xl' %}
+    <h2 class="fm-mourning-name" id="fmMourningName">{{ person.name_it }}</h2>
+    <p class="text-body-secondary mb-2">
+      {% if person.birth_date %}{{ person.birth_date|date:"Y" }}{% elif person.birth_year %}{{ person.birth_year }}{% endif %}
+      &ndash; {{ death.death_date|date:"j F Y" }}{% if death.death_age %} &middot; {{ death.death_age }} anni{% endif %}
+    </p>
+    {% if scored %}
+      <div class="fm-mourning-points">
+        <span class="fm-display" data-fm-count-to="{{ total_points }}">{{ total_points }}</span>
+        <span class="fm-metric-unit">punti</span>
+      </div>
+      <ul class="fm-mourning-teams">
+        {% for s in scored %}<li>{{ s.team.name }} &middot; {{ s.team.league.name }} <strong>+{{ s.points }}</strong></li>{% endfor %}
+      </ul>
+    {% endif %}
+    <div class="d-flex gap-2 justify-content-center flex-wrap mt-3">
+      <a href="{% url 'person_detail' person.pk %}#decesso" class="btn btn-primary" data-fm-mourning-close>Vedi il decesso</a>
+      <button type="button" class="btn btn-outline-secondary" data-fm-mourning-close>Chiudi</button>
+    </div>
+  </div>
+</div>
+{% endif %}
