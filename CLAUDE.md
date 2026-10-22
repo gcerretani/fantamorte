@@ -690,6 +690,12 @@ Note di efficienza (importanti se tocchi il client):
 - **Home**: hero (`_home_hero` in `views.py`) con l'ultimo decesso nelle
   leghe in corso e la sostituzione più urgente; la lista leghe mostra la
   posizione in classifica. **Classifica**: podio `.fm-podium` sopra la lista.
+- **Andamento punti**: `charts.step_chart` (linee a gradini, coordinate SVG
+  calcolate in Python, numeri come stringhe col punto) + partial
+  `_step_chart.html` (SVG `preserveAspectRatio="none"` +
+  `vector-effect="non-scaling-stroke"`, etichette fuori dall'SVG, colori
+  `.fm-tone-N` dai token). Nel dettaglio squadra e in classifica (prime 5 +
+  la tua, evidenziata). Si ferma a oggi per le leghe in corso.
 - **Etichette di sezione**: usa `.fm-label` (overline monospace uppercase)
   per i titoli di lista/sezione dentro le pagine (Le mie leghe, Classifica,
   Ultimi decessi…), non un `<h4>`/`<h5>` nudo.
@@ -801,6 +807,8 @@ Altri file di test:
   sicurezza del download, errori) e attribuzione Commons
 - `game/tests_monitoring.py`: telemetria di `check_deaths`, stati di salute,
   `/healthz/`, avvisi email allo staff (dedup 24 h, reset alla ripresa)
+- `game/tests_points_chart.py`: grafico andamento punti (gradini, scala,
+  stop a oggi, prime squadre + la mia)
 - `game/tests_middleware.py`: `LoginRequiredEverywhereMiddleware` (path
   pubblici vs protetti)
 - `game/tests_views.py`: permessi/integrazione delle view (in arrivo,

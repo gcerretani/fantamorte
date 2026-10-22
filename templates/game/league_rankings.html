@@ -40,6 +40,11 @@
 </ol>
 {% endif %}
 
+{% if points_chart %}
+  <span class="fm-label">Andamento</span>
+  {% include 'game/_step_chart.html' with chart=points_chart %}
+{% endif %}
+
 {% if rankings %}
 <div class="list-group">
   {% for entry in rankings %}
