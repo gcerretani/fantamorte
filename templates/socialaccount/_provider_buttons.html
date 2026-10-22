@@ -1,0 +1,22 @@
+{% load socialaccount %}
+{% comment %}
+Bottoni dei provider social (login, signup). Sono form POST e non link:
+security_policy.py tiene SOCIALACCOUNT_LOGIN_ON_GET=False (un login esterno
+non deve partire da un GET, per il CSRF), e con un link allauth mostrerebbe
+prima una pagina di conferma «Accedi tramite Google» con un altro bottone.
+In POST si va dritti al provider.
+Parametri: label ("Continua con"), process ("login"), divider (False per
+nascondere «— oppure —» quando sotto non c'è il form password).
+{% endcomment %}
+{% get_providers as socialaccount_providers %}
+{% if socialaccount_providers %}
+  <div class="d-grid gap-2 mb-3">
+    {% for provider in socialaccount_providers %}
+      <form method="post" action="{% provider_login_url provider.id process=process|default:'login' %}" class="d-grid">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-outline-secondary">{{ label|default:'Continua con' }} {{ provider.name }}</button>
+      </form>
+    {% endfor %}
+  </div>
+  {% if divider is not False %}<div class="text-center text-body-secondary small mb-3">— oppure —</div>{% endif %}
+{% endif %}

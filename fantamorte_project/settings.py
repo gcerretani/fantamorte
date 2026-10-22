@@ -168,7 +168,10 @@ SOCIALACCOUNT_ADAPTER = 'game.adapters.ClosedSignupSocialAccountAdapter'
 ACCOUNT_SIGNUP_ENABLED = env.bool('ACCOUNT_SIGNUP_ENABLED', default=True)
 # A False chiude la creazione automatica di un account al primo login OAuth.
 SOCIALACCOUNT_SIGNUP_ENABLED = env.bool('SOCIALACCOUNT_SIGNUP_ENABLED', default=True)
-SOCIALACCOUNT_LOGIN_ON_GET = True
+# Un login esterno non parte da un GET (CSRF): i bottoni dei provider sono
+# form POST (templates/socialaccount/_provider_buttons.html). Lo forza anche
+# game/security_policy.py a runtime.
+SOCIALACCOUNT_LOGIN_ON_GET = False
 SOCIALACCOUNT_AUTO_SIGNUP = True
 # Un provider entra in SOCIALACCOUNT_PROVIDERS solo se le sue env sono
 # valorizzate. Se la chiave manca, allauth non registra nessuna "app" da

@@ -1,0 +1,7 @@
+{% extends 'base.html' %}
+{% comment %}
+Layout delle pagine allauth senza override dedicato: il nostro base.html
+invece dell'HTML grezzo di default (che dava la «pagina bianca» della
+conferma di login social).
+{% endcomment %}
+{% block title %}{% block head_title %}{% endblock %} — Fantamorte{% endblock %}
