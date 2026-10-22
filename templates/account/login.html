@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% load socialaccount %}
+{% load socialaccount fantamorte_tags %}
 {% block title %}Accedi — Fantamorte{% endblock %}
 {% block content %}
 <div class="row justify-content-center">
@@ -8,18 +8,9 @@
       <div class="card-body p-4">
         <h2 class="card-title mb-4 text-center">{% include '_logo.html' %} Accedi</h2>
 
-        {% get_providers as socialaccount_providers %}
-        {% if socialaccount_providers %}
-          <div class="d-grid gap-2 mb-3">
-            {% for provider in socialaccount_providers %}
-              <a class="btn btn-outline-secondary"
-                 href="{% provider_login_url provider.id process='login' %}">
-                Continua con {{ provider.name }}
-              </a>
-            {% endfor %}
-          </div>
-          <div class="text-center text-body-secondary small mb-3">— oppure —</div>
-        {% endif %}
+        {% password_login as password_on %}
+        {% include 'socialaccount/_provider_buttons.html' with label='Continua con' divider=password_on %}
+        {% if password_on %}
 
         <form method="post" action="{% url 'account_login' %}">
           {% csrf_token %}
@@ -55,6 +46,7 @@
         <p class="text-center small mb-0">
           <a href="{% url 'account_reset_password' %}">Hai dimenticato la password?</a>
         </p>
+        {% endif %}
       </div>
     </div>
   </div>

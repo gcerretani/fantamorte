@@ -1,5 +1,6 @@
-{# Avatar persona: renderer UNICO (via {% person_avatar person 'md' %} in #}
-{# game/templatetags/fantamorte_tags.py). Le iniziali stanno sempre sotto  #}
+{# Avatar: renderer UNICO per persone ({% person_avatar person 'md' %}) e #}
+{# manager ({% user_avatar user 'sm' %}), entrambi in fantamorte_tags.py. #}
+{# Le iniziali stanno sempre sotto                                        #}
 {# la foto: se l'immagine non carica, fantamorte.js la rimuove e restano  #}
 {# visibili quelle. Decorativo: il nome è sempre già scritto accanto.      #}
 <span class="fm-avatar fm-avatar-{{ size }} fm-avatar-tint-{{ tint }}{% if dead %} fm-avatar-dead{% endif %}" aria-hidden="true">

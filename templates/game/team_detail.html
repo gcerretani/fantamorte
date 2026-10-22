@@ -18,7 +18,7 @@
       <h2>{{ team.name }}</h2>
       <div class="fm-facts">
         <span class="fm-fact" title="Gestore della squadra">
-          <span class="fm-fact-icon"><svg class="fm-ico" aria-hidden="true"><use href="#fmIcoUser"/></svg></span>
+          {% user_avatar team.manager 'xs' %}
           {{ team.manager.username }}
         </span>
         {% if team.jolly_month %}

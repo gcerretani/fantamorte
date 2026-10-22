@@ -355,6 +355,7 @@ strong, b { font-weight: 600; }
 .text-end { text-align: right !important; }
 .text-body-secondary { color: var(--fm-muted) !important; }
 .text-danger { color: var(--fm-danger) !important; }
+.text-break { overflow-wrap: anywhere !important; }
 .text-success { color: var(--fm-success) !important; }
 .text-light { color: #e8e6df !important; }
 .text-reset { color: inherit !important; }
@@ -1638,6 +1639,12 @@ body.fm-mourning-open { overflow: hidden; }
   .fm-mourning-card { transition: transform 0.35s ease; transform: translateY(12px) scale(0.98); }
   .fm-mourning.show .fm-mourning-card { transform: none; }
 }
+
+/* ---- Pagine account (profilo → nome utente, email, password, eliminazione) ---- */
+/* Colonna stretta: sono form brevi. Le pagine allauth la ricevono dal layout
+   templates/allauth/layouts/manage.html. */
+.fm-account-page { max-width: 36rem; margin: 0 auto; }
+.fm-account-entrance h2 { text-align: center; }
 
 /* ---- Stato vuoto ---- */
 .fm-empty {

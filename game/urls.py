@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views
-from . import league_clone, person_images, team_import, v1_hardening_views
+from . import account_settings, league_clone, person_images, team_import, v1_hardening_views
 from .hardened_views import (
     LeagueDeathsCSVView as HardenedLeagueDeathsCSVView,
     LeagueDeathsView as HardenedLeagueDeathsView,
@@ -30,6 +30,8 @@ urlpatterns = [
     path('leghe/<slug:slug>/decessi.csv', HardenedLeagueDeathsCSVView.as_view(), name='league_deaths_csv'),
     path('regolamento/', views.RulesView.as_view(), name='rules'),
     path('profilo/', views.ProfileView.as_view(), name='profile'),
+    path('profilo/nome-utente/', account_settings.UsernameChangeView.as_view(), name='account_username'),
+    path('profilo/elimina/', account_settings.AccountDeleteView.as_view(), name='account_delete'),
     path('api/profilo/preferenze/', v1_hardening_views.ProfilePreferencesView.as_view(), name='profile_preferences'),
     path('statistiche/', views.StatsView.as_view(), name='stats'),
     path('notifiche/', v1_hardening_views.NotificationListView.as_view(), name='notifications'),

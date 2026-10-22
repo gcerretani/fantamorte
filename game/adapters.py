@@ -3,6 +3,22 @@ from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from django.conf import settings
 
 
+def password_login_enabled(request=None):
+    """Login con password attivo? `PASSWORD_LOGIN_ENABLED=False` lo spegne
+    solo se c'è almeno un provider social/OIDC con cui entrare: altrimenti
+    nessuno potrebbe più accedere."""
+    if settings.PASSWORD_LOGIN_ENABLED:
+        return True
+    cached = getattr(request, '_fm_password_login', None)
+    if cached is not None:
+        return cached
+    from allauth.socialaccount.adapter import get_adapter
+    enabled = not get_adapter(request).list_providers(request)
+    if request is not None:
+        request._fm_password_login = enabled
+    return enabled
+
+
 class ClosedSignupAccountAdapter(DefaultAccountAdapter):
     """Rispetta ACCOUNT_SIGNUP_ENABLED per il signup via form (email+password).
 
@@ -12,7 +28,9 @@ class ClosedSignupAccountAdapter(DefaultAccountAdapter):
     """
 
     def is_open_for_signup(self, request):
-        return settings.ACCOUNT_SIGNUP_ENABLED
+        # Senza login con password, anche la registrazione via form non ha
+        # senso: ci si iscrive dal provider (signup social, interruttore a parte).
+        return settings.ACCOUNT_SIGNUP_ENABLED and password_login_enabled(request)
 
 
 class ClosedSignupSocialAccountAdapter(DefaultSocialAccountAdapter):

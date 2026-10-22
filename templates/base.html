@@ -95,7 +95,7 @@
       <button id="fmThemeBtn" class="btn btn-icon" type="button"
         title="Cambia tema" aria-label="Cambia tema">◐</button>
       {% if user.is_authenticated %}
-        <span class="navbar-text d-none d-lg-inline ms-3 me-2">{{ user.username }}</span>
+        <a href="{% url 'profile' %}" class="navbar-text d-none d-lg-inline-flex align-items-center gap-2 ms-3 me-2 text-decoration-none">{% user_avatar user 'xs' %}{{ user.username }}</a>
         <form method="post" action="{% url 'account_logout' %}" class="d-none d-lg-inline ms-1">
           {% csrf_token %}
           <button type="submit" class="btn btn-outline-light btn-sm">Esci</button>
@@ -120,7 +120,9 @@
   {% endfor %}
   </div>
 
-  {% block content %}{% endblock %}
+  {# content_outer: i layout allauth lo ridefiniscono per incorniciare le #}
+  {# loro pagine (templates/allauth/layouts/) senza toccare `content`.     #}
+  {% block content_outer %}{% block content %}{% endblock %}{% endblock %}
 </main>
 
 {% include '_bottom_nav.html' %}

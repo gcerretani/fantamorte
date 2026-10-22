@@ -24,10 +24,11 @@ from django.views.decorators.cache import cache_control
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import TemplateView, DetailView, View
 
+from allauth.account.models import EmailAddress
 from wikidata_api.client import WikidataClient
 
 from . import charts, person_images, person_sync, scoring, timeline
-from .templatetags.fantamorte_tags import person_avatar
+from .templatetags.fantamorte_tags import person_avatar, user_avatar
 from .models import (
     MONTHS_IT, BonusType, Death, DeathBonus, League, LeagueBonus,
     LeagueMembership, Notification, PushSubscription, SiteSettings, Team,
@@ -1101,7 +1102,7 @@ class TeamDetailView(LoginRequiredMixin, DetailView):
     def get_queryset(self):
         # I membri prefetchati vengono riusati da _find_member nello scoring.
         # `claims_cache` (blob JSON pesante) non serve qui: deferito.
-        return Team.objects.select_related('league', 'manager').prefetch_related(
+        return Team.objects.select_related('league', 'manager', 'manager__profile').prefetch_related(
             Prefetch(
                 'members',
                 queryset=TeamMember.objects.select_related(
@@ -1933,6 +1934,18 @@ class RulesView(TemplateView):
     template_name = 'game/rules.html'
 
 
+def _account_email(user):
+    """L'email da mostrare nel profilo: la primaria di allauth, altrimenti
+    la prima registrata (utenti creati prima di allauth o da shell, che non
+    hanno un indirizzo marcato primario), altrimenti `user.email` come non
+    verificata."""
+    address = (EmailAddress.objects.get_primary(user)
+               or EmailAddress.objects.filter(user=user).order_by('-verified', 'pk').first())
+    if address is None and user.email:
+        address = EmailAddress(user=user, email=user.email, verified=False)
+    return address
+
+
 class ProfileView(LoginRequiredMixin, View):
     template_name = 'game/profile.html'
 
@@ -1945,6 +1958,13 @@ class ProfileView(LoginRequiredMixin, View):
         devices = push_device_rows(request.user)
         teams = request.user.teams.select_related('league').order_by('-league__start_date')
         user_palmares = palmares(user_league_history(request.user))
+        social_accounts = list(request.user.socialaccount_set.all())
+        if social_accounts and not profile.social_avatar_url:
+            # Account collegati prima che esistesse la copia della foto: la
+            # si recupera qui una volta (poi la tengono aggiornata i signal).
+            from .user_avatars import sync_social_avatar
+            sync_social_avatar(request.user)
+            profile.refresh_from_db()
         # Righe della matrice preferenze (categoria × canale) con stato corrente.
         pref_rows = [
             {
@@ -1962,6 +1982,10 @@ class ProfileView(LoginRequiredMixin, View):
             'teams': teams,
             'pref_rows': pref_rows,
             'palmares': user_palmares,
+            # Card Account (#121): stato di email, password e social.
+            'primary_email': _account_email(request.user),
+            'social_accounts': social_accounts,
+            'avatar_choices': UserProfile.AVATAR_CHOICES,
         })
 
 
@@ -2009,9 +2033,23 @@ class ProfilePreferencesView(LoginRequiredMixin, View):
             profile.notification_prefs = current
             changed = True
 
+        avatar_source = data.get('avatar_source')
+        avatar_changed = False
+        if avatar_source is not None:
+            if not isinstance(avatar_source, str) or avatar_source not in dict(UserProfile.AVATAR_CHOICES):
+                return JsonResponse({'status': 'error', 'error': 'Immagine non valida'}, status=400)
+            profile.avatar_source = avatar_source
+            changed = avatar_changed = True
+
         if changed:
             profile.save()
-        return JsonResponse({'status': 'ok'})
+        response = {'status': 'ok'}
+        if avatar_changed:
+            # Anteprima già renderizzata: il JS non ricostruisce l'avatar.
+            request.user.profile = profile
+            response['avatar_html'] = render_to_string(
+                'game/_person_avatar.html', user_avatar(request.user, 'lg'))
+        return JsonResponse(response)
 
 
 # --- PWA: manifest, service worker, offline ---

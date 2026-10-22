@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% block title %}Elimina account — Fantamorte{% endblock %}
+{% block content %}
+<div class="fm-account-page">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'profile' %}">Profilo</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Elimina account</li>
+    </ol>
+  </nav>
+  <h2 class="mb-3">Elimina account</h2>
+  <div class="card border-danger">
+    <div class="card-body">
+      <p>Eliminando l'account:</p>
+      <ul>
+        <li>nome utente, email, password, account collegati, dispositivi per le notifiche push e notifiche vengono cancellati;</li>
+        <li>non potrai più accedere;</li>
+        <li>le tue squadre restano nelle classifiche delle leghe a nome di un utente anonimo, così i risultati degli altri non cambiano.</li>
+      </ul>
+      <p class="fw-semibold">Non si può annullare.</p>
+
+      {% if owned_leagues %}
+        <div class="alert alert-warning mb-0">
+          Sei il proprietario di
+          {% for l in owned_leagues %}<a href="{% url 'league_admin' l.slug %}">{{ l.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}:
+          prima trasferisci la proprietà a un altro iscritto dal pannello di gestione della lega.
+        </div>
+      {% else %}
+        {{ user.username|json_script:"fmAccountName" }}
+        <form method="post">
+          {% csrf_token %}
+          <label class="form-label" for="fmConfirmUsername">Per confermare, scrivi il tuo nome utente: <strong>{{ user.username }}</strong></label>
+          <input type="text" name="confirm_username" id="fmConfirmUsername" class="form-control mb-3" autocomplete="off" required>
+          <button class="btn btn-danger" id="fmDeleteAccountBtn" disabled>Elimina definitivamente</button>
+          <a href="{% url 'profile' %}" class="btn btn-outline-secondary">Annulla</a>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // Stesso pattern delle danger zone di lega e squadra: il bottone si
+  // abilita solo al match (validato comunque lato server).
+  (function () {
+    const input = document.getElementById('fmConfirmUsername');
+    const btn = document.getElementById('fmDeleteAccountBtn');
+    const nameEl = document.getElementById('fmAccountName');
+    if (!input || !btn || !nameEl) return;
+    const expected = JSON.parse(nameEl.textContent);
+    input.addEventListener('input', function () { btn.disabled = input.value.trim() !== expected; });
+  })();
+</script>
+{% endblock %}

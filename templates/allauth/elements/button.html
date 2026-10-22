@@ -1,0 +1,4 @@
+{% load allauth %}{% comment %}
+Bottone allauth → convenzione bottoni del design system: primario di default,
+secondario con tag "secondary"/"link", distruttivo con "danger"/"delete".
+{% endcomment %}<{% if attrs.href %}a href="{{ attrs.href }}"{% else %}button{% endif %} class="btn {% if 'danger' in attrs.tags or 'delete' in attrs.tags %}btn-outline-danger{% elif 'secondary' in attrs.tags or 'link' in attrs.tags or 'outline' in attrs.tags %}btn-outline-secondary{% else %}btn-primary{% endif %}"{% if attrs.form %} form="{{ attrs.form }}"{% endif %}{% if attrs.id %} id="{{ attrs.id }}"{% endif %}{% if attrs.name %} name="{{ attrs.name }}"{% endif %}{% if attrs.value %} value="{{ attrs.value }}"{% endif %}{% if attrs.type %} type="{{ attrs.type }}"{% endif %}>{% slot %}{% endslot %}</{% if attrs.href %}a{% else %}button{% endif %}>

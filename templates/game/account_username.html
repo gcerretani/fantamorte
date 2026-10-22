@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% load fantamorte_tags %}
+{% block title %}Nome utente — Fantamorte{% endblock %}
+{% block content %}
+<div class="fm-account-page">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'profile' %}">Profilo</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Nome utente</li>
+    </ol>
+  </nav>
+  <h2 class="mb-3">Cambia nome utente</h2>
+  <p class="text-body-secondary">
+    È il nome con cui gli altri ti vedono in classifiche, squadre e cronologie, e con cui
+    puoi accedere. Ora è <strong>{{ user.username }}</strong>.
+  </p>
+  <form method="post" class="mb-4">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    <div class="mb-3">
+      <label class="form-label" for="{{ form.username.id_for_label }}">{{ form.username.label }}</label>
+      {% fm_field form.username %}
+      {% for e in form.username.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="d-flex gap-2">
+      <button class="btn btn-primary">Salva</button>
+      <a href="{% url 'profile' %}" class="btn btn-outline-secondary">Annulla</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

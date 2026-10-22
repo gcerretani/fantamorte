@@ -8,6 +8,7 @@ stile con JS disabilitato). Le classi (`form-control`, `form-check-input`,
 Registrate in settings.ACCOUNT_FORMS.
 """
 from allauth.account import forms as allauth_forms
+from django.core.exceptions import ValidationError
 from django.forms.widgets import CheckboxInput
 
 
@@ -26,7 +27,11 @@ class FormControlMixin:
 
 
 class LoginForm(FormControlMixin, allauth_forms.LoginForm):
-    pass
+    def clean(self):
+        from .adapters import password_login_enabled
+        if not password_login_enabled(getattr(self, 'request', None)):
+            raise ValidationError('Su questo sito si accede solo con i provider indicati sopra.')
+        return super().clean()
 
 
 class SignupForm(FormControlMixin, allauth_forms.SignupForm):

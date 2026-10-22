@@ -305,7 +305,8 @@ def compute_team_total_score(team):
 
 
 def _compute_league_rankings_uncached(league):
-    teams = league.teams.select_related('manager').prefetch_related(
+    # manager__profile: l'avatar del manager (user_avatars) legge il profilo.
+    teams = league.teams.select_related('manager', 'manager__profile').prefetch_related(
         Prefetch(
             'members',
             queryset=TeamMember.objects.select_related('person').defer('person__claims_cache'),

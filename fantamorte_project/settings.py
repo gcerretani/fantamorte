@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     'allauth.socialaccount',
     'allauth.socialaccount.providers.google',
     'allauth.socialaccount.providers.github',
+    'allauth.socialaccount.providers.openid_connect',
     'game',
     'wikidata_api',
 ]
@@ -168,7 +169,10 @@ SOCIALACCOUNT_ADAPTER = 'game.adapters.ClosedSignupSocialAccountAdapter'
 ACCOUNT_SIGNUP_ENABLED = env.bool('ACCOUNT_SIGNUP_ENABLED', default=True)
 # A False chiude la creazione automatica di un account al primo login OAuth.
 SOCIALACCOUNT_SIGNUP_ENABLED = env.bool('SOCIALACCOUNT_SIGNUP_ENABLED', default=True)
-SOCIALACCOUNT_LOGIN_ON_GET = True
+# Un login esterno non parte da un GET (CSRF): i bottoni dei provider sono
+# form POST (templates/socialaccount/_provider_buttons.html). Lo forza anche
+# game/security_policy.py a runtime.
+SOCIALACCOUNT_LOGIN_ON_GET = False
 SOCIALACCOUNT_AUTO_SIGNUP = True
 # Un provider entra in SOCIALACCOUNT_PROVIDERS solo se le sue env sono
 # valorizzate. Se la chiave manca, allauth non registra nessuna "app" da
@@ -199,6 +203,27 @@ if env('GITHUB_OAUTH_CLIENT_ID', default=''):
             'key': '',
         },
     }
+# OpenID Connect generico (Authentik, Keycloak, Authelia, Zitadel, Entra ID…).
+# Stessa regola di Google/GitHub: o le env qui, o un SocialApp da admin con
+# provider "openid_connect", mai entrambi. Callback da registrare sul
+# provider: https://<dominio>/accounts/oidc/<OIDC_PROVIDER_ID>/login/callback/
+if env('OIDC_CLIENT_ID', default=''):
+    SOCIALACCOUNT_PROVIDERS['openid_connect'] = {
+        'OAUTH_PKCE_ENABLED': True,
+        'APPS': [{
+            'provider_id': env('OIDC_PROVIDER_ID', default='oidc'),
+            'name': env('OIDC_PROVIDER_NAME', default='SSO'),
+            'client_id': env('OIDC_CLIENT_ID'),
+            'secret': env('OIDC_CLIENT_SECRET', default=''),
+            'settings': {'server_url': env('OIDC_SERVER_URL')},
+        }],
+    }
+
+# Login con nome utente/email + password. A False restano solo i provider
+# social/OIDC: il form sparisce da login e registrazione e un POST di login
+# con password viene rifiutato (game/forms.py). Ignorato se nessun provider
+# è configurato, per non chiudere fuori tutti.
+PASSWORD_LOGIN_ENABLED = env.bool('PASSWORD_LOGIN_ENABLED', default=True)
 
 # --- Email ---
 EMAIL_BACKEND = env(

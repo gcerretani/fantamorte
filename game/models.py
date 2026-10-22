@@ -446,6 +446,24 @@ class UserProfile(models.Model):
         help_text="Tema dell'interfaccia: automatico segue il dispositivo.",
     )
 
+    # Immagine del manager (game/user_avatars.py): Gravatar dall'email, la
+    # foto dell'account collegato (Google/GitHub/OIDC) o solo le iniziali.
+    AVATAR_AUTO = 'auto'
+    AVATAR_GRAVATAR = 'gravatar'
+    AVATAR_SOCIAL = 'social'
+    AVATAR_NONE = 'none'
+    AVATAR_CHOICES = [
+        (AVATAR_AUTO, "Automatica (account collegato, altrimenti Gravatar)"),
+        (AVATAR_GRAVATAR, 'Gravatar'),
+        (AVATAR_SOCIAL, 'Foto dell\'account collegato'),
+        (AVATAR_NONE, 'Solo iniziali'),
+    ]
+    avatar_source = models.CharField(max_length=10, choices=AVATAR_CHOICES, default=AVATAR_AUTO)
+    # Copia della foto del provider social, aggiornata a ogni login social:
+    # leggerla da SocialAccount.extra_data costerebbe una query per manager
+    # in ogni classifica.
+    social_avatar_url = models.URLField(max_length=1000, blank=True)
+
     class Meta:
         verbose_name = 'Profilo utente'
         verbose_name_plural = 'Profili utente'
