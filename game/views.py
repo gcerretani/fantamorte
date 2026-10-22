@@ -1243,6 +1243,9 @@ class TeamEditView(LoginRequiredMixin, View):
             'league': league,
             'members': members,
             'slots': team.roster_slots(members),
+            # Card «Importa da una tua squadra» (team_import.TeamImportView).
+            'has_import_sources': can_edit and Team.objects.filter(
+                manager=request.user).exclude(pk=team.pk).exists(),
             'active_count': active_count,
             'total_age': team.get_active_total_age(),
             'dead_members': dead_members,

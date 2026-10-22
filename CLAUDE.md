@@ -134,6 +134,16 @@ LeagueBonus = through M2M (League ↔ BonusType) con override punti / formula
   `can_manage_league` (owner o staff) ai template. Lì il Django admin non
   è equivalente (delete con pulizia dei DeathBonus protetti, transfer
   coerente su owner+membership, validazione P/Q dei bonus custom).
+- **Import rosa** (`game/team_import.py`, `/squadra/<pk>/importa/`): il
+  manager, a iscrizioni aperte, riparte dalla rosa di una sua squadra di
+  un'altra lega. È **selettivo**: entrano solo i vivi che rispettano le
+  regole della lega di destinazione — wiki ammesse (`search_wikipedia_langs`,
+  verificate con `qids_with_sitelinks` in una SPARQL cachata; chi ha già
+  `wikipedia_url_it` passa senza rete se `itwiki` è ammessa), stessa
+  validazione di `AddPersonView` (`_validate_roster_person`), limiti di rosa
+  ed età riempiti in ordine capitani→nome. Il piano (`plan_import`) si
+  ricalcola al POST sotto lo stesso lock di riga di `AddPersonView`; se la
+  verifica wiki non risponde non si importa nessuno.
 - **`TeamMember.can_be_substituted()`** governa la sostituzione. Il discrimine
   è **quando siamo**, non quando è avvenuta la morte: prima di `start_date`
   (composizione) non si sostituisce nessuno — il deceduto si toglie dalla rosa
@@ -465,6 +475,7 @@ Note di efficienza (importanti se tocchi il client):
 /squadra/<pk>/                  dettaglio squadra
 /squadra/<pk>/modifica/         edit squadra (rosa, capitano, jolly)
 /squadra/<pk>/aggiungi/         POST AJAX: aggiunge persona (Wikidata)
+/squadra/<pk>/importa/          import selettivo da un'altra squadra del manager (?da=<pk>)
 /squadra/<pk>/rimuovi/<member_pk>/        POST AJAX: rimuove persona (solo fase composizione, mai morti/subentrati)
 /squadra/<pk>/sostituisci/<member_pk>/    flusso sostituzione
 /squadra/<pk>/what-if/          simulatore punti (capitano/jolly + bonus automatici di lega)
@@ -736,6 +747,8 @@ Altri file di test:
   uso in rosa/pagina persona/modal)
 - `game/tests_roster_slots.py`: rosa a slot (catena sostituzioni, ordine,
   zero query sul prefetch) e sezione Caduti nel dettaglio squadra
+- `game/tests_team_import.py`: import rosa (filtro wiki, morti, limiti rosa
+  ed età, idempotenza, permessi, Wikidata giù)
 - `game/tests_middleware.py`: `LoginRequiredEverywhereMiddleware` (path
   pubblici vs protetti)
 - `game/tests_views.py`: permessi/integrazione delle view (in arrivo,

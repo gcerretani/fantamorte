@@ -365,6 +365,28 @@ class WikidataClient:
                     dead.append(qid)
         return dead
 
+    def qids_with_sitelinks(self, wikidata_ids, wikis):
+        """QID, tra quelli passati, con una pagina in almeno una delle wiki
+        (codici `itwiki`, `enwiki`…). Stesso spezzamento in lotti di
+        `check_deaths_batch`."""
+        qids = [q for q in wikidata_ids if re.fullmatch(r'Q\d+', str(q))]
+        langs = [w[:-4] for w in wikis if re.fullmatch(r'[a-z_]+wiki', w)]
+        if not qids or not langs:
+            return set()
+        sites = ' '.join(
+            f'<https://{lang.replace("_", "-")}.wikipedia.org/>' for lang in langs)
+        found = set()
+        for i in range(0, len(qids), self.DEATH_CHECK_CHUNK_SIZE):
+            chunk = qids[i:i + self.DEATH_CHECK_CHUNK_SIZE]
+            values = ' '.join(f'wd:{qid}' for qid in chunk)
+            query = sparql_templates.SITELINK_FILTER_QUERY.format(values=values, sites=sites)
+            data = self._sparql(query)
+            for binding in data.get('results', {}).get('bindings', []):
+                qid = binding.get('item', {}).get('value', '').split('/')[-1]
+                if qid:
+                    found.add(qid)
+        return found
+
     def detect_bonuses(self, wikidata_id, claims_cache, bonus_types):
         detected = []
         for bt in bonus_types:
