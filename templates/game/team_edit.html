@@ -75,6 +75,16 @@
       {% endif %}
     </div>
 
+    {% if has_import_sources %}
+    <div class="card card-body mb-3 d-flex flex-row align-items-center gap-2 flex-wrap">
+      <div class="fm-row-main">
+        <div class="fw-semibold">Riparti da una tua squadra</div>
+        <div class="small text-body-secondary">Importa la rosa di un'altra lega: entra solo chi rispetta le regole di questa.</div>
+      </div>
+      <a href="{% url 'team_import' team.pk %}" class="btn btn-outline-secondary btn-sm">Importa&hellip;</a>
+    </div>
+    {% endif %}
+
     {% if can_edit %}
     <div class="collapse mb-3" id="addForm">
       <div class="card card-body">

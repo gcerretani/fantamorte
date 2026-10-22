@@ -44,3 +44,16 @@ SELECT ?item ?itwikiTitle WHERE {{
   }}
 }}
 """
+
+# «Di questi, chi ha una pagina in almeno una delle wiki indicate?». Usata
+# dall'importazione di una squadra in una lega con `search_wikipedia_langs`:
+# la stessa regola della ricerca (HUMAN_SEARCH_QUERY), applicata a persone già
+# note. `{sites}` è una lista di `<https://xx.wikipedia.org/>`.
+SITELINK_FILTER_QUERY = """
+SELECT DISTINCT ?item WHERE {{
+  VALUES ?item {{ {values} }}
+  VALUES ?site {{ {sites} }}
+  ?article schema:about ?item ;
+           schema:isPartOf ?site .
+}}
+"""

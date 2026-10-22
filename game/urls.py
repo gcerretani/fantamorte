@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views
-from . import v1_hardening_views
+from . import team_import, v1_hardening_views
 from .hardened_views import (
     LeagueDeathsCSVView as HardenedLeagueDeathsCSVView,
     LeagueDeathsView as HardenedLeagueDeathsView,
@@ -38,6 +38,7 @@ urlpatterns = [
     path('squadra/<int:pk>/', views.TeamDetailView.as_view(), name='team_detail'),
     path('squadra/<int:pk>/modifica/', v1_hardening_views.TeamEditView.as_view(), name='team_edit'),
     path('squadra/<int:pk>/elimina/', views.TeamDeleteView.as_view(), name='team_delete'),
+    path('squadra/<int:pk>/importa/', team_import.TeamImportView.as_view(), name='team_import'),
     path('squadra/<int:pk>/aggiungi/', v1_hardening_views.AddPersonView.as_view(), name='add_person'),
     path('squadra/<int:pk>/rimuovi/<int:member_pk>/', views.RemovePersonView.as_view(), name='remove_person'),
     path('squadra/<int:pk>/sostituisci/<int:member_pk>/', v1_hardening_views.SubstituteMemberView.as_view(), name='substitute_member'),

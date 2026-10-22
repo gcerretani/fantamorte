@@ -417,6 +417,37 @@ class CheckDeathsBatchChunkingTest(TestCase):
         self.assertEqual(set(dead), {'Q0', ids[-1]})
 
 
+class QidsWithSitelinksTest(TestCase):
+    """qids_with_sitelinks: filtro per wiki usato dall'import squadra."""
+
+    def setUp(self):
+        client_module._reset_session_for_tests()
+
+    def tearDown(self):
+        client_module._reset_session_for_tests()
+
+    def test_query_con_siti_e_risultato(self):
+        client = WikidataClient()
+        client.delay = 0
+        resp = {'results': {'bindings': [
+            {'item': {'value': 'http://www.wikidata.org/entity/Q2'}},
+        ]}}
+        with patch.object(client, '_sparql', return_value=resp) as mock_sparql:
+            found = client.qids_with_sitelinks(['Q1', 'Q2'], ['itwiki', 'enwiki'])
+        self.assertEqual(found, {'Q2'})
+        query = mock_sparql.call_args.args[0]
+        self.assertIn('<https://it.wikipedia.org/>', query)
+        self.assertIn('<https://en.wikipedia.org/>', query)
+        self.assertIn('wd:Q1 wd:Q2', query)
+
+    def test_input_non_valido_scartato_senza_rete(self):
+        client = WikidataClient()
+        with patch.object(client, '_sparql') as mock_sparql:
+            self.assertEqual(client.qids_with_sitelinks(['Q1 }'], ['itwiki']), set())
+            self.assertEqual(client.qids_with_sitelinks(['Q1'], ['it> }']), set())
+        mock_sparql.assert_not_called()
+
+
 class MulLabelFallbackTest(TestCase):
     """Fallback label it → mul → en → QID.
 
