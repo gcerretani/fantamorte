@@ -612,6 +612,15 @@ Note di efficienza (importanti se tocchi il client):
   jolly…) come chips `.fm-facts`/`.fm-fact`; numeri-chiave delle regole come
   tile `.fm-stat` via partial `_league_rules_summary.html` (usato da
   league_detail e league_scoring: non duplicare le regole nei template).
+- **Avatar persona**: sempre `{% load fantamorte_tags %}` +
+  `{% person_avatar person 'sm|md|lg|xl' %}` (partial `_person_avatar.html`,
+  classi `.fm-avatar*`), mai un `<img src="{{ person.image_url }}">` a mano.
+  Il tag riscrive l'URL `Special:FilePath` alla larghezza giusta per la taglia
+  (bucket standard Wikimedia 120/250/500, `commons_thumb`), mette le iniziali
+  su tinta deterministica sotto la foto (fallback se manca o non carica: il
+  listener `error` in `fantamorte.js` rimuove l'`<img>`) e rende i morti in
+  bianco e nero con anello in accento. Il modal persona riceve lo stesso
+  markup già renderizzato (`avatar_html` in `/api/persona/<pk>/`).
 - Per il **countdown** della deadline sostituzione, usa
   `<span class="fm-countdown" data-fm-countdown="{{ deadline|date:'U' }}">…</span>`
   (initializzato da `fmInitCountdowns`, richiamabile su un sottoalbero dopo
@@ -716,6 +725,8 @@ Altri file di test:
   fixture) e copre il decesso pre-stagione: membro mai cancellato, «toglilo
   dalla rosa» in composizione, sostituibile a lega avviata, deadline che
   decorre dall'avvio
+- `game/tests_avatar.py`: avatar persona (thumbnail Commons, iniziali,
+  uso in rosa/pagina persona/modal)
 - `game/tests_middleware.py`: `LoginRequiredEverywhereMiddleware` (path
   pubblici vs protetti)
 - `game/tests_views.py`: permessi/integrazione delle view (in arrivo,

@@ -1370,6 +1370,65 @@ a.list-group-item,
 }
 .fm-dot .fm-ico { width: 15px; height: 15px; }
 
+/* ---- Avatar persona (partial _person_avatar.html) ---- */
+/* Foto Commons ritagliata a cerchio sopra le iniziali: se l'immagine manca o
+   non carica restano le iniziali su una tinta deterministica. I ritratti sono
+   quasi sempre verticali, quindi il crop tiene la parte alta (il volto). */
+.fm-avatar {
+  --fm-avatar-size: 2.75rem;
+  --fm-avatar-tint: var(--fm-accent-rgb);
+  position: relative;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--fm-avatar-size);
+  height: var(--fm-avatar-size);
+  border-radius: 50%;
+  overflow: hidden;
+  background: rgba(var(--fm-avatar-tint), 0.16);
+  color: rgb(var(--fm-avatar-tint));
+  box-shadow: inset 0 0 0 1px var(--fm-line);
+  vertical-align: middle;
+}
+.fm-avatar-sm { --fm-avatar-size: 2rem; }
+.fm-avatar-lg { --fm-avatar-size: 4rem; }
+/* xl = ritratto della pagina persona: rettangolo 4:5, non cerchio. */
+.fm-avatar-xl {
+  --fm-avatar-size: 100%;
+  height: auto;
+  aspect-ratio: 4 / 5;
+  max-width: 20rem;
+  border-radius: var(--fm-radius-lg);
+}
+.fm-avatar-initials {
+  font-weight: 700;
+  font-size: calc(var(--fm-avatar-size) * 0.36);
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+.fm-avatar-xl .fm-avatar-initials { font-size: 4rem; }
+.fm-avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 20%;
+  background: var(--fm-surface-2);
+}
+.fm-avatar-tint-1 { --fm-avatar-tint: var(--fm-info-rgb); }
+.fm-avatar-tint-2 { --fm-avatar-tint: var(--fm-success-rgb); }
+.fm-avatar-tint-3 { --fm-avatar-tint: var(--fm-warning-rgb); }
+.fm-avatar-tint-4 { --fm-avatar-tint: var(--fm-danger-rgb); }
+.fm-avatar-tint-5 { --fm-avatar-tint: var(--fm-accent-rgb); }
+/* Morto: bianco e nero con un anello in accento (il "listello" del lutto). */
+.fm-avatar-dead {
+  box-shadow: 0 0 0 2px var(--fm-surface), 0 0 0 3px rgba(var(--fm-accent-rgb), 0.85);
+}
+.fm-avatar-dead img { filter: grayscale(1) contrast(1.05); }
+.fm-avatar-dead .fm-avatar-initials { opacity: 0.7; }
+
 /* Icona inline dimensionata sul testo */
 .fm-ico { width: 1em; height: 1em; vertical-align: -0.125em; }
 .fm-ico-lg { width: 2.4rem; height: 2.4rem; }
