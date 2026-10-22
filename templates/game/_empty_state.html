@@ -1,0 +1,14 @@
+{# Stato vuoto: icona dello sprite, titolo, testo e azioni opzionali.     #}
+{# include con icon='Skull' title='…' text='…' e, se serve, action_url / #}
+{# action_label (primaria) e alt_url / alt_label (secondaria).            #}
+<div class="fm-empty">
+  <span class="fm-empty-icon" aria-hidden="true"><svg class="fm-ico"><use href="#fmIco{{ icon|default:'Skull' }}"/></svg></span>
+  <p class="fm-empty-title">{{ title }}</p>
+  {% if text %}<p class="fm-empty-text">{{ text }}</p>{% endif %}
+  {% if action_url or alt_url %}
+    <div class="d-flex gap-2 justify-content-center flex-wrap">
+      {% if action_url %}<a href="{{ action_url }}" class="btn btn-primary">{{ action_label }}</a>{% endif %}
+      {% if alt_url %}<a href="{{ alt_url }}" class="btn btn-outline-secondary">{{ alt_label }}</a>{% endif %}
+    </div>
+  {% endif %}
+</div>

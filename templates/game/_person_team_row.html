@@ -7,7 +7,7 @@
   <div class="fm-row-main">
     <a href="{% url 'team_detail' row.team.pk %}" class="fw-semibold text-decoration-none">{{ row.team.name }}</a>
     {% if row.member.is_captain %}<span class="badge text-bg-primary" title="Capitano">C</span>{% endif %}
-    {% if row.member.is_original %}<span class="badge text-bg-info" title="Giocata originale">&#9733;</span>{% endif %}
+    {% if row.member.is_original %}<span class="badge text-bg-info" title="Giocata originale"><svg class="fm-ico" aria-hidden="true"><use href="#fmIcoStar"/></svg><span class="visually-hidden">originale</span></span>{% endif %}
     {% if row.member.replaced_by %}<span class="badge text-bg-secondary">sostituito/a</span>{% endif %}
     <div class="small text-body-secondary">
       {% if row.league %}

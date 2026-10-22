@@ -14,11 +14,11 @@
   {# ---- Calendario ---- #}
   <div class="fm-facts mt-2">
     <span class="fm-fact" title="Periodo di gioco: i decessi contano solo in questo intervallo">
-      <span class="fm-fact-icon" aria-hidden="true">&#128197;</span>
+      <span class="fm-fact-icon"><svg class="fm-ico" aria-hidden="true"><use href="#fmIcoCalendar"/></svg></span>
       Gioco: <strong>{{ league.start_date|date:"d/m/Y" }} &rarr; {{ league.end_date|date:"d/m/Y" }}</strong>
     </span>
     <span class="fm-fact" title="Finestra di iscrizione e composizione squadre">
-      <span class="fm-fact-icon" aria-hidden="true">&#9997;&#65039;</span>
+      <span class="fm-fact-icon"><svg class="fm-ico" aria-hidden="true"><use href="#fmIcoPen"/></svg></span>
       Iscrizioni: {{ league.registration_opens|date:"d/m/Y" }} &rarr; {{ league.registration_closes|date:"d/m/Y" }}
     </span>
   </div>

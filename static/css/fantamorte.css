@@ -16,9 +16,34 @@
    con scripts/generate_pwa_icons.py).
    ========================================================================== */
 
+/* Font da titolo: Fraunces (variabile, SIL OFL 1.1 — static/fonts/Fraunces-OFL.txt),
+   self-hosted come tutto il resto. Due sottoinsiemi: latin + latin-ext (ł, ş…
+   nei nomi stranieri); il browser scarica il secondo solo se serve. */
+@font-face {
+  font-family: "Fraunces";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../fonts/fraunces-latin-ext-wght-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Fraunces";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../fonts/fraunces-latin-wght-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 /* ============================ 1. TOKEN PER TEMA ============================ */
 :root {
   /* Tipi */
+  --fm-font-display: "Fraunces", Georgia, "Times New Roman", serif;
   --fm-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji",
     "Segoe UI Emoji";
@@ -209,6 +234,14 @@ h1, h2, h3, h4, h5, h6,
   letter-spacing: -0.015em;
   color: var(--fm-ink-strong);
   text-wrap: balance;
+}
+/* Titoli di pagina e numeri-vetrina col serif da titolo: il resto
+   dell'interfaccia (liste, form, h4-h6) resta sans per leggibilità. */
+h1, h2, h3, .h1, .h2, .h3, .display-5, .fm-display {
+  font-family: var(--fm-font-display);
+  font-weight: 640;
+  letter-spacing: -0.01em;
+  font-variant-numeric: lining-nums;
 }
 h1, .h1 { font-size: 1.9rem; }
 h2, .h2 { font-size: 1.5rem; }
@@ -1450,6 +1483,133 @@ a.list-group-item,
 .fm-slot-history .fm-avatar-dead {
   box-shadow: 0 0 0 1px rgba(var(--fm-accent-rgb), 0.85);
 }
+
+/* ---- Hero della home ---- */
+.fm-hero {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 768px) {
+  .fm-hero:has(.fm-hero-deadline):has(.fm-hero-death) { grid-template-columns: 2fr 1fr; }
+}
+.fm-hero-death,
+.fm-hero-deadline {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--fm-line);
+  border-radius: var(--fm-radius-lg);
+  background:
+    radial-gradient(120% 140% at 0% 0%, rgba(var(--fm-accent-rgb), 0.16), transparent 60%),
+    var(--fm-surface);
+  color: var(--fm-ink);
+  text-decoration: none;
+}
+.fm-hero-deadline {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.15rem;
+  background:
+    radial-gradient(120% 140% at 100% 0%, rgba(var(--fm-danger-rgb), 0.14), transparent 60%),
+    var(--fm-surface);
+}
+.fm-hero-death .fm-row-main { display: flex; flex-direction: column; gap: 0.1rem; }
+.fm-hero-name {
+  font-family: var(--fm-font-display);
+  font-size: 1.45rem;
+  font-weight: 640;
+  line-height: 1.15;
+  color: var(--fm-ink-strong);
+}
+
+/* ---- Podio della classifica ---- */
+.fm-podium {
+  list-style: none;
+  margin: 0 0 1.25rem;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
+  gap: 0.5rem;
+}
+.fm-podium-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  min-width: 0;
+  padding: 0.8rem 0.5rem 0.9rem;
+  border: 1px solid var(--fm-line);
+  border-radius: var(--fm-radius-lg) var(--fm-radius-lg) var(--fm-radius-sm) var(--fm-radius-sm);
+  background: var(--fm-surface);
+  text-align: center;
+}
+.fm-podium-duo { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 30rem; margin-inline: auto; }
+/* Ordine visivo 2·1·3, gradini di altezza diversa. */
+.fm-podium-1 { order: 2; padding-top: 1.4rem; border-color: rgba(var(--fm-accent-rgb), 0.6);
+  background: linear-gradient(180deg, rgba(var(--fm-accent-rgb), 0.18), var(--fm-surface) 70%); }
+.fm-podium-2 { order: 1; padding-top: 1rem; }
+.fm-podium-3 { order: 3; }
+.fm-podium-step.fm-rank-me { box-shadow: inset 0 0 0 1px var(--fm-accent); }
+.fm-podium-pos {
+  width: 1.8rem;
+  height: 1.8rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--fm-surface-2);
+  color: var(--fm-muted);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+.fm-podium-1 .fm-podium-pos { background: var(--fm-accent); color: var(--fm-accent-ink); }
+.fm-podium-team {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+  color: var(--fm-ink-strong);
+  text-decoration: none;
+}
+.fm-podium-score { font-size: 1.6rem; line-height: 1.1; color: var(--fm-ink-strong); }
+.fm-podium-1 .fm-podium-score { font-size: 2rem; }
+
+/* Avatar sovrapposti (i "caduti" di una squadra sul podio). */
+.fm-avatar-stack { display: inline-flex; padding-left: 0.45rem; }
+.fm-avatar-stack .fm-avatar { margin-left: -0.45rem; box-shadow: 0 0 0 2px var(--fm-surface); }
+
+/* ---- Stato vuoto ---- */
+.fm-empty {
+  padding: 2rem 1.25rem;
+  border: 1px dashed var(--fm-line);
+  border-radius: var(--fm-radius-lg);
+  text-align: center;
+}
+.fm-empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.2rem;
+  height: 3.2rem;
+  margin-bottom: 0.75rem;
+  border-radius: 50%;
+  background: rgba(var(--fm-accent-rgb), 0.14);
+  color: var(--fm-accent);
+}
+.fm-empty-icon .fm-ico { width: 1.5rem; height: 1.5rem; }
+.fm-empty-title {
+  margin-bottom: 0.35rem;
+  font-family: var(--fm-font-display);
+  font-size: 1.2rem;
+  font-weight: 640;
+  color: var(--fm-ink-strong);
+}
+.fm-empty-text { max-width: 32rem; margin: 0 auto 1rem; color: var(--fm-muted); }
 
 /* Icona inline dimensionata sul testo */
 .fm-ico { width: 1em; height: 1em; vertical-align: -0.125em; }

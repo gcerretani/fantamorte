@@ -18,18 +18,18 @@
       <h2>{{ team.name }}</h2>
       <div class="fm-facts">
         <span class="fm-fact" title="Gestore della squadra">
-          <span class="fm-fact-icon" aria-hidden="true">&#128100;</span>
+          <span class="fm-fact-icon"><svg class="fm-ico" aria-hidden="true"><use href="#fmIcoUser"/></svg></span>
           {{ team.manager.username }}
         </span>
         {% if team.jolly_month %}
           <span class="fm-fact" title="Mese jolly: i punti del mese valgono ×{{ team.league.jolly_multiplier|default:2 }}">
-            <span class="fm-fact-icon" aria-hidden="true">&#127183;</span>
+            <span class="fm-fact-icon"><svg class="fm-ico" aria-hidden="true"><use href="#fmIcoJolly"/></svg></span>
             Jolly: {{ team.get_jolly_month_display }}
           </span>
         {% endif %}
         {% if substitutions_count and not roster_hidden %}
           <span class="fm-fact" title="Sostituzioni fatte in questa lega">
-            <span class="fm-fact-icon" aria-hidden="true">&#8644;</span>
+            <span class="fm-fact-icon"><svg class="fm-ico" aria-hidden="true"><use href="#fmIcoSwap"/></svg></span>
             {{ substitutions_count }} sostituzion{{ substitutions_count|pluralize:"e,i" }}
           </span>
         {% endif %}
@@ -51,7 +51,7 @@
 {% if roster_hidden %}
 <div class="card">
   <div class="card-body text-center py-5">
-    <p class="display-6 mb-2" aria-hidden="true">&#128274;</p>
+    <p class="mb-2 text-body-secondary"><svg class="fm-ico fm-ico-lg" aria-hidden="true"><use href="#fmIcoLock"/></svg></p>
     <p class="fw-semibold mb-1">Rosa segreta</p>
     <p class="text-body-secondary mb-0">Le rose di questa lega restano segrete fino all'inizio del gioco ({{ team.league.start_date|date:"d/m/Y" }}).</p>
   </div>
@@ -69,7 +69,7 @@
             <div class="fm-row-main">
               <a href="{% url 'person_detail' member.person.pk %}{% if team.league %}?league={{ team.league.slug }}{% endif %}" class="fw-semibold text-decoration-none" data-fm-person-pk="{{ member.person.pk }}">{{ member.person.name_it }}</a>
               {% if member.is_captain %}<span class="badge text-bg-primary" title="Capitano">C</span>{% endif %}
-              {% if member.is_original %}<span class="badge text-bg-info" title="Giocata originale">&#9733;</span>{% endif %}
+              {% if member.is_original %}<span class="badge text-bg-info" title="Giocata originale"><svg class="fm-ico" aria-hidden="true"><use href="#fmIcoStar"/></svg><span class="visually-hidden">originale</span></span>{% endif %}
               {% if slot.replaced %}
                 <span class="badge text-bg-info" title="Subentrato/a a {{ slot.replaced.person.name_it }} il {{ member.added_at|date:'d/m/Y' }}">subentrato/a</span>
               {% endif %}
@@ -118,7 +118,7 @@
                 </div>
                 <div class="small text-body-secondary">
                   {% if f.successor %}
-                    &#8644; sostituito/a da
+                    <svg class="fm-ico" aria-hidden="true"><use href="#fmIcoSwap"/></svg> sostituito/a da
                     <a href="{% url 'person_detail' f.successor.person.pk %}{% if team.league %}?league={{ team.league.slug }}{% endif %}" class="text-decoration-none" data-fm-person-pk="{{ f.successor.person.pk }}">{{ f.successor.person.name_it }}</a>
                     il {{ f.successor.added_at|date:"d/m/Y" }}
                   {% elif f.member.can_be_substituted %}

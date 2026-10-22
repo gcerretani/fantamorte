@@ -126,7 +126,7 @@
                 <span class="badge text-bg-primary">C</span>
               {% endif %}
               {% if member.is_original %}
-                <span class="badge text-bg-info" title="Giocata originale">★</span>
+                <span class="badge text-bg-info" title="Giocata originale"><svg class="fm-ico" aria-hidden="true"><use href="#fmIcoStar"/></svg><span class="visually-hidden">originale</span></span>
               {% endif %}
               {% if slot.replaced %}
                 <span class="badge text-bg-info" title="Subentrato/a a {{ slot.replaced.person.name_it }} il {{ member.added_at|date:'d/m/Y' }}">subentrato/a</span>
@@ -196,7 +196,7 @@
       {% endfor %}
     </ul>
     {% else %}
-    <p class="text-body-secondary">La rosa è vuota: cerca un personaggio qui sopra per aggiungerlo.</p>
+    {% include 'game/_empty_state.html' with icon='User' title='La rosa è vuota' text='Usa «+ Aggiungi» qui sopra per cercare i tuoi morituri su Wikidata, oppure importa la rosa di una tua squadra.' %}
     {% endif %}
 
     {% if can_edit %}

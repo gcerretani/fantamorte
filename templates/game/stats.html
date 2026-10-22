@@ -55,7 +55,7 @@
       {% for a in albo_doro %}
         <li class="list-group-item py-3{% if a.finished %} fm-rank-first{% endif %}{% if a.manager == user %} fm-rank-me{% endif %}">
           <div class="d-flex align-items-center gap-2">
-            <span class="fm-pos{% if a.finished %} fm-pos-first{% endif %}" aria-hidden="true">{% if a.finished %}&#127942;{% else %}&middot;{% endif %}</span>
+            <span class="fm-pos{% if a.finished %} fm-pos-first{% endif %}" aria-hidden="true">{% if a.finished %}<svg class="fm-ico" aria-hidden="true"><use href="#fmIcoLeagues"/></svg>{% else %}&middot;{% endif %}</span>
             <div class="fm-row-main">
               <a href="{% url 'league_detail' a.league.slug %}" class="fw-semibold text-decoration-none">{{ a.league.name }}</a>
               {% if a.finished %}
