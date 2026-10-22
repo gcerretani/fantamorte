@@ -9,6 +9,7 @@ register = template.Library()
 # server, e restare sui bucket massimizza gli hit di cache sulle CDN.
 # Ogni taglia CSS dell'avatar prende il bucket ≥ 2× il suo lato (retina).
 AVATAR_SIZES = {
+    'xs': 120,   # 1.4rem (storia degli slot, inline nel testo)
     'sm': 120,   # 2rem   (righe di lista compatte)
     'md': 120,   # 2.75rem (rose, timeline)
     'lg': 250,   # 4rem   (cronologia, card)
