@@ -8,18 +8,7 @@
       <div class="card-body p-4">
         <h2 class="card-title mb-4 text-center">{% include '_logo.html' %} Registrati</h2>
 
-        {% get_providers as socialaccount_providers %}
-        {% if socialaccount_providers %}
-          <div class="d-grid gap-2 mb-3">
-            {% for provider in socialaccount_providers %}
-              <a class="btn btn-outline-secondary"
-                 href="{% provider_login_url provider.id process='login' %}">
-                Iscriviti con {{ provider.name }}
-              </a>
-            {% endfor %}
-          </div>
-          <div class="text-center text-body-secondary small mb-3">— oppure —</div>
-        {% endif %}
+        {% include 'socialaccount/_provider_buttons.html' with label='Iscriviti con' %}
 
         <form method="post" action="{% url 'account_signup' %}">
           {% csrf_token %}
