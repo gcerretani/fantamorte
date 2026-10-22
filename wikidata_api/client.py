@@ -289,6 +289,51 @@ class WikidataClient:
                 return extract.strip()
         return ''
 
+    COMMONS_API = 'https://commons.wikimedia.org/w/api.php'
+    COMMONS_BATCH = 50  # limite di `titles` per richiesta dell'API MediaWiki
+
+    def get_image_credits(self, filenames):
+        """Autore, licenza e pagina di una lista di file Commons.
+
+        Ritorna `{filename: {author, license, license_url, page_url}}`, in
+        blocchi da 50 titoli per richiesta. I file inesistenti mancano dal
+        dict. `Artist` in extmetadata è HTML: si tiene solo il testo.
+        """
+        from django.utils.html import strip_tags
+        import html as html_lib
+
+        credits = {}
+        names = [f for f in dict.fromkeys(filenames) if f]
+        for i in range(0, len(names), self.COMMONS_BATCH):
+            chunk = names[i:i + self.COMMONS_BATCH]
+            data = self._get(self.COMMONS_API, {
+                'action': 'query',
+                'titles': '|'.join(f'File:{n}' for n in chunk),
+                'prop': 'imageinfo',
+                'iiprop': 'extmetadata|url',
+                'iiextmetadatafilter': 'Artist|LicenseShortName|LicenseUrl',
+                'format': 'json',
+            })
+            query = data.get('query', {})
+            # L'API normalizza i titoli (underscore → spazio, iniziale
+            # maiuscola): si rimappa sul nome richiesto.
+            back = {n['to']: n['from'] for n in query.get('normalized', [])}
+            for page in query.get('pages', {}).values():
+                info = (page.get('imageinfo') or [None])[0]
+                if not info:
+                    continue
+                title = back.get(page.get('title', ''), page.get('title', ''))
+                name = title.split(':', 1)[-1]
+                meta = info.get('extmetadata', {})
+                author = html_lib.unescape(strip_tags(meta.get('Artist', {}).get('value', ''))).strip()
+                credits[name] = {
+                    'author': ' '.join(author.split())[:200],
+                    'license': meta.get('LicenseShortName', {}).get('value', '')[:100],
+                    'license_url': meta.get('LicenseUrl', {}).get('value', ''),
+                    'page_url': info.get('descriptionurl', ''),
+                }
+        return credits
+
     def _build_commons_image_url(self, claim_list):
         if not claim_list:
             return ''

@@ -44,6 +44,15 @@ def person_initials(name):
     return (words[0][:1] + words[-1][:1]).upper()
 
 
+def _thumb(person, url, width):
+    """Thumbnail dalla cache locale (game/person_images.py) se possibile,
+    altrimenti diretta da Commons."""
+    if not url:
+        return ''
+    from game.person_images import proxy_url
+    return proxy_url(person, width) or commons_thumb(url, width)
+
+
 @register.inclusion_tag('game/_person_avatar.html')
 def person_avatar(person, size='md', dead=None):
     """Avatar persona: foto Commons alla taglia giusta o iniziali.
@@ -59,8 +68,8 @@ def person_avatar(person, size='md', dead=None):
         'person': person,
         'size': size,
         'dead': person.is_dead if dead is None else dead,
-        'src': commons_thumb(url, width) if url else '',
-        'src2x': commons_thumb(url, width * 2) if url and size == 'lg' else '',
+        'src': _thumb(person, url, width),
+        'src2x': _thumb(person, url, width * 2) if size == 'lg' else '',
         'initials': person_initials(getattr(person, 'name_it', '')),
         # Tinta deterministica per le iniziali: stessa persona, stesso colore
         # su ogni pagina (6 varianti definite in fantamorte.css).

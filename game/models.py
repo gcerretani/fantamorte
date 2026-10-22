@@ -24,6 +24,10 @@ class WikipediaPerson(models.Model):
     claims_cache = models.JSONField(default=dict, blank=True)
     last_checked = models.DateTimeField(null=True, blank=True)
     wikipedia_url_it = models.URLField(blank=True)
+    # Attribuzione della foto Commons (game/person_images.py): autore,
+    # licenza, link. `file` dice a quale immagine si riferisce: se image_url
+    # cambia, il credito è da rifare.
+    image_credit = models.JSONField(default=dict, blank=True)
     data_frozen = models.BooleanField(
         default=False,
         help_text="Se True, escluso dai controlli automatici (solo refresh manuale).",

@@ -27,6 +27,8 @@ while :; do
             echo "emit_league_lifecycle fallito"
             daily_ok=0
         }
+        # Best-effort: un'attribuzione mancante non deve far ripetere i job.
+        python manage.py refresh_image_credits || echo "refresh_image_credits fallito"
         if [ "$daily_ok" -eq 1 ]; then
             last_daily="$day"
         else

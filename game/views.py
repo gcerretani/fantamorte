@@ -26,7 +26,7 @@ from django.views.generic import TemplateView, DetailView, View
 
 from wikidata_api.client import WikidataClient
 
-from . import charts, person_sync, scoring, timeline
+from . import charts, person_images, person_sync, scoring, timeline
 from .templatetags.fantamorte_tags import person_avatar
 from .models import (
     MONTHS_IT, BonusType, Death, DeathBonus, League, LeagueBonus,
@@ -1586,6 +1586,11 @@ class PersonDetailView(LoginRequiredMixin, DetailView):
         # guardia su summary_it lo lascerebbe stale per sempre oltre i 30 gg.
         if person.wikipedia_url_it:
             _refresh_person_summary(person)
+        # Attribuzione della foto: una richiesta a Commons solo se manca o è
+        # di una foto precedente (di norma la fa già il cron giornaliero).
+        if person_images.credit_is_stale(person):
+            person_images.refresh_image_credits([person], client=_interactive_client())
+        ctx['image_credit'] = person_images.credit_for_display(person)
 
         # Il reverse one-to-one solleva un'eccezione che eredita da
         # AttributeError, quindi getattr con default è la via pulita.
@@ -1682,6 +1687,16 @@ def _summary_is_stale(person):
     return True
 
 
+def _interactive_client():
+    """Client Wikidata per chiamate dentro una richiesta utente: niente
+    throttle, timeout brevi."""
+    client = WikidataClient()
+    client.delay = 0
+    client.timeout = 5
+    client.sparql_timeout = 8
+    return client
+
+
 def _refresh_person_summary(person):
     """Aggiorna `summary_it` da Wikipedia se mancante o piu' vecchio di 30 giorni."""
     if not _summary_is_stale(person):
@@ -1776,7 +1791,9 @@ class PersonInfoView(LoginRequiredMixin, View):
             # Stesso renderer delle pagine (partial _person_avatar.html):
             # il modal non ricostruisce in JS foto, crop e fallback.
             'avatar_html': render_to_string(
-                'game/_person_avatar.html', person_avatar(person, 'xl')),
+                'game/_person_avatar.html', person_avatar(person, 'xl'))
+            + render_to_string('game/_image_credit.html', {
+                'credit': person_images.credit_for_display(person)}),
             'wikipedia_url_it': person.wikipedia_url_it,
             'summary_it': person.summary_it,
             'summary_stale': _summary_is_stale(person),

@@ -1463,6 +1463,16 @@ a.list-group-item,
 .fm-avatar-dead img { filter: grayscale(1) contrast(1.05); }
 .fm-avatar-dead .fm-avatar-initials { opacity: 0.7; }
 
+/* Attribuzione della foto Commons sotto il ritratto. */
+.fm-image-credit {
+  max-width: 20rem;
+  margin: 0.4rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--fm-muted);
+}
+.fm-image-credit a { color: inherit; }
+
 /* ---- Storia di uno slot della rosa (chi è stato sostituito) ---- */
 .fm-slot-history {
   list-style: none;

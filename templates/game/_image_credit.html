@@ -1,0 +1,8 @@
+{# Attribuzione della foto Commons (game/person_images.credit_for_display). #}
+{% if credit %}
+<p class="fm-image-credit">
+  Foto{% if credit.author %}: {{ credit.author }}{% endif %}
+  {% if credit.license %}&middot; {% if credit.license_url %}<a href="{{ credit.license_url }}" target="_blank" rel="noopener license">{{ credit.license }}</a>{% else %}{{ credit.license }}{% endif %}{% endif %}
+  &middot; <a href="{{ credit.page_url }}" target="_blank" rel="noopener">Wikimedia Commons</a>
+</p>
+{% endif %}

@@ -499,6 +499,7 @@ Note di efficienza (importanti se tocchi il client):
 /api/persona/<pk>/              JSON per il modal (solo dati in DB + summary_stale; con
                                 ?league=<slug> aggiunge i bonus automatici "se morisse oggi")
 /api/persona/<pk>/summary/      refresh sincrono del summary Wikipedia (lazy dal modal)
+/img/persona/<pk>/<w>/<hash>/   thumbnail della foto servita dalla cache locale
 /api/search-person/             autocomplete Wikidata (accetta ?q=&league=<slug> per filtrare per lingua)
 /api/leghe/<slug>/wikidata-diff/    JSON POST: sync Wikidata + report differenze (admin, max 10 persone)
 
@@ -640,6 +641,20 @@ Note di efficienza (importanti se tocchi il client):
   jolly…) come chips `.fm-facts`/`.fm-fact`; numeri-chiave delle regole come
   tile `.fm-stat` via partial `_league_rules_summary.html` (usato da
   league_detail e league_scoring: non duplicare le regole nei template).
+- **Foto persone: cache locale + attribuzione** (`game/person_images.py`):
+  l'avatar punta a `/img/persona/<pk>/<w>/<hash>/` (whitelist 120/250/500;
+  `hash` = sha256 di `image_url`, quindi URL immutabile e cache lunga
+  anche nel SW). Primo accesso: download da Commons (solo
+  `Special:FilePath`, redirect solo verso `*.wikimedia.org`, solo raster —
+  mai SVG dal nostro dominio —, max 3 MB), salvataggio atomico in
+  `PERSON_IMAGE_CACHE_DIR` (volume `person_images` nel compose); errori →
+  404 `no-store` + 10 minuti senza ritentare. `PERSON_IMAGE_PROXY=False`
+  torna all'hotlink. L'**attribuzione** (autore/licenza/pagina, da
+  `extmetadata`) sta in `WikipediaPerson.image_credit` con il `file` a cui
+  si riferisce: la rinnova il cron `refresh_image_credits` (blocchi da 50)
+  e, se manca, la pagina persona; partial `_image_credit.html` sotto il
+  ritratto e nel modal. I risultati della ricerca (persone non ancora in
+  DB) restano in hotlink.
 - **Avatar persona**: sempre `{% load fantamorte_tags %}` +
   `{% person_avatar person 'sm|md|lg|xl' %}` (partial `_person_avatar.html`,
   classi `.fm-avatar*`), mai un `<img src="{{ person.image_url }}">` a mano.
@@ -774,6 +789,8 @@ Altri file di test:
 - `game/tests_league_clone.py`: nuova edizione di una lega (regole e bonus
   copiati, personalizzati duplicati, inviti, date, permessi)
 - `game/tests_restyle.py`: hero home, podio, divieto di emoji nei template
+- `game/tests_person_images.py`: proxy foto (download una volta, hash,
+  sicurezza del download, errori) e attribuzione Commons
 - `game/tests_middleware.py`: `LoginRequiredEverywhereMiddleware` (path
   pubblici vs protetti)
 - `game/tests_views.py`: permessi/integrazione delle view (in arrivo,
@@ -836,6 +853,7 @@ python manage.py mark_originals            # a inizio stagione di una lega
 python manage.py send_substitution_reminders             # reminder feed+push+email per sostituzioni (T-3, T-1)
 python manage.py send_substitution_reminders --dry-run   # solo log, niente invio
 python manage.py emit_league_lifecycle     # notifiche feed di inizio/fine lega (idempotente, da cron)
+python manage.py refresh_image_credits     # autore/licenza delle foto Commons (solo le mancanti, da cron)
 
 # Docker
 docker compose up -d

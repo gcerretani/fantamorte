@@ -56,6 +56,7 @@
 <div class="row">
   <div class="col-md-4 mb-3">
     {% person_avatar person 'xl' %}
+    {% include 'game/_image_credit.html' with credit=image_credit %}
   </div>
   <div class="col-md-8">
     {% if person.summary_it %}
