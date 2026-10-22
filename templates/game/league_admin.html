@@ -29,6 +29,7 @@
   {% if league.visibility == 'private' %}
   <li class="nav-item"><a class="nav-link" data-fm-toggle="tab" href="#tabInvite">Codice invito</a></li>
   {% endif %}
+  <li class="nav-item"><a class="nav-link" data-fm-toggle="tab" href="#tabEdition">Nuova edizione</a></li>
   {% if can_manage_league %}
   <li class="nav-item"><a class="nav-link fm-tab-danger" data-fm-toggle="tab" href="#tabDanger">Danger zone</a></li>
   {% endif %}
@@ -412,6 +413,19 @@
     </script>
   </div>
   {% endif %}
+
+  <!-- NUOVA EDIZIONE -->
+  <div class="tab-pane fade" id="tabEdition">
+    <div class="card card-body">
+      <h5>Nuova edizione di questa lega</h5>
+      <p class="text-body-secondary mb-3">
+        Crea una nuova lega con le stesse regole e gli stessi bonus (compresi i
+        personalizzati), con nome e date nuovi. Squadre, iscritti e decessi non
+        vengono copiati; puoi invitare gli iscritti attuali con una notifica.
+      </p>
+      <div><a href="{% url 'league_clone' league.slug %}" class="btn btn-primary">Crea nuova edizione&hellip;</a></div>
+    </div>
+  </div>
 
   {% if can_manage_league %}
   <!-- DANGER ZONE -->

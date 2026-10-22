@@ -63,6 +63,14 @@ NOTIFICATION_CATEGORIES = [
         'help': "La tua rosa viene bloccata e non è più modificabile.",
         'default': {'push': False, 'email': False},
     },
+    {
+        'key': Notification.KIND_LEAGUE_INVITE,
+        'label': 'Invito a una nuova edizione',
+        'help': 'Una lega di cui fai parte riparte con una nuova edizione.',
+        # Una volta l'anno, ed è il momento in cui si decide se giocare:
+        # attivo di default come i decessi.
+        'default': {'push': True, 'email': True},
+    },
 ]
 
 CHANNELS = ('push', 'email')
@@ -85,7 +93,7 @@ LEGACY_CATEGORY_BY_EVENT = {
 
 
 def expand_legacy_notification_prefs(prefs):
-    """Espande la vecchia matrice raggruppata nelle 8 chiavi per-evento.
+    """Espande la vecchia matrice raggruppata nelle chiavi per-evento.
 
     Le preferenze per-evento già presenti vincono. Le vecchie chiavi vengono
     mantenute: sono innocue e permettono downgrade/rollback senza perdere le
@@ -93,10 +101,13 @@ def expand_legacy_notification_prefs(prefs):
     """
     source = dict(prefs or {})
     result = dict(source)
-    for event, legacy in LEGACY_CATEGORY_BY_EVENT.items():
+    for event in EVENT_DEFAULTS:
         if event in result:
             continue
-        legacy_state = source.get(legacy)
+        # Gli eventi nati dopo la v1 (es. league_invite) non hanno una
+        # categoria legacy: partono dal loro default.
+        legacy = LEGACY_CATEGORY_BY_EVENT.get(event)
+        legacy_state = source.get(legacy) if legacy else None
         if isinstance(legacy_state, dict):
             result[event] = {
                 'push': bool(legacy_state.get('push', EVENT_DEFAULTS[event]['push'])),
@@ -286,6 +297,50 @@ def notify_league_joined(membership):
         url=reverse('league_detail', args=[league.slug]),
         league=league,
     )
+
+
+def notify_league_invite(source, league, inviter):
+    """Invita gli iscritti di `source` alla nuova lega `league` (#101).
+
+    Feed per tutti, push/email secondo le preferenze. Dedup per (utente,
+    lega, tipo): ricreare l'invito non manda doppioni. Ritorna il numero di
+    inviti nuovi.
+    """
+    from .league_clone import invite_url
+
+    url = invite_url(league)
+    title = f'{league.name}: si riparte!'
+    body = (f'{inviter.username} ha aperto {league.name} con le regole di '
+            f'{source.name}. Iscriviti e componi la tua squadra.')
+    created = 0
+    memberships = (LeagueMembership.objects.filter(league=source)
+                   .exclude(user=inviter).select_related('user'))
+    for membership in memberships:
+        user = membership.user
+        if league.is_member(user):
+            continue
+        notification, was_created = Notification.objects.get_or_create(
+            user=user, league=league, kind=Notification.KIND_LEAGUE_INVITE,
+            defaults={'title': title, 'body': body, 'url': url},
+        )
+        if not was_created:
+            continue
+        created += 1
+        try:
+            from .push import send_user_event_push
+            send_user_event_push(user, Notification.KIND_LEAGUE_INVITE, {
+                'type': Notification.KIND_LEAGUE_INVITE,
+                'title': title, 'body': body, 'url': url,
+                'tag': f'league_invite-{league.pk}',
+            })
+        except Exception:
+            logger.exception('Errore push invito lega %s per user %s', league.pk, user.pk)
+        try:
+            from .email import send_event_email
+            send_event_email(user, Notification.KIND_LEAGUE_INVITE, title, body, url)
+        except Exception:
+            logger.exception('Errore email invito lega %s per user %s', league.pk, user.pk)
+    return created
 
 
 def notify_team_locked(team):
