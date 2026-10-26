@@ -4,6 +4,50 @@ Tutte le modifiche rilevanti di questo progetto sono documentate qui.
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 il versionamento segue [SemVer](https://semver.org/lang/it/).
 
+## [2.0.0] - 2026-10-22
+
+Release di grafica, sostituzioni leggibili e onboarding delle nuove leghe,
+pensata per l'apertura delle iscrizioni 2027. Il motore di gioco (punteggi,
+regole, rilevamento dei decessi) non cambia.
+
+### Aggiunto
+
+- **Foto delle persone ovunque**: componente avatar unico (rose, punti, cronologia, panoramica lega, statistiche, pagina persona, modal) con miniatura Commons alla dimensione giusta, iniziali come ripiego quando la foto manca o non carica, e persone decedute in bianco e nero con anello in accento.
+- **Foto servite dal nostro dominio**: le miniature vengono scaricate da Wikimedia Commons una volta sola e poi servite dalla cache locale (privacy per gli utenti, disponibilità offline nella PWA, niente hotlink). Il download accetta solo Wikimedia, solo formati raster e ha un tetto di dimensione.
+- **Attribuzione delle foto**: autore, licenza e pagina del file Commons sotto il ritratto e nel modal; si aggiornano da soli (comando `refresh_image_credits`).
+- **Sostituzioni visibili nel dettaglio squadra**: ogni posto della rosa mostra chi lo ha occupato prima («al posto di X · sostituito/a il …») e il badge «subentrato/a»; il conteggio delle sostituzioni compare nell'intestazione.
+- **Sezione «Caduti»** nel dettaglio squadra: ogni membro morto, sostituito o no, con i punti portati, chi lo ha rimpiazzato e, quando non ha portato punti, il motivo (decesso non confermato, fuori periodo, già morto quando è subentrato).
+- **Importazione della rosa** da un'altra propria squadra: selettiva sulle regole della lega di destinazione (wiki ammesse, vivi, limiti di rosa ed età, capitani), con anteprima che spiega ogni scarto.
+- **Nuova edizione di una lega**: dal pannello di gestione si crea una lega nuova con le stesse regole e gli stessi bonus (anche quelli personalizzati, duplicati), date spostate di un anno, e si possono invitare gli iscritti con una notifica (nuovo evento «Invito a una nuova edizione»).
+- **Ricerca persona con foto** e anno di nascita nei risultati, per distinguere gli omonimi.
+- **Grafico dell'andamento dei punti** in classifica (prime cinque squadre più la propria) e nel dettaglio squadra.
+- **Card «lutto»**: al primo accesso dopo il decesso di un personaggio della propria rosa compare una card a tutto schermo con ritratto, date e punti portati.
+- **Palmarès** (vittorie, podi, miglior piazzamento, leghe concluse) nel profilo e nelle statistiche.
+- **Impostazioni dell'account nel profilo**: nome utente modificabile, email, password (o impostazione per chi entra solo con un provider), account collegati ed eliminazione dell'account. L'eliminazione anonimizza l'utente mantenendo squadre e piazzamenti, ed è bloccata per chi possiede leghe.
+- **Immagine del profilo**: foto dell'account collegato, Gravatar o solo iniziali, a scelta; compare in top bar, classifiche e dettaglio squadra.
+- **Login con OpenID Connect** generico (Authentik, Keycloak, Authelia, Zitadel…) da variabili `OIDC_*` o dal Django admin, e `PASSWORD_LOGIN_ENABLED=False` per lasciare solo i provider.
+- **Monitoraggio dei controlli decessi**: ogni esecuzione di `check_deaths` registra l'esito, `/healthz/` riporta lo stato e il comando `monitor_death_checks` avvisa via email lo staff se i controlli sono fermi o falliscono di continuo (al massimo un avviso al giorno).
+
+### Modificato
+
+- Nuova veste grafica: font da titolo Fraunces incluso nel progetto, icone SVG al posto delle emoji (resa uguale su ogni dispositivo), riquadro in evidenza in home con l'ultimo decesso e la sostituzione più urgente, podio in classifica, stati vuoti curati e posizione in classifica accanto a ogni lega.
+- Tutte le pagine di allauth (gestione email, cambio password, account collegati, recupero password, verifica email) usano ora il design system del sito invece dell'HTML grezzo.
+- `/healthz/` riporta anche lo stato dei controlli decessi, senza mai cambiare il codice di risposta.
+
+### Corretto
+
+- Il login con Google (e con gli altri provider) mostrava una pagina bianca senza stile («Accedi tramite Google» → «Continua»): i pulsanti dei provider ora inviano un form e vanno direttamente al provider.
+- `SOCIALACCOUNT_LOGIN_ON_GET` in `settings.py` è allineato al valore effettivamente applicato a runtime (`False`).
+
+### Note di aggiornamento
+
+- Migration dalla `0028` alla `0031`: vanno applicate (`entrypoint.sh` lo fa all'avvio).
+- Nuovo volume Docker `person_images` per la cache delle foto: è già nel `docker-compose.yml`, ma va creato al primo `docker compose up -d`.
+- Il servizio `scheduler` esegue due nuovi comandi: `monitor_death_checks` (a ogni ciclo) e `refresh_image_credits` (giornaliero). Servono le nuove versioni di `deploy/scheduler.sh`.
+- Variabili d'ambiente nuove, tutte facoltative: `PERSON_IMAGE_PROXY`, `PERSON_IMAGE_CACHE_DIR`, `OIDC_PROVIDER_ID`, `OIDC_PROVIDER_NAME`, `OIDC_SERVER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `PASSWORD_LOGIN_ENABLED`.
+- Per ricevere gli avvisi di `monitor_death_checks` serve un backend email reale e almeno un utente staff con indirizzo email.
+- Le foto già salvate non si perdono: la prima visita di ciascuna persona le scarica nella cache locale; il comando `refresh_image_credits` recupera le attribuzioni al primo ciclo giornaliero.
+
 ## [1.0.0] - 2026-09-13
 
 ### Aggiunto

@@ -61,15 +61,26 @@ python manage.py generate_vapid_keys
 Altri parametri opzionali utili in produzione: `SW_CACHE_VERSION` (da
 cambiare a ogni deploy per invalidare la cache del service worker lato
 client), le credenziali OAuth (`GOOGLE_OAUTH_*`, `GITHUB_OAUTH_*`, opzionali:
-se vuote i relativi pulsanti di login social spariscono), gli header HSTS,
+se vuote i relativi pulsanti di login social spariscono), un provider
+OpenID Connect generico (`OIDC_*`: Authentik, Keycloak…, con callback
+`https://<dominio>/accounts/oidc/<OIDC_PROVIDER_ID>/login/callback/`) e
+`PASSWORD_LOGIN_ENABLED=False` per lasciare solo i provider (ignorato se non
+ne è configurato nessuno), `PERSON_IMAGE_PROXY` (foto delle persone servite
+dalla cache locale, attiva di default; `False` torna all'hotlink a Commons),
+gli header HSTS,
 `SCHEDULER_DAILY_HOUR`/`SCHEDULER_INTERVAL_SECONDS` (frequenza dei job del
 servizio `scheduler`: i reminder sono giornalieri, `check_deaths` gira a
 intervallo) e `BACKUP_KEEP_DAYS` (rotazione dei backup del servizio
 `db_backup`).
 
 Il servizio `scheduler` è quello che esegue periodicamente i job di gioco
-(`check_deaths`, `send_substitution_reminders`): senza, i decessi non
-vengono mai rilevati e i reminder non partono. I bonus primo/ultimo morto
+(`check_deaths`, `monitor_death_checks`, `send_substitution_reminders`,
+`emit_league_lifecycle`, `refresh_image_credits`): senza, i decessi non
+vengono mai rilevati e i reminder non partono. Se i controlli si fermano o
+falliscono di continuo, `monitor_death_checks` manda un'email agli utenti
+staff (serve un backend email reale) e lo stato è visibile in `/healthz/` e
+nel Django admin (Impostazioni sito). Il volume `person_images` conserva la
+cache delle foto tra un deploy e l'altro. I bonus primo/ultimo morto
 sono calcolati dinamicamente dallo scoring, per lega, senza job dedicati.
 
 ```bash
@@ -97,6 +108,10 @@ non per stagione; in mancanza dell'argomento operano sulle leghe in corso.
 - `send_substitution_reminders` — invia push/email di promemoria (soglie
   T-3 e T-1 giorni) per le sostituzioni in scadenza; `--dry-run` per loggare
   senza inviare.
+- `monitor_death_checks` — avvisa via email lo staff se `check_deaths` è
+  fermo o fallisce di continuo (al massimo un avviso al giorno).
+- `refresh_image_credits` — aggiorna autore e licenza delle foto Commons
+  mostrate sotto i ritratti (solo quelle mancanti o cambiate).
 - `generate_vapid_keys` — genera la coppia di chiavi VAPID per le Web Push.
 
 ## Test
